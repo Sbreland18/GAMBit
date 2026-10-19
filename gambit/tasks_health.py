@@ -168,7 +168,7 @@ def create(d: dict):
     if not IS_WINDOWS:
         raise RuntimeError("Background tasks use Windows Task Scheduler.")
     script = scheduler.build_app_task_script(d["name"], d["args"])
-    days = "MON" if d["freq"] == "weekly" else ""      # monthly runs on the 1st
+    days = (d.get("days") or "MON") if d["freq"] == "weekly" else ""   # monthly: the 1st
     scheduler.create_task(d["name"], script, d["freq"] or "daily", d["time"] or "06:00", days)
     if d["args"] == ["--task", "daily"]:
         settings.set("tasks/daily_created", True)

@@ -99,8 +99,10 @@ def assign_plan(assignments: list[dict], cros: list[dict], users: list[dict],
                 target = target_from_map(u.get("ou", ""))[0]
                 school = target
             else:
-                school = school_of(u.get("ou", ""), opts.get("student_root", "/Students"),
-                                   int(opts.get("school_depth", 1) or 1))
+                from ..ou_map import school_from_path   # “8th Grade” is never a school
+                school = school_from_path(u.get("ou", ""),
+                                          opts.get("student_root", "/Students"),
+                                          int(opts.get("school_depth", 1) or 1))
                 target = opts.get("ou_template", "/Chromebooks/{school}").replace(
                     "{school}", school)
             if school:

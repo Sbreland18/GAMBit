@@ -385,3 +385,44 @@ def is_staff(ou: str) -> bool:
     if configured() and roots("staff"):
         return is_type(ou, "staff")
     return _under(ou, "/Staff")
+
+
+
+def _non_school(name: str) -> bool:
+    """Grade, graduation-year, former-student or similar sub-OU names – never a school."""
+    return bool(grade_of_name(name)) or _kind_of_name(name, "students") in (
+        "former_students", "loaners", "repairs", "lost", "test", "other")
+
+
+def school_from_path(user_ou: str, root: str, depth: int = 1) -> str:
+    """The school part of a student's org unit, for {school} patterns.
+
+    /StudentAccounts/Hancock Middle School/8th Grade with root /StudentAccounts → Hancock
+    Middle School.  When the root is itself a school (root /StudentAccounts/Hancock Middle
+    School), the next level is a grade, so the school is the root's own name."""
+    ou, r = norm_path(user_ou), norm_path(root)
+    if not _under(ou, r):
+        return ""
+    rest = [x for x in ou[len(r.rstrip("/")):].split("/") if x] if r != "/" else \
+        [x for x in ou.split("/") if x]
+    root_parts = [x for x in r.split("/") if x]
+    depth = max(1, int(depth or 1))
+    picked = rest[:depth]
+    if picked and _non_school(picked[0]):
+        picked = []        # "8th Grade" right under the root: the root is the school
+    if picked:
+        return "/".join(picked)
+    # the root itself is the school (it has a parent, and isn't named like “Students”)
+    if len(root_parts) >= 2 and not _non_school(root_parts[-1]) and \
+            _kind_of_name(root_parts[-1]) not in ("students", "staff", "devices"):
+        return root_parts[-1]
+    return ""
+
+
+def looks_like_one_school(root: str, ous: list[str]) -> bool:
+    """True when most org units right under `root` are grades – i.e. it's one school."""
+    r = norm_path(root).rstrip("/").lower()
+    kids = [norm_path(o).rsplit("/", 1)[-1] for o in ous or []
+            if norm_path(o).lower().startswith(r + "/") and
+            norm_path(o).count("/") == r.count("/") + 1]
+    return bool(kids) and sum(1 for k in kids if _non_school(k)) >= max(1, len(kids) * 0.6)

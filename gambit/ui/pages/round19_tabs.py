@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QGroupBox, QLabel, QLineEdit, QSpinBox, QVBoxLayout,
@@ -74,8 +74,8 @@ class AssignedUsersTab(ToolTab):
         bl.addLayout(self.row(QLabel("Ignore"), self.ignore, stretch=False))
         bl.addLayout(self.row(button("Preview", slot=self.preview),
                               button("Set assigned users", "primary", self.apply_set),
-                              button("Every morning…", slot=lambda: (
-                                  self.k_set.setChecked(True), self.schedule_assign()))))
+                              button("Schedule…", slot=lambda: (
+                                  self.k_set.setChecked(True), self._scroll_to(self.k_when)))))
         self.lay.addWidget(box)
         self._stale_box(o)
         self._move_box()
@@ -121,6 +121,7 @@ class AssignedUsersTab(ToolTab):
         self.m_active.setChecked(bool(m["only_active"]))
         self.m_example = QLabel(objectName="Muted")
         self.m_example.setWordWrap(True)
+        self.m_example.setTextFormat(Qt.RichText)
         for w in (self.m_depth, self.m_tpl, self.m_root):
             sig = getattr(w, "valueChanged", None) or getattr(w, "textChanged", None) or \
                 getattr(w, "changed", None)
@@ -158,8 +159,19 @@ class AssignedUsersTab(ToolTab):
                             "the school, say) stay where they are.", objectName="Muted",
                             wordWrap=True))
         bl.addLayout(self.row(button("Preview moves", slot=self.preview_move),
-                              button("Move Chromebooks", "primary", self.apply_move),
-                              button("Every morning…", slot=self.schedule_move)))
+                              button("Move Chromebooks", "primary", self.apply_move)))
+        from ..schedule_edit import ScheduleEdit
+        sb = QGroupBox("Run the move on a schedule")
+        sl = QVBoxLayout(sb)
+        self.m_when = ScheduleEdit(m.get("sched_time") or "05:50", m.get("sched_days"))
+        sl.addWidget(self.m_when)
+        self.m_sched_info = QLabel(objectName="Muted")
+        self.m_sched_info.setWordWrap(True)
+        sl.addWidget(self.m_sched_info)
+        sl.addLayout(self.row(button("Save && schedule", "primary", self.schedule_move),
+                              button("Turn off", slot=self.unschedule_move)))
+        bl.addWidget(sb)
+        self._move_sched_text(m)
         self.lay.addWidget(box)
         self._src_changed()
 
@@ -224,16 +236,35 @@ class AssignedUsersTab(ToolTab):
                 f"{r['School']} → {r['Chromebooks'] or '⚠ none mapped'}" for r in rows[:6]) +
                 (f" · and {len(rows) - 6} more" if len(rows) > 6 else ""))
             return
-        root = (self.m_root.path() or "/Students").rstrip("/")
-        sample = root + "/" + "/".join(["Hancock High School", "9th Grade", "Homeroom"]
-                                       [:self.m_depth.value() + 1])
+        root = (self.m_root.path() or "/Students").rstrip("/") or "/"
         o = {"student_root": root, "school_depth": self.m_depth.value(),
              "ou_template": self.m_tpl.text().strip() or "/Chromebooks/{school}"}
-        warn = "" if "{school}" in o["ou_template"] else (
-            " ⚠ There's no {school} in the device org unit, so every Chromebook would go to "
-            "that one org unit.")
-        self.m_example.setText(f"Example: a student in {sample} → the Chromebook moves to "
-                               f"{au.target_for(sample, o) or '(no school found)'}.{warn}")
+        ous = list(getattr(self.directory, "ous", None) or [])
+        # real examples from the district: the deepest student org units under the root
+        under = sorted((x for x in ous if x.lower().startswith(root.lower().rstrip("/") + "/")),
+                       key=lambda x: (-x.count("/"), x.lower()))
+        picks, seen = [], set()
+        for x in under:
+            t = au.target_for(x, o)
+            if t and t not in seen:
+                seen.add(t)
+                picks.append((x, t))
+            if len(picks) == 2:
+                break
+        if not picks:
+            sample = root + "/Hancock High School/9th Grade"
+            picks = [(sample, au.target_for(sample, o) or "(no school found)")]
+        lines = [f"Example: a student in {x} → the Chromebook moves to {t}." for x, t in picks]
+        from ... import ou_map
+        if ous and ou_map.looks_like_one_school(root, ous):
+            top = "/" + root.strip("/").split("/")[0]
+            lines.append(f"⚠ “Students are under” is one school's org unit, so only that "
+                         f"school's students are used. To cover every school, choose {top}.")
+        if "{school}" not in o["ou_template"]:
+            lines.append("⚠ There's no {school} in the device org unit, so every Chromebook "
+                         "would go to that one org unit.")
+        import html as _h
+        self.m_example.setText("<br>".join(_h.escape(x, quote=False) for x in lines))
 
     def preview_move(self, quiet=False):
         self._prefer_map()
@@ -266,18 +297,53 @@ class AssignedUsersTab(ToolTab):
                        f"Chromebook follows its student's school (backup: "
                        f"{os.path.basename(path)})", done=lambda _s: self._after())
 
+    def _move_sched_text(self, m=None):
+        from ..schedule_edit import describe
+        m = m or au.move_options()
+        where = ", ".join(m.get("scope_ous") or []) or "every Chromebook"
+        self.m_sched_info.setText(
+            (f"On: {describe(m.get('sched_time') or '05:50', m.get('sched_days') or [])}, "
+             f"for {where}. " if m.get("scheduled") else "Off. ") +
+            "Uses the settings above. If a run finds an unusually large number of moves it "
+            "stops and waits for you, and each run saves a backup, so Undo last change works "
+            "for it too.")
+
     def schedule_move(self):
+        if not self.m_when.days():
+            self.info("Tick at least one day.")
+            return
+        if self.scope.currentData() in ("serial", "asset"):
+            self.info("For the scheduled move, set “Which Chromebooks” to All Chromebooks or "
+                      "to org units.")
+            return
         o = self._move_opts()
+        o.update(scheduled=True, sched_time=self.m_when.time_hhmm(),
+                 sched_days=self.m_when.days())
+        au.save_move_options({**au.move_options_saved(), **{k: o[k] for k in (
+            "scheduled", "sched_time", "sched_days", "scope_ous")}})
+        self._move_sched_text(au.move_options())
         from ... import tasks_health
+        from ..schedule_edit import task_for
         try:
-            tasks_health.create(dict(au.MOVE_TASK))
-            where = ", ".join(o["scope_ous"]) if o.get("scope_ous") else "every Chromebook"
-            self.info("Every morning at 5:50 AM GAMbit will move Chromebooks to the school of "
-                      f"the student who last signed in ({where}), with these settings. If it "
-                      "finds an unusually large number of moves it stops and waits for you. "
-                      "Each run saves a backup, so Undo last change works for it too.")
+            tasks_health.create(task_for(au.MOVE_TASK, o["sched_time"], o["sched_days"]))
+            self.info(f"Scheduled – GAMbit will move Chromebooks to their students' schools "
+                      f"{self.m_when.text()}, with these settings.")
         except Exception as exc:  # noqa: BLE001
             self.info(f"Saved, but the task couldn't be created here:\n{exc}")
+
+    def unschedule_move(self):
+        au.save_move_options({**au.move_options_saved(), "scheduled": False})
+        self._move_sched_text(au.move_options())
+        try:
+            from ... import scheduler
+            scheduler.delete_task(au.MOVE_TASK["name"])
+        except Exception:  # noqa: BLE001
+            pass
+        self.info("The scheduled move is off.")
+
+    def _scroll_to(self, w):
+        self.ensureWidgetVisible(w, 50, 120)
+        w.setFocus()
 
     # ------------------------------------------------------------ loading ---
     def _scope_changed(self, *_a):
@@ -385,9 +451,10 @@ class AssignedUsersTab(ToolTab):
                        f"Not used in {self.s_days.value()}+ days (backup: "
                        f"{os.path.basename(path)})", done=lambda _s: self._after())
 
-    # -------------------------------------------------------- every morning ---
+    # ------------------------------------------------------- scheduled run ---
     def _morning_box(self, o):
-        box = QGroupBox("Every morning (5:45 AM)")
+        from ..schedule_edit import ScheduleEdit
+        box = QGroupBox("Run the assigned-user jobs on a schedule")
         bl = QVBoxLayout(box)
         self.k_stale = QCheckBox("Blank the assigned user on Chromebooks nobody has used "
                                  "(the days setting above)")
@@ -397,6 +464,8 @@ class AssignedUsersTab(ToolTab):
         self.k_set.setChecked(bool(o.get("sched_set")))
         bl.addWidget(self.k_stale)
         bl.addWidget(self.k_set)
+        self.k_when = ScheduleEdit(o.get("sched_time") or "05:45", o.get("sched_days"))
+        bl.addWidget(self.k_when)
         self.k_info = QLabel(objectName="Muted")
         self.k_info.setWordWrap(True)
         bl.addWidget(self.k_info)
@@ -406,12 +475,14 @@ class AssignedUsersTab(ToolTab):
         self._morning_text(o)
 
     def _morning_text(self, o=None):
+        from ..schedule_edit import describe
         o = o or au.options()
         where = ", ".join(o.get("scope_ous") or []) or "every Chromebook"
         on = [x for x, k in (("blank unused", "sched_stale"), ("set from the last student",
                                                                "sched_set")) if o.get(k)]
+        when = describe(o.get("sched_time") or "05:45", o.get("sched_days") or [])
         self.k_info.setText(
-            (f"On: {' and '.join(on)} – for {where}. " if on else "Off. ") +
+            (f"On: {' and '.join(on)} – {when}, for {where}. " if on else "Off. ") +
             "Unused ones are blanked first, and those aren't filled in again from an old "
             "sign-in. Each run saves a backup (Undo last change works for it), and if a run "
             "would change an unusually large number of devices it stops and waits for you. "
@@ -422,20 +493,25 @@ class AssignedUsersTab(ToolTab):
         if not (self.k_stale.isChecked() or self.k_set.isChecked()):
             self.info("Tick at least one of the two jobs first.")
             return
+        if not self.k_when.days():
+            self.info("Tick at least one day.")
+            return
         key = self.scope.currentData()
         if key in ("serial", "asset"):
-            self.info("For the morning run, set “Which Chromebooks” to All Chromebooks or "
+            self.info("For the scheduled run, set “Which Chromebooks” to All Chromebooks or "
                       "to org units.")
             return
         o = {**self._opts(), "sched_stale": self.k_stale.isChecked(),
-             "sched_set": self.k_set.isChecked(),
+             "sched_set": self.k_set.isChecked(), "sched_time": self.k_when.time_hhmm(),
+             "sched_days": self.k_when.days(),
              "scope_ous": self.ous.paths() if key == "ou" else []}
         au.save_options(o)
         self._morning_text(o)
         from ... import tasks_health
+        from ..schedule_edit import task_for
         try:
-            tasks_health.create(dict(au.ASSIGN_TASK))
-            self.info("Scheduled – it runs every morning at 5:45 AM with these settings. "
+            tasks_health.create(task_for(au.ASSIGN_TASK, o["sched_time"], o["sched_days"]))
+            self.info(f"Scheduled – it runs {self.k_when.text()} with these settings. "
                       "Results show on Home and in Background tasks.")
         except Exception as exc:  # noqa: BLE001
             self.info(f"Saved, but the task couldn't be created here:\n{exc}")
@@ -451,7 +527,7 @@ class AssignedUsersTab(ToolTab):
             scheduler.delete_task(au.ASSIGN_TASK["name"])
         except Exception:  # noqa: BLE001 – nothing scheduled, or not Windows
             pass
-        self.info("The morning run is off.")
+        self.info("The scheduled run is off.")
 
     def preview(self, quiet=False):
         if not self.devs:

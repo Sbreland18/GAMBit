@@ -771,6 +771,12 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Assigned users: schedules and a move fix.**
+  - Both scheduled jobs (*Run the move on a schedule* and *Run the assigned-user jobs on a schedule*) have a time and day picker (Mon–Sun, with Weekdays / Every day shortcuts). Picking every day creates a daily Windows task; otherwise a weekly task runs on the chosen days.
+  - Fix: with "Students are under" set to one school (/StudentAccounts/Hancock Middle School), `{school}` became the grade (/Chrome Devices/8th Grade). A grade, graduation-year or former-student org unit right under "Students are under" now means that org unit itself is the school. Assignment sync uses the same rule.
+  - The example line now uses real org units from your district, and it warns when "Students are under" is a single school.
+  - Dark-mode checkboxes show a tick.
+
 - **Window size fix:** the "Running: gam …" status line no longer stretches the window past the screen. It now ends in "…" and shows the full command as a tooltip. Output, Jobs, Dry run and job output wrap long lines. The main window's content scrolls if it ever needs more room than the window has. Every window and dialog that opens bigger than the screen is shrunk to fit and moved into view, so the title bar and close button always show.
 - **Taskbar icon fix:** `assets/gambit.ico` was rebuilt with `tools/make_ico.py`. The small sizes (16–128 px) are now classic bitmaps and only 256 px is PNG; Windows showed a broken taskbar icon for PNG-only small sizes. The icon is also set for the whole app (sign-in window and dialogs), and the installer's shortcuts carry the same AppUserModelID as the app (`GAMbit.App`).
 - **Dark mode:** Settings & Updates → Appearance → *Colors*: Light, Dark or Same as Windows. It switches right away. Dark mode has its own palette and stylesheet. Colours set anywhere else are converted as they are applied: stylesheets, label HTML, HTML views, and table, list and tree text. Light backgrounds become dark, dark text becomes light (same hue), and already-dark parts such as the output log are left as they are. Tests check that no dark text or light background is left on any page.

@@ -288,11 +288,11 @@ def _under(ou: str, roots: list[str]) -> bool:
 
 def target_for(user_ou: str, o: dict) -> str:
     """/Students/Hancock High School/9th Grade → /Chromebooks/Hancock High School."""
-    from .automation import school_of
+    from ..ou_map import school_from_path
     root = _path(o.get("student_root", "/Students"))
-    if not _under(user_ou, [root]) or _path(user_ou).lower() == root.lower():
+    if not _under(user_ou, [root]):
         return ""
-    school = school_of(_path(user_ou), root, int(o.get("school_depth", 1) or 1))
+    school = school_from_path(_path(user_ou), root, int(o.get("school_depth", 1) or 1))
     if not school:
         return ""
     return _path(o.get("ou_template", "/Chromebooks/{school}").replace("{school}", school))

@@ -129,3 +129,50 @@ def test_subgroups_are_not_schools():
     assert ou_map.schools(s) == ["Middle School"]
     assert ou_map.classify("/Students/2031", s)["grade"] == "Class of 2031"
     assert ou_map.device_ou_for("Middle School", s) == "/Chromebooks/MS"
+
+
+@pytest.mark.parametrize("ou,root,depth,school", [
+    ("/StudentAccounts/Hancock Middle School/8th Grade", "/StudentAccounts/Hancock Middle School",
+     1, "Hancock Middle School"),                         # the bug in the screenshot
+    ("/StudentAccounts/Hancock Middle School/8th Grade", "/StudentAccounts", 1,
+     "Hancock Middle School"),
+    ("/StudentAccounts/Hancock Middle School/8th Grade/Homeroom 4", "/StudentAccounts", 2,
+     "Hancock Middle School/8th Grade"),               # level 2 was asked for
+    ("/StudentAccounts/Suspended Students", "/StudentAccounts", 1, ""),
+    ("/StudentAccounts", "/StudentAccounts", 1, ""),
+    ("/Staff/Hancock High School", "/StudentAccounts", 1, ""),
+    ("/Students/2031", "/Students", 1, ""),
+])
+def test_school_from_path(ou, root, depth, school):
+    assert ou_map.school_from_path(ou, root, depth) == school
+
+
+def test_pattern_move_uses_the_school_not_the_grade():
+    from gambit.tools import assigned_users as au
+    o = {"student_root": "/StudentAccounts/Hancock Middle School", "school_depth": 1,
+         "ou_template": "/Chrome Devices/{school}"}
+    assert au.target_for("/StudentAccounts/Hancock Middle School/8th Grade", o) == \
+        "/Chrome Devices/Hancock Middle School"
+    assert ou_map.looks_like_one_school("/StudentAccounts/Hancock Middle School",
+                                        OUS + ["/StudentAccounts/Hancock Middle School/7th Grade"])
+    assert not ou_map.looks_like_one_school("/StudentAccounts", OUS)
+
+
+def test_schedules():
+    from gambit.ui.schedule_edit import describe, task_for
+    assert describe("05:45", ["MON", "TUE", "WED", "THU", "FRI"]) == "weekdays at 5:45 AM"
+    assert describe("18:30", ["SUN", "MON"]) == "Mon, Sun at 6:30 PM"
+    assert describe("06:00", []) == "every day at 6:00 AM"
+    t = task_for({"name": "x", "args": [], "freq": "daily", "time": "05:45"}, "07:15",
+                 ["MON", "WED", "FRI"])
+    assert (t["freq"], t["days"], t["time"]) == ("weekly", "MON,WED,FRI", "07:15")
+    t = task_for({"name": "x", "args": []}, "07:15", ["MON", "TUE", "WED", "THU", "FRI",
+                                                     "SAT", "SUN"])
+    assert (t["freq"], t["days"]) == ("daily", "")
+
+
+def test_schedule_widget(qapp):
+    from gambit.ui.schedule_edit import ScheduleEdit
+    w = ScheduleEdit("06:10", ["TUE", "THU"])
+    assert w.time_hhmm() == "06:10" and w.days() == ["TUE", "THU"]
+    assert w.text() == "Tue, Thu at 6:10 AM"

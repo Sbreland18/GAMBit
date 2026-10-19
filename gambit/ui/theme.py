@@ -348,6 +348,7 @@ QCheckBox::indicator { border-radius: 3px; }
 QRadioButton::indicator { border-radius: 8px; }
 QCheckBox::indicator:checked, QRadioButton::indicator:checked { background: #1a73e8;
     border-color: #79b8ff; }
+QCheckBox::indicator:checked { image: url("@CHECK@"); }
 QTreeWidget, QTreeView, QListWidget, QListView, QTableView {
     background: #161b22; color: #e6edf3; alternate-background-color: #1a212b;
     selection-background-color: #1f3a63; selection-color: #ffffff; }
@@ -362,7 +363,12 @@ QDockWidget::title { background: #161b22; padding: 4px; }
 QSplitter::handle { background: #232b38; }
 a { color: #79b8ff; }
 """
-    return css
+    try:
+        from ..resources import resource_path
+        check = resource_path("assets/check_dark.svg").replace("\\", "/")
+    except Exception:  # noqa: BLE001
+        check = ""
+    return css.replace("@CHECK@", check)
 
 
 def _set_mode(m: str):
