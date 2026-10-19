@@ -205,3 +205,64 @@ def test_move_task(tmp_path, monkeypatch):
     assert code == 0
     assert ["cros", "m1,m7", "update", "ou", "/Chromebooks/Hancock High School"] in ran
     assert au.latest_backup().endswith("-move.csv")
+
+
+# ------------------------------------------- blank unused + the morning run ---
+STALE_ROWS = [
+    {"deviceId": "s1", "serialNumber": "S1", "annotatedUser": "kid1@hancockschools.net",
+     "orgUnitPath": "/Chromebooks", "activeTimeRanges.0.date": "2026-07-01",
+     "recentUsers.0.email": "kid1@hancockschools.net", "lastSync": "2026-10-18"},
+    {"deviceId": "s2", "serialNumber": "S2", "annotatedUser": "kid2@hancockschools.net",
+     "orgUnitPath": "/Chromebooks", "activeTimeRanges.0.date": "2026-10-15",
+     "recentUsers.0.email": "kid2@hancockschools.net", "lastSync": "2026-10-18"},
+    {"deviceId": "s3", "serialNumber": "S3", "annotatedUser": "kid3@hancockschools.net",
+     "orgUnitPath": "/Chromebooks"},
+    {"deviceId": "s4", "serialNumber": "S4", "annotatedUser": "", "orgUnitPath": "/Chromebooks",
+     "activeTimeRanges.0.date": "2026-01-01"},
+    {"deviceId": "s5", "serialNumber": "S5", "annotatedUser": "tech1@hancockschools.net",
+     "orgUnitPath": "/Chromebooks", "activeTimeRanges.0.date": "2026-01-01"},
+]
+
+
+def test_plan_stale():
+    p = {r["deviceId"]: r for r in au.plan_stale(au.devices(STALE_ROWS), 60,
+                                                 {"ignore": "tech*"}, TODAY)}
+    assert p["s1"]["plan"] == "Blank" and "110 days" in p["s1"]["why"]
+    assert p["s2"]["plan"] == "Same"
+    assert p["s3"]["plan"] == "Skip"                     # no usage date
+    assert p["s4"]["plan"] == "Same"                     # already blank
+    assert p["s5"]["plan"] == "Skip"                     # ignore list
+    assert au.plan_stale(au.devices(STALE_ROWS), 60, {"stale_never": True},
+                         TODAY)[2]["plan"] == "Blank"
+    steps = au.stale_steps(list(p.values()))
+    assert steps[0][1] == ["cros", "s1", "update", "user", ""]
+
+
+def test_set_skips_what_would_be_blanked():
+    users = [{"email": "kid1@hancockschools.net", "ou": "/Students/HS"}]
+    devs = [{**d, "assigned": ""} for d in au.devices(STALE_ROWS[:1])]
+    o = {**au.options(), "stale_on": True, "stale_days": 60}
+    assert au.plan_set(devs, users, ["/Students"], o, TODAY)[0]["plan"] == "Skip"
+    o["stale_on"] = False
+    assert au.plan_set(devs, users, ["/Students"], o, TODAY)[0]["plan"] == "Set"
+
+
+def test_morning_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(au, "backup_dir", lambda: str(tmp_path))
+    rows = [dict(r) for r in STALE_ROWS] + [
+        {"deviceId": "s6", "serialNumber": "S6", "annotatedUser": "", "orgUnitPath": "/Chromebooks",
+         "activeTimeRanges.0.date": datetime.date.today().isoformat(),
+         "recentUsers.0.email": "kid6@hancockschools.net"}]
+    users = [{"email": f"kid{i}@hancockschools.net", "ou": "/Students/HS"} for i in range(1, 7)]
+    au.save_options({**au.options(), "sched_stale": True, "sched_set": True, "stale_days": 60,
+                     "blank_only": True, "students_only": True, "ignore": "tech*"})
+    ran = []
+    code = au.run_assign_task(log=ran.append, run_csv=lambda a: (0, rows, ""),
+                              run_text=lambda a, t=0: (ran.append(a), (0, ""))[1], users=users)
+    assert code == 0
+    assert ["cros", "s1", "update", "user", ""] in ran                      # blanked
+    assert ["cros", "s6", "update", "user", "kid6@hancockschools.net"] in ran  # set
+    assert not any(a[:2] == ["cros", "s1"] and a[-1] for a in ran if isinstance(a, list))
+    assert len([f for f in tmp_path.iterdir()]) == 2                       # two backups
+    au.save_options({**au.options(), "sched_stale": False, "sched_set": False})
+    assert au.run_assign_task(log=ran.append, run_csv=lambda a: (0, rows, "")) == 0

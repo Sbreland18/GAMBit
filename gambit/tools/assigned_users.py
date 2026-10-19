@@ -81,7 +81,9 @@ def options() -> dict:
         o = json.loads(settings.get("assigned/options", "{}") or "{}")
     except ValueError:
         o = {}
-    return {"blank_only": True, "students_only": True, "ignore": "", "max_days": 0, **o}
+    return {"blank_only": True, "students_only": True, "ignore": "", "max_days": 0,
+            "stale_on": False, "stale_days": 60, "stale_never": False, "scope_ous": [],
+            "sched_set": False, "sched_stale": False, "allow_big": False, **o}
 
 
 def save_options(o: dict):
@@ -155,6 +157,10 @@ def plan_set(devs: list[dict], users: list[dict], student_roots: list[str], o: d
                                  "Updates → Org units & schools")
         elif o.get("max_days") and age is not None and age > int(o["max_days"]):
             plan, why = "Skip", f"last used {age} days ago"
+        elif o.get("stale_on") and o.get("stale_days") and age is not None and \
+                age > int(o["stale_days"]):
+            plan, why = "Skip", (f"not used in {age} days – it gets blanked instead "
+                                 f"(over {o['stale_days']})")
         elif cur:
             why = f"replaces {cur}"
         else:
@@ -421,4 +427,113 @@ def run_move_task(log=print, run_csv=None, run_text=None, users=None, ous=None) 
         bad += 1 if c else 0
     log(f"Chromebook moves: {len(todo)} device(s) moved in {len(move_steps(todo))} "
         f"command(s), {bad} failed.")
+    return 1 if bad else 0
+
+
+# ================================================= blank when not used lately ===
+PROTECTED = {"loaners": "a loaner", "repairs": "a repair", "lost": "a lost / disabled",
+             "test": "a testing"}
+
+
+def plan_stale(devs: list[dict], days: int, o: dict | None = None,
+               today: datetime.date | None = None) -> list[dict]:
+    """Plan = Blank when nobody has used a Chromebook with an assigned user in `days` days.
+
+    “Used” is the last active day Google reports (activeTimeRanges), else the last check-in.
+    Devices with no usage date at all are left alone unless stale_never is on. Org units
+    the map marks Loaners / Repairs / Lost / Testing are never touched."""
+    from .. import ou_map
+    o = o or {}
+    today = today or datetime.date.today()
+    mapped = ou_map.configured()
+    out = []
+    for d in devs:
+        age = _age_days(d, today)
+        kind = ou_map.classify(d["ou"])["type"] if mapped else ""
+        if not d["assigned"]:
+            plan, why = "Same", "already blank"
+        elif kind in PROTECTED:
+            plan, why = "Skip", f"{d['ou']} is {PROTECTED[kind]} org unit"
+        elif _ignored(d["assigned"], o.get("ignore", "")):
+            plan, why = "Skip", f"{d['assigned']} is on the ignore list"
+        elif age is None:
+            plan, why = (("Blank", "never used") if o.get("stale_never") else
+                         ("Skip", "Google has no usage date for it"))
+        elif age > int(days):
+            plan, why = "Blank", f"not used in {age} days (over {days})"
+        else:
+            plan, why = "Same", f"used {age} day(s) ago"
+        out.append({**d, "plan": plan, "why": why})
+    return out
+
+
+def stale_steps(rows: list[dict]) -> list[tuple[str, list[str]]]:
+    return clear_steps([r for r in rows if r.get("plan") == "Blank"])
+
+
+ASSIGN_TASK = {"name": "GAMbit Chromebook assigned users",
+               "args": ["--task", "deviceassign"], "freq": "daily", "time": "05:45",
+               "what": "Blanks the assigned user on Chromebooks nobody has used lately and "
+                       "sets it to the student who last signed in", "standard": False}
+
+
+def run_assign_task(log=print, run_csv=None, run_text=None, users=None) -> int:
+    """Background task: blank stale assignments, then fill in / update from the last
+    signed-in student, with the saved settings. Stops if there are unusually many."""
+    from .. import activity, ou_map
+    from ..directory import load_ous, load_users, run_gam_csv, run_gam_text
+    run_csv = run_csv or (lambda a: run_gam_csv(a, 3600))
+    run_text = run_text or run_gam_text
+    o = options()
+    if not (o.get("sched_set") or o.get("sched_stale")):
+        log("Assigned users: nothing is switched on for the morning run.")
+        return 0
+    scope = o.get("scope_ous") or []
+    rows = []
+    for a in (load_args("ou", scope) if scope else load_args("all", [])):
+        c, r, e = run_csv(a)
+        if c != 0:
+            raise RuntimeError((e or "couldn't list Chromebooks").strip()[-200:])
+        rows += r
+    devs = devices(rows)
+    profile = settings.get("profile/current", "") or "Default"
+    bad = 0
+
+    def big(n: int, what: str) -> bool:
+        if n > max(50, len(devs) // 4) and not o.get("allow_big"):
+            log(f"Assigned users: {n} {what} is more than usual – none made. Run it by hand "
+                "once first (Chromebook fleet → Assigned users).")
+            return True
+        return False
+
+    if o.get("sched_stale") and o.get("stale_days"):
+        todo = [r for r in plan_stale(devs, int(o["stale_days"]), o) if r["plan"] == "Blank"]
+        if todo and not big(len(todo), "assigned users to blank"):
+            backup(todo, "clear")
+            for _l, args in stale_steps(todo):
+                c, _out = run_text(args, 600)
+                activity.record(args, c, "done" if c == 0 else "failed", None, profile,
+                                note="Blank assigned users on unused Chromebooks")
+                bad += 1 if c else 0
+            blanked = {t["deviceId"] for t in todo}
+            # the next step sees them as blank
+            devs = [{**d, "assigned": ""} if d["deviceId"] in blanked else d for d in devs]
+            log(f"Assigned users: blanked {len(todo)} not used in {o['stale_days']}+ days.")
+        elif not todo:
+            log("Assigned users: no unused Chromebooks to blank.")
+    if o.get("sched_set"):
+        ulist = users if users is not None else load_users()
+        roots = ou_map.student_roots(load_ous() if users is None else None)
+        opts = {**o, "stale_on": bool(o.get("sched_stale"))}
+        todo = [r for r in plan_set(devs, ulist, roots, opts) if r["plan"] == "Set"]
+        if todo and not big(len(todo), "assignments"):
+            backup(todo, "set")
+            for _l, args in set_steps(todo):
+                c, _out = run_text(args, 300)
+                activity.record(args, c, "done" if c == 0 else "failed", None, profile,
+                                note="Assigned user = last signed-in student")
+                bad += 1 if c else 0
+            log(f"Assigned users: set {len(todo)} from the last signed-in student.")
+        elif not todo:
+            log("Assigned users: nothing to set.")
     return 1 if bad else 0

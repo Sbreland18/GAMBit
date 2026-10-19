@@ -73,9 +73,13 @@ class AssignedUsersTab(ToolTab):
         bl.addWidget(self.students)
         bl.addLayout(self.row(QLabel("Ignore"), self.ignore, stretch=False))
         bl.addLayout(self.row(button("Preview", slot=self.preview),
-                              button("Set assigned users", "primary", self.apply_set)))
+                              button("Set assigned users", "primary", self.apply_set),
+                              button("Every morning…", slot=lambda: (
+                                  self.k_set.setChecked(True), self.schedule_assign()))))
         self.lay.addWidget(box)
+        self._stale_box(o)
         self._move_box()
+        self._morning_box(o)
 
         self.table = ResultsTable()
         self.table.hidden_columns = {"deviceId"}
@@ -142,7 +146,7 @@ class AssignedUsersTab(ToolTab):
                                      objectName="Muted")))
         bl.addLayout(self.row(QLabel("Based on"), self.m_who, QLabel("Find the Chromebook org "
                                                                      "unit from"), self.m_src,
-                              button("Org units & schools…", slot=self._edit_map)))
+                              button("Org units && schools…", slot=self._edit_map)))
         bl.addWidget(self.m_pattern)
         bl.addWidget(self.m_example)
         bl.addLayout(self.row(QLabel("Don't move"), self.m_skip, stretch=False))
@@ -305,8 +309,11 @@ class AssignedUsersTab(ToolTab):
 
         def done(devs):
             self.devs = devs
-            if getattr(self, "mode", "set") == "move":
+            mode = getattr(self, "mode", "set")
+            if mode == "move":
                 self.preview_move(quiet=True)
+            elif mode == "stale":
+                self.preview_stale(quiet=True)
             else:
                 self.preview(quiet=True)
             blank = sum(1 for d in devs if not d["assigned"])
@@ -317,11 +324,134 @@ class AssignedUsersTab(ToolTab):
 
     # ------------------------------------------------------------ preview ---
     def _opts(self) -> dict:
-        o = {"blank_only": self.blank_only.currentIndex() == 0,
+        o = {**au.options(), "blank_only": self.blank_only.currentIndex() == 0,
              "students_only": self.students.isChecked(),
-             "ignore": self.ignore.text().strip(), "max_days": self.max_days.value()}
+             "ignore": self.ignore.text().strip(), "max_days": self.max_days.value(),
+             "stale_days": self.s_days.value(), "stale_never": self.s_never.isChecked()}
         au.save_options(o)
         return o
+
+    # ------------------------------------------------------ unused devices ---
+    def _stale_box(self, o):
+        box = QGroupBox("Blank it when nobody is using the Chromebook")
+        bl = QVBoxLayout(box)
+        self.s_days = QSpinBox()
+        self.s_days.setRange(1, 3650)
+        self.s_days.setValue(int(o.get("stale_days", 60) or 60))
+        self.s_days.setSuffix(" days")
+        self.s_never = QCheckBox("Also blank ones Google has no usage date for (never used)")
+        self.s_never.setChecked(bool(o.get("stale_never")))
+        bl.addLayout(self.row(QLabel("Blank the assigned user when nobody has used the "
+                                     "Chromebook in"), self.s_days))
+        bl.addWidget(self.s_never)
+        bl.addWidget(QLabel("“Used” is the last day Google saw someone active on it (or its "
+                            "last check-in). The last signed-in user itself is recorded by "
+                            "Google and can't be changed – this blanks the Assigned user. "
+                            "Loaner, repair, lost and testing org units are left alone.",
+                            objectName="Muted", wordWrap=True))
+        bl.addLayout(self.row(button("Preview unused", slot=self.preview_stale),
+                              button("Blank assigned users on unused ones", "danger",
+                                     self.apply_stale)))
+        self.lay.addWidget(box)
+
+    def preview_stale(self, quiet=False):
+        if not self.devs:
+            if not quiet:
+                self.info("Load the Chromebooks first.")
+            return
+        self.mode = "stale"
+        o = self._opts()
+        self.rows = au.plan_stale(self.devs, self.s_days.value(), o)
+        self.table.set_rows(COLS, [[r["serial"], r["asset"], r["ou"], r["assigned"], r["last"],
+                                    r["last_day"] or r["last_sync"][:10], r["plan"], r["why"],
+                                    r["deviceId"]] for r in self.rows])
+        n = sum(1 for r in self.rows if r["plan"] == "Blank")
+        self.status.setText(f"{n:,} of {len(self.rows):,} would be blanked (not used in "
+                            f"{self.s_days.value()} days).")
+
+    def apply_stale(self):
+        self.preview_stale(quiet=True)
+        rows = [r for r in self._chosen() if r.get("plan") == "Blank"]
+        if not rows:
+            self.info("Nothing to blank – load the Chromebooks and check the Plan column.")
+            return
+        if not self.confirm(f"Blank the assigned user on {len(rows):,} Chromebook(s) nobody "
+                            f"has used in {self.s_days.value()} days?\n\nThe current values "
+                            "are saved first, so Undo can put them back."):
+            return
+        path = au.backup(rows, "clear")
+        run_or_request(self.page, self.steps, au.stale_steps(rows),
+                       f"Blank the assigned user on {len(rows):,} unused Chromebook(s)",
+                       f"Not used in {self.s_days.value()}+ days (backup: "
+                       f"{os.path.basename(path)})", done=lambda _s: self._after())
+
+    # -------------------------------------------------------- every morning ---
+    def _morning_box(self, o):
+        box = QGroupBox("Every morning (5:45 AM)")
+        bl = QVBoxLayout(box)
+        self.k_stale = QCheckBox("Blank the assigned user on Chromebooks nobody has used "
+                                 "(the days setting above)")
+        self.k_stale.setChecked(bool(o.get("sched_stale")))
+        self.k_set = QCheckBox("Set the assigned user to the student who last signed in (the "
+                               "settings in “Set it to the last signed-in user”)")
+        self.k_set.setChecked(bool(o.get("sched_set")))
+        bl.addWidget(self.k_stale)
+        bl.addWidget(self.k_set)
+        self.k_info = QLabel(objectName="Muted")
+        self.k_info.setWordWrap(True)
+        bl.addWidget(self.k_info)
+        bl.addLayout(self.row(button("Save && schedule", "primary", self.schedule_assign),
+                              button("Turn off", slot=self.unschedule_assign)))
+        self.lay.addWidget(box)
+        self._morning_text(o)
+
+    def _morning_text(self, o=None):
+        o = o or au.options()
+        where = ", ".join(o.get("scope_ous") or []) or "every Chromebook"
+        on = [x for x, k in (("blank unused", "sched_stale"), ("set from the last student",
+                                                               "sched_set")) if o.get(k)]
+        self.k_info.setText(
+            (f"On: {' and '.join(on)} – for {where}. " if on else "Off. ") +
+            "Unused ones are blanked first, and those aren't filled in again from an old "
+            "sign-in. Each run saves a backup (Undo last change works for it), and if a run "
+            "would change an unusually large number of devices it stops and waits for you. "
+            "The org units it covers are the ones chosen in “Which Chromebooks” when you "
+            "click Save & schedule.")
+
+    def schedule_assign(self):
+        if not (self.k_stale.isChecked() or self.k_set.isChecked()):
+            self.info("Tick at least one of the two jobs first.")
+            return
+        key = self.scope.currentData()
+        if key in ("serial", "asset"):
+            self.info("For the morning run, set “Which Chromebooks” to All Chromebooks or "
+                      "to org units.")
+            return
+        o = {**self._opts(), "sched_stale": self.k_stale.isChecked(),
+             "sched_set": self.k_set.isChecked(),
+             "scope_ous": self.ous.paths() if key == "ou" else []}
+        au.save_options(o)
+        self._morning_text(o)
+        from ... import tasks_health
+        try:
+            tasks_health.create(dict(au.ASSIGN_TASK))
+            self.info("Scheduled – it runs every morning at 5:45 AM with these settings. "
+                      "Results show on Home and in Background tasks.")
+        except Exception as exc:  # noqa: BLE001
+            self.info(f"Saved, but the task couldn't be created here:\n{exc}")
+
+    def unschedule_assign(self):
+        o = {**au.options(), "sched_stale": False, "sched_set": False}
+        au.save_options(o)
+        self.k_stale.setChecked(False)
+        self.k_set.setChecked(False)
+        self._morning_text(o)
+        try:
+            from ... import scheduler
+            scheduler.delete_task(au.ASSIGN_TASK["name"])
+        except Exception:  # noqa: BLE001 – nothing scheduled, or not Windows
+            pass
+        self.info("The morning run is off.")
 
     def preview(self, quiet=False):
         if not self.devs:
@@ -332,7 +462,7 @@ class AssignedUsersTab(ToolTab):
         self.mode = "set"
         users = self.directory.users or []
         self.rows = au.plan_set(self.devs, users, student_ous(self.directory.ous),
-                                self._opts())
+                                {**self._opts(), "stale_on": self.k_stale.isChecked()})
         self.table.set_rows(COLS, [[r["serial"], r["asset"], r["ou"], r["assigned"], r["last"],
                                     r["last_day"] or r["last_sync"][:10], r["plan"], r["why"],
                                     r["deviceId"]] for r in self.rows])

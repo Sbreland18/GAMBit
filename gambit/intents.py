@@ -102,6 +102,9 @@ INTENTS = [
      "Workflows", "My workflows"),
     ("Clear Chromebook assigned users", "blank clear remove empty erase all every assigned user "
      "annotated user chromebook", "Chromebook fleet", "Assigned users"),
+    ("Blank the assigned user on Chromebooks nobody uses", "unused not used stale idle "
+     "inactive chromebook blank clear assigned user days hasnt signed", "Chromebook fleet",
+     "Assigned users"),
     ("Make the last signed-in user the assigned user", "last user recent user logged in "
      "signed in assign assigned user chromebook", "Chromebook fleet", "Assigned users"),
     ("Move Chromebooks to the school of the student using them", "move chromebook org unit "

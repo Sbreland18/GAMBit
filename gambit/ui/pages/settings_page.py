@@ -283,7 +283,7 @@ class SettingsPage(Page):
         self.oumap_lbl = QLabel("")
         self.oumap_lbl.setWordWrap(True)
         form.addRow("Now", self.oumap_lbl)
-        form.addRow("", self.row(button("Set up org units & schools…", "primary",
+        form.addRow("", self.row(button("Set up org units && schools…", "primary",
                                         self.open_ou_map)))
         self._oumap_text()
         lay.addWidget(box)

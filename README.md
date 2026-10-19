@@ -771,6 +771,13 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Assigned users, more:**
+  - *Blank it when nobody is using the Chromebook* blanks the assigned user after N days without use. "Use" is Google's last active day, or the last check-in. You can also blank devices with no usage date. Loaner, repair, lost and testing org units are left alone.
+  - *Every morning (5:45 AM)* runs one task, `--task deviceassign`. It blanks unused devices first, then sets the assigned user from the student who last signed in, with the tab's settings.
+  - Devices that were just blanked aren't refilled from an old sign-in.
+  - Every run saves backups, so Undo works. A run stops if it would change an unusually large number of devices.
+  - The last signed-in user itself is reported by Google and can't be changed.
+
 - **Org units & schools (Settings & Updates):** a district org unit map. Each org unit is marked Students, Staff, Chromebooks/devices, Loaners, Repairs, Lost, Former students, Former staff, Testing or Other, with an optional School and Grade. Everything below a marked org unit inherits from it. *✨ Find them for me* guesses from the names:
   - top-level kinds;
   - schools under students, staff and devices, matched across names, fuzzy matches and initials (HMS → Hancock Middle School);

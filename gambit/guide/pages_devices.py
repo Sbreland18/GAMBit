@@ -53,7 +53,11 @@ PAGES = {
                               "High School/9th Grade signs in → the Chromebook moves to "
                               "/Chromebooks/Hancock High School (school level and device "
                               "org unit pattern are settings). *Don't move* protects loaner, "
-                              "repair and lost org units; *Every morning…* runs it daily.",
+                              "repair and lost org units; *Every morning…* runs it daily. "
+                              "*Blank it when nobody is using the Chromebook*: blanks the "
+                              "assigned user after N days without use. *Every morning "
+                              "(5:45 AM)* can blank unused ones and set the rest from the "
+                              "student who last signed in, every day.",
             "Lost & stolen": "Look up the serial, then *Mark it*: disables the device, notes "
                              "it, can move it to a lost org unit, opens a ticket and writes a "
                              "one-page report for police or insurance. *It's been found* "
