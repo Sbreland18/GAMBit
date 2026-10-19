@@ -1,0 +1,6 @@
+{
+  "version": "1.0.1",
+  "url": "https://github.com/Sbreland18/GAMbit/releases/download/v1.0.1/GAMbit-Setup-1.0.1.exe",
+  "notes": "GAMbit is a Windows desktop app that puts a point-and-click interface on GAM, the command-line tool for managing Google Workspace. It's built for K-12 IT teams. Staff can manage users, groups, Chromebooks, Classroom, Drive, email and security from one place, without typing GAM commands.\n\nIt also handles the district's routine work:\n- syncing rosters from the SIS\n- onboarding and offboarding staff\n- back-to-school readiness checks\n- device inventory and repairs\n- access reviews and unusual-activity alerts\n- school and leadership reports\n- scheduled background jobs\n\nTeam members sign in with their Google accounts. Admins decide who sees which pages and which org units they can manage, and changes can be routed through an approval queue. Everything GAMbit runs is logged and can usually be undone.",
+  "released": "2026-10-19"
+}
