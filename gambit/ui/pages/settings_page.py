@@ -104,6 +104,16 @@ class SettingsPage(Page):
         form.addRow("Text size", self.row(self.text_size, QLabel(
             "Changes right away; restart GAMbit if anything looks cramped.",
             objectName="Muted")))
+        self.theme_box = QComboBox()
+        for label, val in (("Light", "light"), ("Dark", "dark"), ("Same as Windows", "system")):
+            self.theme_box.addItem(label, val)
+        self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(
+            (settings.get("ui/theme", "light") or "light").lower())))
+        self.theme_box.currentIndexChanged.connect(
+            lambda _i: self.app.set_theme(self.theme_box.currentData()))
+        form.addRow("Colors", self.row(self.theme_box, QLabel(
+            "Dark mode changes right away; a few lists pick it up the next time they load.",
+            objectName="Muted")))
         self.threshold = QSpinBox()
         self.threshold.setRange(0, 100000)
         self.threshold.setSpecialValueText("Never ask")

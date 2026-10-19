@@ -283,6 +283,8 @@ INTENTS = [
      "Folder tools"),
     ("Set up org units and schools", "org unit map designate which org units students staff "
      "chromebooks schools grades setup ou map", "Settings & Updates", None),
+    ("Dark mode", "dark mode theme colors night black background light mode",
+     "Settings & Updates", None),
     ("Ask the Helper", "assistant chat ai question help me ask helper", "Guide", None),
     ("Report a problem", "bug crash problem help support", "Diagnostics", None),
     ("Give someone admin rights", "admin role assign rights privileges make admin delegated",

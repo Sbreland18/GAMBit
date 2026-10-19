@@ -956,6 +956,28 @@ class MoreActions:
             self.start_tour()
 
     # -- text size ------------------------------------------------------------------
+    def set_theme(self, mode: str):
+        """light | dark | system – switches right away."""
+        from PySide6.QtWidgets import QApplication
+        from .theme import apply_theme
+        settings.set("ui/theme", mode)
+        app = QApplication.instance()
+        apply_theme(app)
+        from PySide6.QtWidgets import QWidget
+        for w in QApplication.allWidgets():
+            try:
+                w.style().unpolish(w)
+                w.style().polish(w)
+                QWidget.update(w)          # some widgets have their own update(…)
+            except Exception:  # noqa: BLE001
+                continue
+        if hasattr(self, "pages") and "Home" in self.pages and \
+                hasattr(self.pages["Home"], "on_show"):
+            try:
+                self.pages["Home"].on_show()
+            except Exception:  # noqa: BLE001
+                pass
+
     def set_text_scale(self, scale: float):
         from PySide6.QtWidgets import QApplication
         from .theme import apply_theme

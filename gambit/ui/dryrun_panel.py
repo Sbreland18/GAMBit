@@ -27,6 +27,8 @@ class DryRunPanel(QWidget):
         lay.addLayout(head)
         self.text = QPlainTextEdit(objectName="Log")
         self.text.setReadOnly(True)
+        from .widgets import wrap_log
+        wrap_log(self.text)
         lay.addWidget(self.text)
         app.runner.dry_run.connect(self.add)
 

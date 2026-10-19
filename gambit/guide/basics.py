@@ -59,6 +59,8 @@ Afterwards run **Tools → Diagnostics** to check every Google service GAMbit us
 - **Page tips**: the blue line at the top of each page explains it. *Try it safely* turns on
   dry run for that page. *Hide tips* turns the tips off.
 - **This guide**: press **F1** anywhere, or open **Guide** in the sidebar.
+- **Dark mode**: Settings & Updates → Appearance and safety → *Colors* (Light, Dark, or
+  Same as Windows).
 """),
     ("oumap", "Org units & schools", "org unit map ou students staff chromebooks devices "
      "schools grades loaners repairs setup designate which org unit", """

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
     QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -26,6 +26,8 @@ class JobsPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setWordWrap(False)
+        self.table.setTextElideMode(Qt.ElideMiddle)
         for c, w in ((0, 46), (2, 110), (3, 150), (4, 70)):
             self.table.setColumnWidth(c, w)
         self.table.doubleClicked.connect(lambda *_: self.show_output())
@@ -33,7 +35,8 @@ class JobsPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
-        self.summary = QLabel("No jobs yet", objectName="Muted")
+        from .widgets import ElideLabel
+        self.summary = ElideLabel("No jobs yet", objectName="Muted")
         row.addWidget(self.summary, 1)
         cancel = button("Cancel selected", slot=self.cancel)
         cancel.setProperty("helpdesk_ok", True)
@@ -158,6 +161,8 @@ class JobsPanel(QWidget):
                            f"{j.code if j.code is not None else '—'} · "
                            f"{self._fmt(j.elapsed())}"))
         txt = QPlainTextEdit(objectName="Log")
+        from .widgets import wrap_log
+        wrap_log(txt)
         txt.setReadOnly(True)
         txt.setPlainText("".join(j.stdout) + ("\n--- messages ---\n" + "".join(j.stderr)
                                               if j.stderr else ""))

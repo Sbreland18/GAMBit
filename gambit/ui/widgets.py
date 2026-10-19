@@ -22,6 +22,54 @@ from PySide6.QtWidgets import (
 _DANGER = weakref.WeakSet()
 
 
+class ElideLabel(QLabel):
+    """A one-line label that never makes its window wider: long text ends in “…” and the
+    whole text is in the tooltip."""
+
+    def __init__(self, text: str = "", parent=None, **kw):
+        super().__init__("", parent, **kw)
+        self._full = ""
+        from PySide6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(40)
+        self.setText(text)
+
+    def setText(self, text: str):
+        self._full = text or ""
+        self.setToolTip(self._full if len(self._full) > 60 else "")
+        self._elide()
+
+    def text(self) -> str:
+        return self._full
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._elide()
+
+    def _elide(self):
+        w = max(10, self.width() - 4)
+        super().setText(self.fontMetrics().elidedText(self._full.replace("\n", " "),
+                                                      Qt.ElideRight, w))
+
+    def minimumSizeHint(self):
+        h = super().minimumSizeHint()
+        h.setWidth(40)
+        return h
+
+    def sizeHint(self):
+        h = super().sizeHint()
+        h.setWidth(min(h.width(), 400))
+        return h
+
+
+def wrap_log(edit):
+    """Long GAM lines (field lists, IDs) wrap inside the box instead of running off it."""
+    from PySide6.QtGui import QTextOption
+    edit.setLineWrapMode(edit.LineWrapMode.WidgetWidth)
+    edit.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+    edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+
 def button(text: str, kind: str = "", slot: Callable = None) -> QPushButton:
     b = QPushButton(text)
     if kind:

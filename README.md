@@ -771,6 +771,10 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Window size fix:** the "Running: gam …" status line no longer stretches the window past the screen. It now ends in "…" and shows the full command as a tooltip. Output, Jobs, Dry run and job output wrap long lines. The main window's content scrolls if it ever needs more room than the window has. Every window and dialog that opens bigger than the screen is shrunk to fit and moved into view, so the title bar and close button always show.
+- **Taskbar icon fix:** `assets/gambit.ico` was rebuilt with `tools/make_ico.py`. The small sizes (16–128 px) are now classic bitmaps and only 256 px is PNG; Windows showed a broken taskbar icon for PNG-only small sizes. The icon is also set for the whole app (sign-in window and dialogs), and the installer's shortcuts carry the same AppUserModelID as the app (`GAMbit.App`).
+- **Dark mode:** Settings & Updates → Appearance → *Colors*: Light, Dark or Same as Windows. It switches right away. Dark mode has its own palette and stylesheet. Colours set anywhere else are converted as they are applied: stylesheets, label HTML, HTML views, and table, list and tree text. Light backgrounds become dark, dark text becomes light (same hue), and already-dark parts such as the output log are left as they are. Tests check that no dark text or light background is left on any page.
+
 - **Assigned users, more:**
   - *Blank it when nobody is using the Chromebook* blanks the assigned user after N days without use. "Use" is Google's last active day, or the last check-in. You can also blank devices with no usage date. Loaner, repair, lost and testing org units are left alone.
   - *Every morning (5:45 AM)* runs one task, `--task deviceassign`. It blanks unused devices first, then sets the assigned user from the student who last signed in, with the tab's settings.

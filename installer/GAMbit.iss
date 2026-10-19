@@ -58,8 +58,10 @@ Source: "{src}\gambit-deploy.json"; DestDir: "{app}"; Flags: external skipifsour
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
+; AppUserModelID matches the one GAMbit sets at start-up, so Windows ties the taskbar
+; button (and pinning) to this shortcut and its icon.
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; IconFilename: "{app}\{#MyAppExe}"; AppUserModelID: "GAMbit.App"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; IconFilename: "{app}\{#MyAppExe}"; AppUserModelID: "GAMbit.App"; Tasks: desktopicon
 
 [Run]
 ; No "skipifsilent": after a silent self-update GAMbit starts again automatically.

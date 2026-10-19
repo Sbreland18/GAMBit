@@ -193,7 +193,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         lv = QVBoxLayout(log_box)
         lv.setContentsMargins(24, 4, 24, 12)
         head = QHBoxLayout()
-        self.status = QLabel("Ready", objectName="Muted")
+        from .widgets import ElideLabel, wrap_log
+        self.status = ElideLabel("Ready", objectName="Muted")
         head.addWidget(self.status, 1)
         self.stop_btn = button("Stop", "danger", self.runner.stop)
         self.stop_btn.setProperty("helpdesk_ok", True)
@@ -209,6 +210,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         self.log = QPlainTextEdit(objectName="Log")
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(20000)
+        wrap_log(self.log)
         ov.addWidget(self.log)
         self.bottom_tabs.addTab(out_w, "Output")
         self.jobs_panel = JobsPanel(self.runner)
@@ -238,7 +240,13 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         h.setSpacing(0)
         h.addWidget(side)
         h.addWidget(split, 1)
-        self.setCentralWidget(root)
+        # Safety net: nothing inside may ever push the window past the screen – if the
+        # window is smaller than the content needs, the content scrolls instead.
+        outer = QScrollArea()
+        outer.setWidgetResizable(True)
+        outer.setFrameShape(QScrollArea.NoFrame)
+        outer.setWidget(root)
+        self.setCentralWidget(outer)
 
         from .helper_panel import HelperDock
         self.helper = HelperDock(self)
@@ -386,6 +394,9 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         idx = self._row_page[row]
         name = [n for n, _ in PAGES][idx] if idx < len(PAGES) else ""
         self._current_page_name = name if name and team.page_allowed(name) else "Home"
+        from . import theme
+        if theme.is_dark() and 0 <= idx < len(self._stack_pages):
+            theme.polish_tree(self._stack_pages[idx])
         if name and not team.page_allowed(name):
             self.statusBar().showMessage(f"Your GAMbit role can't open {name}.", 5000)
             home = next(r for r, i in self._row_page.items() if i == 0)

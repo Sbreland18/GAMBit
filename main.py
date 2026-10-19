@@ -24,6 +24,9 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_NAME)
     support.install_crash_handler()
+    from PySide6.QtGui import QIcon
+    from gambit.resources import resource_path
+    app.setWindowIcon(QIcon(resource_path("assets/gambit.ico")))   # every window + taskbar
     apply_theme(app)
     from gambit.ui.login_dialog import gate
     if not gate():                      # GAMbit sign-in (when the team has turned it on)
