@@ -1,0 +1,4 @@
+PySide6>=6.6
+truststore>=0.9   # use the Windows certificate store for HTTPS (works behind school web filters)
+cryptography>=42  # GAMbit sign-in: signed access list, Google ID token check
+qrcode>=7.4  # authenticator QR code for the emergency admin
