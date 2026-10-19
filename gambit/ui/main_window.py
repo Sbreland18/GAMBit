@@ -240,6 +240,10 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         h.addWidget(split, 1)
         self.setCentralWidget(root)
 
+        from .helper_panel import HelperDock
+        self.helper = HelperDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.helper)
+        self.helper.hide()
         self.install_activity_hooks()
         self.install_shortcuts()
         self.directory.connection_changed.connect(

@@ -769,6 +769,20 @@ Tabs added in future versions appear in the guide automatically, using their on-
 - **Email → Gmail language:** sets the Gmail menu language for a person or an org unit.
 - **Records requests → Save searches in Vault:** saves each search in the request's Vault matter (`create vaultquery`).
 
+## Round 19: the Helper (offline assistant)
+
+Click **💬 Helper** in the top bar or press **F2**. A sentence typed into the top search box
+goes to the Helper too.
+
+- **Understands plain English with typos.** Typo correction against GAMbit's own vocabulary, school words ("kid", "teacher", "lock", "out of office", "won't turn on"), and names, emails, groups, org units, serials and asset tags from the directory. It asks when something is missing ("Who is it for?") and offers a choice when two people share a first name. "Her" or "them" means the last person mentioned.
+- **Finds the right page** for a question, using a ranked search over the Guide, every page and tab, and the top-bar tasks.
+- **Walks through a page** one step at a time: it opens the page, switches to the tab the step names, and *Show me* highlights the button.
+- **Writes GAM commands** for about 35 common jobs: passwords, suspend, move, sign out, 2SV, groups, aliases, forwarding, vacation, Drive transfer, Chromebooks, inactive devices, end of updates and look-ups. Every command is checked against GAM's own syntax reference (GamCommands.txt) and marked *changes things* or *only reads*.
+- **Explains** a pasted GAM command.
+- **Nothing runs on its own.** *Run* goes through the normal runner, so the GAMbit role, help-desk mode, Dry run and approvals all apply. Changes ask first. *Edit in Console* and *Copy* are on every card. Pages a role can't open aren't offered.
+- **Optional local AI** (⚙ in the Helper) answers open questions using the Guide as context. It runs on this PC on 127.0.0.1 only, never through a proxy. It can be GAMbit's own (llama.cpp `llama-server` plus Qwen2.5 3B or 1.5B, downloaded once into AppData\local-ai) or an existing Ollama. You can also choose files copied from another PC. Commands it writes are checked against GAM and labelled as written by the AI.
+- Code: `gambit/helper/` (text, knowledge, commands, verify, brain, local_ai) and `gambit/ui/helper_panel.py`. Tests: `tests/test_helper.py`.
+
 ## Round 17: bug sweep
 
 Three code reviews (sign-in/security, GAM command syntax, data modules), a click-every-button test of all 62 pages (about 1,000 buttons), and every background task were run. Fixed:
@@ -1097,6 +1111,8 @@ gambit/storage_forecast.py  pooled-storage forecast
 gambit/going_quiet.py       counselor list (+ --task goingquiet)
 gambit/tools/test_readiness.py, redistribute.py, policy_cleanup.py, group_suggest.py, stale.py
 gambit/ui/pages/round13_pages.py, round13_tabs.py  Round 13 screens
+gambit/helper/              offline Helper: understanding, recipes, GAM syntax check, local AI
+gambit/ui/helper_panel.py   the Helper dock (chat, command cards, walkthroughs, AI settings)
 gambit/guide/               in-app guide: basics, pages_*.py (one entry per page), gam_ref.py
                             (plain-English GAM commands), search and HTML export
 gambit/ui/pages/guide_page.py  the Guide page (F1)

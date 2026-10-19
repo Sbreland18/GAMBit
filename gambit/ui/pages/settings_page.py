@@ -735,7 +735,11 @@ class SettingsPage(Page):
         QDesktopServices.openUrl(QUrl(url))
 
     def install_gam(self):
-        if not self.gam_release or self.runner.busy:
+        if not self.gam_release:
+            return
+        if self.runner.busy:
+            self.info("GAMbit is still running GAM commands – wait for them to finish (see "
+                      "the Jobs tab), then update.")
             return
         target = settings.gam_dir
         if not self.confirm(f"Download GAM {self.gam_release.version} and install it into\n"
@@ -769,7 +773,12 @@ class SettingsPage(Page):
         self.gam_progress.hide()
         self._update_gam_button()
         msg = str(err)
-        if "Permission" in msg or "Access is denied" in msg:
+        if "WinError 32" in msg or "being used by another process" in msg:
+            msg += ("\n\nAnother program has a GAM file open – usually a GAMbit background "
+                    "task, a Command Prompt/PowerShell window running gam, or an antivirus "
+                    "scan of the new download. Wait a minute (or close it) and click Update "
+                    "again.")
+        elif "Permission" in msg or "Access is denied" in msg:
             msg += ("\n\nGAMbit could not write to the GAM folder. Close any window "
                     "running GAM, or choose a folder you can write to.")
         QMessageBox.warning(self, "GAM install failed", msg)

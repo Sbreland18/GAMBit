@@ -97,13 +97,16 @@ def install_gam(release: GamRelease, target_dir: str,
             raise RuntimeError("The download did not contain the GAM program.")
 
         os.makedirs(target_dir, exist_ok=True)
+        cleanup_old_files(target_dir)
+        running = gam_processes(target_dir)
+        if running:
+            log("GAM is running right now (" + ", ".join(running[:5]) + ") – files in use "
+                "are swapped out safely; the new GAM is used from the next command.")
         log(f"Installing into {target_dir} …")
-        for name in os.listdir(src):
-            s, d = os.path.join(src, name), os.path.join(target_dir, name)
-            if os.path.isdir(s):
-                shutil.copytree(s, d, dirs_exist_ok=True)
-            else:
-                shutil.copy2(s, d)
+        moved = copy_tree_replacing(src, target_dir)
+        if moved:
+            log(f"{len(moved)} file(s) were in use and were renamed to *.old-… – they're "
+                "removed the next time GAM is updated.")
         exe = os.path.join(target_dir, GAM_EXE)
         if not IS_WINDOWS and os.path.exists(exe):
             os.chmod(exe, 0o755)
@@ -111,6 +114,91 @@ def install_gam(release: GamRelease, target_dir: str,
         return exe
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+OLD_TAG = ".old-"
+
+
+def _replace_file(src: str, dst: str, tries: int = 4, wait: float = 1.5,
+                  sleep=None) -> bool:
+    """Copy src over dst. If dst is locked (a running gam.exe, a loaded DLL, an antivirus
+    scan), wait a little and retry; then rename the locked file out of the way – Windows
+    allows renaming a file that's in use – and copy the new one in. True = renamed."""
+    import time
+    sleep = sleep or time.sleep
+    for i in range(tries):
+        try:
+            shutil.copy2(src, dst)
+            return False
+        except PermissionError:
+            pass
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in (5, 32, 33) and exc.errno not in (13, 16,
+                                                                                      26):
+                raise
+        if i < tries - 1:
+            sleep(wait)
+    old = f"{dst}{OLD_TAG}{int(__import__('time').time())}"
+    try:
+        os.replace(dst, old)
+    except OSError as exc:
+        raise RuntimeError(f"{os.path.basename(dst)} is in use by another program and can't "
+                           "be replaced. Close anything running GAM (a GAMbit background "
+                           "task, a Command Prompt or PowerShell window, or another GAMbit) "
+                           f"and try again. ({exc})") from None
+    shutil.copy2(src, dst)
+    return True
+
+
+def copy_tree_replacing(src: str, dst: str, sleep=None) -> list[str]:
+    """Copy every file from src into dst, replacing locked files safely. → renamed files."""
+    moved = []
+    for dirpath, _dirs, files in os.walk(src):
+        rel = os.path.relpath(dirpath, src)
+        target = dst if rel == "." else os.path.join(dst, rel)
+        os.makedirs(target, exist_ok=True)
+        for f in files:
+            d = os.path.join(target, f)
+            if _replace_file(os.path.join(dirpath, f), d, sleep=sleep):
+                moved.append(d)
+    return moved
+
+
+def cleanup_old_files(target_dir: str) -> int:
+    """Remove files left by an earlier update (now that nothing uses them)."""
+    n = 0
+    for dirpath, _dirs, files in os.walk(target_dir):
+        for f in files:
+            if OLD_TAG in f:
+                try:
+                    os.remove(os.path.join(dirpath, f))
+                    n += 1
+                except OSError:
+                    pass
+    return n
+
+
+def gam_processes(target_dir: str) -> list[str]:
+    """Running gam.exe processes from this folder (Windows), e.g. ['PID 4120']."""
+    if not IS_WINDOWS:
+        return []
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process -Filter \"Name='gam.exe'\" | "
+             "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }"],
+            capture_output=True, text=True, timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    except Exception:  # noqa: BLE001
+        return []
+    tdir = os.path.normcase(os.path.realpath(target_dir))
+    found = []
+    for ln in out.splitlines():
+        pid, _, path = ln.partition("|")
+        if path and os.path.normcase(os.path.dirname(os.path.realpath(path))).startswith(tdir):
+            found.append(f"PID {pid.strip()}")
+    return found
 
 
 def _safe_extract_zip(zf: zipfile.ZipFile, dest: str):

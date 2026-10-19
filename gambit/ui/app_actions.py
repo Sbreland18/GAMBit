@@ -72,6 +72,11 @@ class AppActions:
         self.dry_btn.setToolTip("When on, changes aren't made – GAMbit lists the exact GAM "
                                 "commands instead (look-ups still run).")
         h.addWidget(self.dry_btn)
+        self.helper_btn = button("💬 Helper", slot=lambda: self.helper.toggle())
+        self.helper_btn.setProperty("helpdesk_ok", True)
+        self.helper_btn.setToolTip("Ask GAMbit's offline Helper – plain English is fine "
+                                   "(F2)")
+        h.addWidget(self.helper_btn)
         self.hd_btn = button("🔒 Help-desk mode", slot=self.leave_helpdesk)
         self.hd_btn.setToolTip("Destructive actions are hidden. Click to unlock with the PIN.")
         self.hd_btn.setStyleSheet("background:#fff4ce;border-color:#f2d675;")
@@ -198,6 +203,11 @@ class AppActions:
 
     def do_intent(self, it):
         _label, _words, page, tab = it
+        if _label == "Ask the Helper" and hasattr(self, "helper"):
+            self.helper.show()
+            self.helper.ensure_brain()
+            self.helper.input.setFocus()
+            return
         self.go(page)
         p = self.pages.get(page)
         if tab and p is not None:
@@ -277,6 +287,8 @@ class AppActions:
             elif ASSET_RE.match(text) and any(c.isdigit() for c in text) and \
                     any(c in "-_.#" for c in text):
                 self.open_asset(text)
+            elif len(text.split()) >= 3 and hasattr(self, "helper"):
+                self.helper.ask(text)        # a sentence → the Helper understands it best
             else:
                 self.open_builder(text)
         from PySide6.QtCore import QTimer
@@ -896,6 +908,7 @@ class MoreActions:
         sc("Ctrl+.", self.runner.stop)
         sc("F5", self.refresh_everything)
         sc("F1", self.open_guide)
+        sc("F2", lambda: self.helper.toggle())
         sc("Shift+F1", self.show_help)
         b = self.pages.get("Command Builder")
         if b is not None:

@@ -195,3 +195,37 @@ def test_meet_report_times_have_offset():
     assert start.startswith("2026-10-15T00:00:00") and ("+" in start[10:] or "-" in start[10:]
                                                         or start.endswith("Z"))
     json.dumps(a)
+
+
+def test_gam_update_replaces_locked_files(tmp_path, monkeypatch):
+    """WinError 32 while updating GAM: a running gam.exe is renamed out of the way."""
+    import shutil
+    from gambit import updaters
+    src, dst = tmp_path / "new", tmp_path / "GAM7"
+    (src / "lib").mkdir(parents=True)
+    dst.mkdir()
+    (src / "gam.exe").write_text("new exe")
+    (src / "lib" / "x.dll").write_text("new dll")
+    (dst / "gam.exe").write_text("old exe")
+    (dst / "gam.exe.old-1").write_text("left over")
+    real = shutil.copy2
+    locked = {str(dst / "gam.exe")}
+
+    def copy2(s, d, *a, **k):
+        if str(d) in locked:
+            err = OSError(32, "The process cannot access the file because it is being used")
+            err.winerror = 32
+            raise err
+        return real(s, d, *a, **k)
+    monkeypatch.setattr(updaters.shutil, "copy2", copy2)
+
+    def fake_replace(a, b):          # renaming frees the name (as on Windows)
+        os.rename(a, b)
+        locked.discard(a)
+    monkeypatch.setattr(updaters.os, "replace", fake_replace)
+    assert updaters.cleanup_old_files(str(dst)) == 1
+    moved = updaters.copy_tree_replacing(str(src), str(dst), sleep=lambda s: None)
+    assert moved == [str(dst / "gam.exe")]
+    assert (dst / "gam.exe").read_text() == "new exe"
+    assert (dst / "lib" / "x.dll").read_text() == "new dll"
+    assert any(f.startswith("gam.exe.old-") for f in os.listdir(dst))

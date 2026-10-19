@@ -60,6 +60,34 @@ Afterwards run **Tools → Diagnostics** to check every Google service GAMbit us
   dry run for that page. *Hide tips* turns the tips off.
 - **This guide**: press **F1** anywhere, or open **Guide** in the sidebar.
 """),
+    ("helper", "The Helper (offline assistant)", "helper assistant chat ask question plain "
+     "english ai local ai walkthrough walk me through command suggest f2", """
+Click **💬 Helper** in the top bar (or press **F2**). Type the way you'd say it – typos are
+fine.
+
+## What it does
+- **Finds the right place**: “how do I set up a new teacher?” opens the page and lists the
+  steps.
+- **Walks you through a page**: “walk me through roster sync” opens the page and shows one
+  step at a time. *Show me* highlights the button the step talks about.
+- **Writes GAM commands**: “reset jane doe's password”, “who is in the staff group?”,
+  “list Chromebooks not seen in 30 days”. It fills in the people, groups, org units and
+  serials from your directory and asks if something is missing.
+- **Explains a command**: paste one (“what does gam print cros … do?”).
+
+## Nothing runs on its own
+A command is only a suggestion. It runs when you click **Run**, and then goes through the
+same checks as every other button: your GAMbit role, help-desk mode, **Dry run** and
+approvals. Commands that change things ask first. *✔ checked against GAM* means it matches
+GAM's own command reference.
+
+## Local AI (optional)
+Click **⚙** in the Helper. A free AI model can run on this PC to answer open questions in
+its own words. Nothing leaves the computer. It needs a one-time download (about 2 GB, or
+1 GB for the small model) and 8 GB of memory for the standard model. You can also copy the
+files in from another PC, or use Ollama if it's installed. Commands the AI writes are
+checked against GAM too, but read them before you run them.
+"""),
     ("safe", "Trying things safely", "dry run test account practice run preview big change "
      "safe testing", """
 ## Dry run

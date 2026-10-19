@@ -271,7 +271,12 @@ INTENTS = [
      "Policies by org unit", None),
     ("Hand one folder to someone else", "transfer ownership folder claim", "Google Drive",
      "Folder tools"),
+    ("Ask the Helper", "assistant chat ai question help me ask helper", "Guide", None),
     ("Report a problem", "bug crash problem help support", "Diagnostics", None),
+    ("Give someone admin rights", "admin role assign rights privileges make admin delegated",
+     "More services", "Admin roles"),
+    ("Students who haven't signed in lately", "inactive not signed logged in quiet absent "
+     "students login", "Students going quiet", None),
     ("Everything about one staff member", "staff card teacher security summary",
      "Staff card", None),
     ("Are we ready for back to school?", "back to school august readiness start year",
