@@ -93,12 +93,20 @@ def assign_plan(assignments: list[dict], cros: list[dict], users: list[dict],
             attrs += ["assetid", a["asset"]]
             notes.append(f"asset tag → {a['asset']}")
         if opts.get("move_ou", True):
-            school = school_of(u.get("ou", ""), opts.get("student_root", "/Students"),
-                               int(opts.get("school_depth", 1) or 1))
-            if school:
+            from .. import ou_map
+            if ou_map.configured():          # the district's org unit map decides
+                from .assigned_users import target_from_map
+                target = target_from_map(u.get("ou", ""))[0]
+                school = target
+            else:
+                school = school_of(u.get("ou", ""), opts.get("student_root", "/Students"),
+                                   int(opts.get("school_depth", 1) or 1))
                 target = opts.get("ou_template", "/Chromebooks/{school}").replace(
                     "{school}", school)
-                if (dev.get("orgunitpath") or "/").rstrip("/") != target.rstrip("/"):
+            if school:
+                cur = (dev.get("orgunitpath") or "/").rstrip("/").lower()
+                if cur != target.rstrip("/").lower() and \
+                        not cur.startswith(target.rstrip("/").lower() + "/"):
                     attrs += ["ou", target]
                     notes.append(f"{dev.get('orgunitpath') or '/'} → {target}")
         plan.append({"Serial": sn, "Student": u["email"],

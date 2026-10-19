@@ -273,6 +273,21 @@ class SettingsPage(Page):
                                         slot=self._use_proj)))
         lay.addWidget(box)
 
+        # ---- org unit map ----
+        box, form = self.group("Org units & schools")
+        self._admin_only.append(box)
+        form.addRow(_muted("Tell GAMbit which org units hold students, staff, Chromebooks, "
+                           "loaners and repairs, which school each belongs to and which "
+                           "grade. Student lookup, Assigned users, Assignment sync and the "
+                           "Helper use it."))
+        self.oumap_lbl = QLabel("")
+        self.oumap_lbl.setWordWrap(True)
+        form.addRow("Now", self.oumap_lbl)
+        form.addRow("", self.row(button("Set up org units & schools…", "primary",
+                                        self.open_ou_map)))
+        self._oumap_text()
+        lay.addWidget(box)
+
         # ---- cached lists ----
         box, form = self.group("Org units, users and groups")
         form.addRow(_muted("GAMbit keeps a copy of these lists so you can pick from them "
@@ -904,3 +919,22 @@ class SettingsPage(Page):
             return
         QApplication.quit()
         sys.exit(0)
+
+    def _oumap_text(self):
+        from ... import ou_map
+        ou_map.reload()
+        if not ou_map.configured():
+            self.oumap_lbl.setText("Not set up yet – GAMbit assumes students are under "
+                                   "/Students.")
+            return
+        sch = ou_map.schools()
+        self.oumap_lbl.setText(
+            f"Students: {', '.join(ou_map.roots('students')) or '—'} · Staff: "
+            f"{', '.join(ou_map.roots('staff')) or '—'} · Chromebooks: "
+            f"{', '.join(ou_map.roots('devices')) or '—'} · {len(sch)} school(s)")
+
+    def open_ou_map(self):
+        from ..ou_map_dialog import OUMapDialog
+        if OUMapDialog(self, self.app.directory).exec():
+            self._oumap_text()
+            self.app.statusBar().showMessage("Saved the org unit map.", 4000)

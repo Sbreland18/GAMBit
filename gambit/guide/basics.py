@@ -60,6 +60,29 @@ Afterwards run **Tools → Diagnostics** to check every Google service GAMbit us
   dry run for that page. *Hide tips* turns the tips off.
 - **This guide**: press **F1** anywhere, or open **Guide** in the sidebar.
 """),
+    ("oumap", "Org units & schools", "org unit map ou students staff chromebooks devices "
+     "schools grades loaners repairs setup designate which org unit", """
+**Settings & Updates → Org units & schools** tells GAMbit what your org units are.
+
+## Set it up once
+1. Click **✨ Find them for me**. GAMbit guesses from the names: Students, Staff,
+   Chromebooks, Loaners, Repairs, Lost, Former students and staff, Testing, and each
+   school and grade.
+2. Check the tree. **Bold** means it's set on that org unit, gray means it's inherited
+   from the one above.
+3. Fix anything wrong: pick org units, choose *What it is*, type the *School* or *Grade*,
+   then **Apply**. Give a school's Chromebook org unit the **same school name** as its
+   student org unit, even if the org unit is called something else (like HMS).
+4. Check the **Schools** tab, then click **Save**.
+
+## What uses it
+- Student lookup and Assigned users: who counts as a student.
+- Assigned users → *Move it to the student's school org unit*, and Assignment sync: which
+  Chromebook org unit goes with each school. Loaner, repair, lost and testing org units are
+  never moved.
+
+With a team folder, the map is shared with every technician.
+"""),
     ("helper", "The Helper (offline assistant)", "helper assistant chat ask question plain "
      "english ai local ai walkthrough walk me through command suggest f2", """
 Click **💬 Helper** in the top bar (or press **F2**). Type the way you'd say it – typos are

@@ -39,6 +39,13 @@ class AssignSyncTab(ToolTab):
         self.asset.setChecked(bool(o["set_asset"]))
         form.addRow("Assignment list", self.row(self.src, button("Browse…", slot=self._browse),
                                                 stretch=False))
+        from ... import ou_map
+        if ou_map.configured():
+            form.addRow("", QLabel("The org unit map is set up (Settings & Updates → Org units "
+                                   "& schools), so each device's org unit comes from its "
+                                   "student's school there; the three settings below are "
+                                   "only used without a map.", objectName="Muted",
+                                   wordWrap=True))
         form.addRow("Students are under", self.root)
         form.addRow("School = org-unit level", self.depth)
         form.addRow("Device org unit", self.tpl)

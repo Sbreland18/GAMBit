@@ -280,6 +280,14 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                     "up where you left off.")
         elif settings.get("connection/auto_test", True):
             self.test_connection()
+        from .. import ou_map
+        if gam_setup.is_fully_set_up() and not ou_map.configured() and \
+                not settings.get("oumap/reminded", False):
+            settings.set("oumap/reminded", True)
+            self.pages["Home"].show_banner(
+                "Tip: tell GAMbit which org units are students, staff, schools and "
+                "Chromebooks – Settings & Updates → Org units & schools (✨ Find them for me "
+                "does most of it).")
         if gam_setup.is_fully_set_up() and not settings.get("tour/seen", False) \
                 and not settings.get("helpdesk/on", False):
             QTimer.singleShot(1500, self.start_tour)

@@ -59,7 +59,7 @@ class AssignedUsersTab(ToolTab):
         self.blank_only.addItems(["Only where it's blank", "Also replace a different user"])
         self.blank_only.setCurrentIndex(0 if o["blank_only"] else 1)
         self.students = QCheckBox("Only students (the last user must be in a student org "
-                                  "unit – set them on Student lookup)")
+                                  "unit – Settings & Updates → Org units & schools)")
         self.students.setChecked(bool(o["students_only"]))
         self.ignore = QLineEdit(o["ignore"])
         self.ignore.setPlaceholderText("never assign these, e.g. tech*, helpdesk@, "
@@ -116,29 +116,78 @@ class AssignedUsersTab(ToolTab):
                                   "alone)")
         self.m_active.setChecked(bool(m["only_active"]))
         self.m_example = QLabel(objectName="Muted")
+        self.m_example.setWordWrap(True)
         for w in (self.m_depth, self.m_tpl, self.m_root):
             sig = getattr(w, "valueChanged", None) or getattr(w, "textChanged", None) or \
                 getattr(w, "changed", None)
             if sig is not None:
                 sig.connect(self._example)
-        bl.addLayout(self.row(QLabel("Based on"), self.m_who, QLabel("Students are under"),
-                              self.m_root))
-        bl.addLayout(self.row(QLabel("School = org-unit level"), self.m_depth,
-                              QLabel("Device org unit"), self.m_tpl))
+        from PySide6.QtWidgets import QWidget
+        self.m_src = QComboBox()
+        self.m_src.addItem("the org unit map (Settings → Org units & schools)", "map")
+        self.m_src.addItem("a pattern with {school}", "pattern")
+        from ... import ou_map
+        want = m.get("source") or ("map" if ou_map.configured() else "pattern")
+        self.m_src.setCurrentIndex(max(0, self.m_src.findData(want)))
+        self.m_src.currentIndexChanged.connect(self._src_changed)
+        self.m_src.activated.connect(lambda _i: au.save_move_options(
+            {**au.move_options_saved(), "source": self.m_src.currentData()}))
+        self.m_pattern = QWidget()
+        pl = QVBoxLayout(self.m_pattern)
+        pl.setContentsMargins(0, 0, 0, 0)
+        pl.addLayout(self.row(QLabel("Students are under"), self.m_root,
+                              QLabel("School = org-unit level"), self.m_depth))
+        pl.addLayout(self.row(QLabel("Device org unit"), self.m_tpl,
+                              QLabel("{school} is replaced by the student's school name",
+                                     objectName="Muted")))
+        bl.addLayout(self.row(QLabel("Based on"), self.m_who, QLabel("Find the Chromebook org "
+                                                                     "unit from"), self.m_src,
+                              button("Org units & schools…", slot=self._edit_map)))
+        bl.addWidget(self.m_pattern)
         bl.addWidget(self.m_example)
         bl.addLayout(self.row(QLabel("Don't move"), self.m_skip, stretch=False))
         bl.addWidget(self.m_active)
         bl.addWidget(QLabel("The Ignore list and “Last used within” above apply here too. "
-                            "Org units that don't exist yet are skipped, not created.",
-                            objectName="Muted"))
+                            "Org units marked Loaners, Repairs, Lost or Testing in the map are "
+                            "never moved. Org units that don't exist yet are skipped, not "
+                            "created. Devices already inside the right org unit (a cart under "
+                            "the school, say) stay where they are.", objectName="Muted",
+                            wordWrap=True))
         bl.addLayout(self.row(button("Preview moves", slot=self.preview_move),
                               button("Move Chromebooks", "primary", self.apply_move),
                               button("Every morning…", slot=self.schedule_move)))
         self.lay.addWidget(box)
+        self._src_changed()
+
+    def _prefer_map(self):
+        """Use the org unit map once it exists, unless someone picked the pattern."""
+        from ... import ou_map
+        ou_map.reload()
+        if ou_map.configured() and "source" not in au.move_options_saved() and \
+                self.m_src.currentData() != "map":
+            self.m_src.setCurrentIndex(0)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._prefer_map()
         self._example()
+
+    def _src_changed(self, *_a):
+        self.m_pattern.setVisible(self.m_src.currentData() == "pattern")
+        self._example()
+
+    def _edit_map(self):
+        from ..ou_map_dialog import OUMapDialog
+        if OUMapDialog(self, self.directory).exec():
+            self.m_src.setCurrentIndex(0)
+            self._example()
+            if self.devs:
+                self.preview(quiet=True) if getattr(self, "mode", "set") == "set" else \
+                    self.preview_move(quiet=True)
 
     def _move_opts(self) -> dict:
         o = {**au.move_options(), "who": self.m_who.currentData(),
+             "source": self.m_src.currentData(),
              "student_root": self.m_root.path() or "/Students",
              "school_depth": self.m_depth.value(),
              "ou_template": self.m_tpl.text().strip() or "/Chromebooks/{school}",
@@ -148,19 +197,42 @@ class AssignedUsersTab(ToolTab):
             o["scope_ous"] = self.ous.paths()
         elif self.scope.currentData() == "all":
             o["scope_ous"] = []
-        au.save_move_options(o)
+        keep = dict(o)
+        if "source" not in au.move_options_saved():
+            keep.pop("source")     # only remembered once someone picks it themselves
+        au.save_move_options(keep)
         return o
 
     def _example(self, *_a):
+        from ... import ou_map
+        if self.m_src.currentData() == "map":
+            ou_map.reload()
+            if not ou_map.configured():
+                self.m_example.setText("⚠ The org unit map isn't set up yet – click "
+                                       "<b>Org units & schools…</b> (✨ Find them for me does "
+                                       "most of it), or switch to a pattern.")
+                return
+            rows = [r for r in ou_map.summary() if r["Students"]]
+            if not rows:
+                self.m_example.setText("⚠ No school in the map has a student org unit yet.")
+                return
+            self.m_example.setText("Students' Chromebooks go to: " + " · ".join(
+                f"{r['School']} → {r['Chromebooks'] or '⚠ none mapped'}" for r in rows[:6]) +
+                (f" · and {len(rows) - 6} more" if len(rows) > 6 else ""))
+            return
         root = (self.m_root.path() or "/Students").rstrip("/")
         sample = root + "/" + "/".join(["Hancock High School", "9th Grade", "Homeroom"]
                                        [:self.m_depth.value() + 1])
         o = {"student_root": root, "school_depth": self.m_depth.value(),
              "ou_template": self.m_tpl.text().strip() or "/Chromebooks/{school}"}
+        warn = "" if "{school}" in o["ou_template"] else (
+            " ⚠ There's no {school} in the device org unit, so every Chromebook would go to "
+            "that one org unit.")
         self.m_example.setText(f"Example: a student in {sample} → the Chromebook moves to "
-                               f"{au.target_for(sample, o) or '(no school found)'}")
+                               f"{au.target_for(sample, o) or '(no school found)'}.{warn}")
 
     def preview_move(self, quiet=False):
+        self._prefer_map()
         if not self.devs:
             if not quiet:
                 self.info("Load the Chromebooks first.")
@@ -259,7 +331,8 @@ class AssignedUsersTab(ToolTab):
         from .lookup_page import student_ous
         self.mode = "set"
         users = self.directory.users or []
-        self.rows = au.plan_set(self.devs, users, student_ous(), self._opts())
+        self.rows = au.plan_set(self.devs, users, student_ous(self.directory.ous),
+                                self._opts())
         self.table.set_rows(COLS, [[r["serial"], r["asset"], r["ou"], r["assigned"], r["last"],
                                     r["last_day"] or r["last_sync"][:10], r["plan"], r["why"],
                                     r["deviceId"]] for r in self.rows])

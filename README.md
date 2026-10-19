@@ -771,6 +771,18 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Org units & schools (Settings & Updates):** a district org unit map. Each org unit is marked Students, Staff, Chromebooks/devices, Loaners, Repairs, Lost, Former students, Former staff, Testing or Other, with an optional School and Grade. Everything below a marked org unit inherits from it. *✨ Find them for me* guesses from the names:
+  - top-level kinds;
+  - schools under students, staff and devices, matched across names, fuzzy matches and initials (HMS → Hancock Middle School);
+  - grades (9th Grade, Grade 10, K, Pre-K, Class of 2031, Seniors).
+
+  The Schools tab checks that each school has its student, staff and Chromebook org units. The map is shared through the team folder. Student lookup, Assigned users (students only, and moves), Assignment sync and Home use it. Without a map, GAMbit guesses the student org unit from the top-level names (/StudentAccounts) instead of assuming /Students.
+- **Fixes:**
+  - Assigned users said real students "aren't a student". It used Student lookup's default /Students; it now uses the map or the guess.
+  - The device org unit for moves now comes from the map, so a school's Chromebook org unit can have a different name. The pattern option is still there and warns when it has no `{school}`.
+  - Devices already inside the right school's org unit (a cart sub-OU, say) stay put.
+  - Loaner, repair, lost and testing org units are never moved.
+
 - **Chromebook fleet → Assigned users:** blank the Assigned user field, or set it to the person who last signed in. Choose all Chromebooks, org units, serials or asset IDs. *Preview* shows a Plan and a Why for each device. Filters: only fill blanks or also replace, students only (Student lookup's student org units), an ignore list such as `tech*`, and last used within N days. People outside the district are skipped. Old values are saved to a CSV before any change (in fleet/assigned-user-backups), and *Undo last change* restores them. It runs as `gam cros <ids> update user ""` (200 devices per command) and `gam cros <id> update user <email>`, through approvals and dry run. The Helper understands "clear the assigned user on 5CD…" and "assign chromebook 5CD… to mary jones".
 - **Chromebooks follow their student's school:** in the same tab, *Move it to the student's school org unit* uses the student who last signed in (or the assigned user). For example, a student in `/Students/Hancock High School/9th Grade` → the device moves to `/Chromebooks/Hancock High School`. You set the school level and the device org-unit pattern (`/Chromebooks/{school}`), and both `\` and `/` work. It skips staff, the ignore list, disabled devices, "Don't move" org units (loaners, repairs, lost) and org units that don't exist yet. *Every morning…* schedules it (the `--task devicemove` background task, 5:50 AM). That task stops if there are unusually many moves, and it saves a backup each run. Moves are batched per target org unit (`gam cros <ids> update ou <ou>`), and *Undo last change* moves the devices back.
 - **Several Chromebooks at once:** on Chromebooks → Find / list devices (Asset ID or Search text) and One device → Find by asset ID, type or paste several values separated by commas, spaces or new lines, like `HS0116, HS0189`. GAMbit sends them as one GAM `queries` search.

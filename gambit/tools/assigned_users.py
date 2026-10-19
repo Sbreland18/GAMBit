@@ -117,6 +117,14 @@ def is_student_ou(ou: str, roots: list[str]) -> bool:
 
 
 # =================================================================== plans ===
+def _student(ou: str, student_roots: list[str] | None) -> bool:
+    """The org unit map decides when it's set up; otherwise the given student roots."""
+    from .. import ou_map
+    if ou_map.configured() and ou_map.roots("students"):
+        return ou_map.is_student(ou)
+    return is_student_ou(ou, student_roots or ou_map.student_roots())
+
+
 def plan_set(devs: list[dict], users: list[dict], student_roots: list[str], o: dict,
              today: datetime.date | None = None) -> list[dict]:
     """Each device with Plan = Set / Same / Skip and Why.
@@ -140,9 +148,11 @@ def plan_set(devs: list[dict], users: list[dict], student_roots: list[str], o: d
             plan, why = "Skip", f"{last} is on the ignore list"
         elif by_email and last.lower() not in by_email:
             plan, why = "Skip", f"{last} isn't one of the district's accounts"
-        elif o.get("students_only") and by_email and not is_student_ou(
+        elif o.get("students_only") and by_email and not _student(
                 by_email[last.lower()].get("ou", ""), student_roots):
-            plan, why = "Skip", f"{last} isn't a student ({by_email[last.lower()].get('ou')})"
+            plan, why = "Skip", (f"{last} isn't in a student org unit "
+                                 f"({by_email[last.lower()].get('ou')}) – see Settings & "
+                                 "Updates → Org units & schools")
         elif o.get("max_days") and age is not None and age > int(o["max_days"]):
             plan, why = "Skip", f"last used {age} days ago"
         elif cur:
@@ -248,6 +258,13 @@ def move_options() -> dict:
             "scope_ous": [], **o}
 
 
+def move_options_saved() -> dict:
+    try:
+        return json.loads(settings.get("assigned/move", "{}") or "{}")
+    except ValueError:
+        return {}
+
+
 def save_move_options(o: dict):
     settings.set("assigned/move", json.dumps(o))
 
@@ -275,6 +292,25 @@ def target_for(user_ou: str, o: dict) -> str:
     return _path(o.get("ou_template", "/Chromebooks/{school}").replace("{school}", school))
 
 
+def use_map(o: dict) -> bool:
+    from .. import ou_map
+    return o.get("source", "map") == "map" and ou_map.configured()
+
+
+def target_from_map(user_ou: str) -> tuple[str, str]:
+    """(device org unit, reason when there isn't one) from the org unit map."""
+    from .. import ou_map
+    if not ou_map.is_student(user_ou):
+        return "", "not in a student org unit"
+    school = ou_map.school_of(user_ou)
+    if not school:
+        return "", "their org unit has no school in the org unit map"
+    dev = ou_map.device_ou_for(school)
+    if not dev:
+        return "", f"no Chromebook org unit is mapped for {school}"
+    return dev, ""
+
+
 def plan_move(devs: list[dict], users: list[dict], o: dict, ous: list[str] | None = None,
               today: datetime.date | None = None) -> list[dict]:
     """Each device with Plan = Move / Same / Skip, Why and Move to."""
@@ -283,31 +319,44 @@ def plan_move(devs: list[dict], users: list[dict], o: dict, ous: list[str] | Non
     known = {_path(x).lower() for x in ous or []}
     skip_ous = [x.strip() for x in (o.get("skip_ous") or "").replace(";", ",").split(",")
                 if x.strip()]
+    from .. import ou_map
+    mapped = use_map(o)
+    protect = {"loaners": "a loaner", "repairs": "a repair", "lost": "a lost / disabled",
+               "test": "a testing"}
     out = []
     for d in devs:
         who = d["assigned"] if o.get("who") == "assigned" else d["last"]
-        plan, why, target = "Move", "", ""
+        kind = ou_map.classify(d["ou"])["type"] if mapped else ""
         u = by_email.get((who or "").lower())
+        if u and mapped:
+            target, reason = target_from_map(u.get("ou", ""))
+        else:
+            target, reason = (target_for(u.get("ou", ""), o) if u else ""), ""
+        plan, why = "Move", ""
         age = _age_days(d, today)
         if not who or "@" not in who:
             plan, why = "Skip", ("no assigned user" if o.get("who") == "assigned" else
                                  "no signed-in user reported")
         elif skip_ous and _under(d["ou"], skip_ous):
             plan, why = "Skip", f"{d['ou']} is on the don't-move list"
+        elif kind in protect:
+            plan, why = "Skip", f"{d['ou']} is {protect[kind]} org unit"
         elif o.get("only_active", True) and d.get("status") and d["status"] != "ACTIVE":
             plan, why = "Skip", f"device is {d['status'].lower()}"
         elif _ignored(who, o.get("ignore", "")):
             plan, why = "Skip", f"{who} is on the ignore list"
         elif not u:
             plan, why = "Skip", f"{who} isn't in the people list"
-        elif not (target := target_for(u.get("ou", ""), o)):
-            plan, why = "Skip", f"{who} isn't a student under {o.get('student_root')} " \
-                f"({u.get('ou') or '?'})"
+        elif not target:
+            plan, why = "Skip", (f"{who}: {reason} ({u.get('ou') or '?'})" if mapped else
+                                 f"{who} isn't a student under {o.get('student_root')} "
+                                 f"({u.get('ou') or '?'})")
         elif o.get("max_days") and o.get("who") != "assigned" and age is not None \
                 and age > int(o["max_days"]):
             plan, why = "Skip", f"last used {age} days ago"
-        elif _path(d["ou"]).lower() == target.lower():
-            plan, why = "Same", "already in the right org unit"
+        elif _under(d["ou"], [target]):
+            plan, why = "Same", ("already in the right org unit" if _path(d["ou"]).lower()
+                                 == target.lower() else f"already inside {target}")
         elif known and target.lower() not in known:
             plan, why = "Skip", f"org unit {target} doesn't exist – create it on Org units"
         else:

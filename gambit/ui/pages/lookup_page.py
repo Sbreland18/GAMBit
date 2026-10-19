@@ -17,12 +17,9 @@ from ..pickers import PersonField
 from ..widgets import Page, ResultsTable, button
 
 
-def student_ous() -> list[str]:
-    try:
-        v = json.loads(settings.get("lookup/student_ous", "") or "[]")
-    except ValueError:
-        v = []
-    return [p for p in v if isinstance(p, str) and p] or ["/Students"]
+def student_ous(ous: list[str] | None = None) -> list[str]:
+    from ... import ou_map
+    return ou_map.student_roots(ous)
 
 
 def is_student_ou(ou: str, roots: list[str]) -> bool:
@@ -48,10 +45,17 @@ class LookupPage(Page):
         self.body.addLayout(self.row(self.who, button("Look up", "primary", self.lookup),
                                      button("☆ Favorite", slot=lambda: self.app.add_favorite(
                                          self.who.email())), self.everyone, stretch=False))
+        from ... import ou_map
         self.ous = OUMultiField(self.directory)
-        self.ous.set_paths(student_ous())
-        self.body.addLayout(self.row(QLabel("Students are in"), self.ous,
-                                     button("Save", slot=self._save_ous), stretch=False))
+        self.ous.set_paths(student_ous(self.directory.ous))
+        if ou_map.configured():
+            self.body.addWidget(QLabel("Students are in: " + ", ".join(student_ous()) +
+                                       " (from Settings & Updates → Org units & schools)",
+                                       objectName="Muted"))
+        else:
+            self.body.addLayout(self.row(QLabel("Students are in"), self.ous,
+                                         button("Save", slot=self._save_ous),
+                                         stretch=False))
         self.card = QLabel("")
         self.card.setWordWrap(True)
         self.card.setStyleSheet("font-size:11pt;")
@@ -86,7 +90,8 @@ class LookupPage(Page):
         self.body.addWidget(w, 1)
 
     def _is_student(self, u: dict) -> bool:
-        return is_student_ou(u.get("ou", ""), student_ous())
+        from ... import ou_map
+        return ou_map.is_student(u.get("ou", ""), self.directory.ous)
 
     def _save_ous(self, *_):
         paths = [p for p in self.ous.paths() if p]
@@ -118,8 +123,9 @@ class LookupPage(Page):
                 self.card.setText(f"<b>{e}</b> wasn't found in Google.")
                 return
             r = {k.lower(): v for k, v in rows[0].items()}
-            if not self.everyone.isChecked() and not is_student_ou(
-                    r.get("orgunitpath", ""), student_ous()):
+            from ... import ou_map
+            if not self.everyone.isChecked() and not ou_map.is_student(
+                    r.get("orgunitpath", ""), self.directory.ous):
                 self.card.setText(f"<b>{e}</b> isn't in a student org unit "
                                   f"({r.get('orgunitpath', '/')}). Tick <i>Include staff</i> "
                                   "to look up staff here, or use the Staff card page.")
