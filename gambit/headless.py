@@ -139,7 +139,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="GAMbit", add_help=True)
     ap.add_argument("--task", required=True, choices=["sync", "daily", "requests", "groups", "digest",
                                                    "signatures", "guardians", "settingswatch",
-                                                   "devicesync", "cleanup", "watchdog",
+                                                   "devicesync", "devicemove", "cleanup", "watchdog",
                                                    "schoolreports", "mismatch", "auditreport",
                                                    "teacherlists", "scorecard", "timemachine",
                                                    "questions", "leadersheet", "campaign2sv",
@@ -181,6 +181,9 @@ def main(argv=None) -> int:
         if args.task == "devicesync":
             from .tools import automation
             return automation.run_assign_sync(log=log)
+        if args.task == "devicemove":
+            from .tools import assigned_users
+            return assigned_users.run_move_task(log=log)
         if args.task == "cleanup":
             from .tools import automation
             automation.run_cleanup(log=log)

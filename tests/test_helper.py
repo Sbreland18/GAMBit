@@ -253,3 +253,25 @@ def test_chromebook_search_splits_lists():
     assert split_items("HS0116\nHS0189;HS0116") == ["HS0116", "HS0189"]
     assert split_items("Cart 3") == ["Cart 3"]
     assert query_args(["status:ACTIVE model:x"]) == ["query", "status:ACTIVE model:x"]
+
+
+def test_assigned_user_requests(b):
+    assert cmd(b.respond("clear the assigned user on 5CD123ABC")) == \
+        "cros_sn 5CD123ABC update user "
+    assert cmd(b.respond("assign chromebook 5CD123ABC to mary jones")) == \
+        "cros_sn 5CD123ABC update user mjones@hancockschools.net"
+    for q in ("make all chromebook assigned users blank",
+              "pull the last logged in user and make it the assigned user"):
+        b.pending = None
+        a = b.respond(q)
+        assert not a.suggestions and a.links[0].tab == "Assigned users", q
+
+
+def test_move_by_student_school_question(b):
+    for q in ("Is it possible for example if a student in orgunit Students\\Hancock High "
+              "School\\9th Grade logged into a chromebook, that it would move that chromebook "
+              "to the org unit Chromebooks\\Hancock High School\\",
+              "if a 9th grader logs into a chromebook move it to the high school chromebook ou"):
+        b.pending = None
+        a = b.respond(q)
+        assert not a.suggestions and a.links[0].tab == "Assigned users", q

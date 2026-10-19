@@ -62,6 +62,9 @@ class FleetPage(Page):
         from .automation_tabs import AssignSyncTab
         self.assign_tab = AssignSyncTab(self)
         self.tabs.addTab(self.assign_tab, "Assignment sync")
+        from .round19_tabs import AssignedUsersTab
+        self.assigned_tab = AssignedUsersTab(self)
+        self.tabs.addTab(self.assigned_tab, "Assigned users")
         from .insight_pages import WithdrawnDevicesTab
         self.withdrawn_tab = WithdrawnDevicesTab(self)
         self.tabs.addTab(self.withdrawn_tab, "Withdrawn students' devices")

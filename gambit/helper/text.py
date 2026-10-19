@@ -8,6 +8,7 @@ import difflib
 import re
 
 STOP = set("""a an the to for of on in at by with from and or but is are was were be been am
+possible possibly example instance say wondering wonder
 do does did doing i me my we our you your it its this that these those there here what which
 who whom how can could would should will shall may might please pls plz just want need like
 get got make let lets help some any all into about up out so if then than also too very
@@ -119,6 +120,9 @@ def stem(w: str) -> str:
             base = w[: -len(suf)]
             if suf in ("ies", "ied"):
                 base += "y"
+            elif suf in ("ing", "ed") and len(base) >= 4 and base[-1] == base[-2] and \
+                    base[-1] not in "aeiouls":
+                base = base[:-1]          # logged → log, mapped → map (not "fill", "pass")
             return base
     return w
 

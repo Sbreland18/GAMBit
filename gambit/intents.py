@@ -100,6 +100,13 @@ INTENTS = [
     ("Approve requests by email", "approve phone email approval", "Approvals", None),
     ("Build my own workflow", "custom workflow my workflows template steps chain",
      "Workflows", "My workflows"),
+    ("Clear Chromebook assigned users", "blank clear remove empty erase all every assigned user "
+     "annotated user chromebook", "Chromebook fleet", "Assigned users"),
+    ("Make the last signed-in user the assigned user", "last user recent user logged in "
+     "signed in assign assigned user chromebook", "Chromebook fleet", "Assigned users"),
+    ("Move Chromebooks to the school of the student using them", "move chromebook org unit "
+     "ou school student logs logged login signs signed in last user follow grade grader", "Chromebook fleet",
+     "Assigned users"),
     ("Sync Chromebook assignments", "assign assignment chromebook student device sync",
      "Chromebook fleet", "Assignment sync"),
     ("Clean up inactive accounts", "cleanup clean up inactive stale suspend delete old "

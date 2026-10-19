@@ -324,6 +324,20 @@ def _recipes() -> list[Recipe]:
             f"Re-enable Chromebook {', '.join(s.serials)}",
             ["cros_sn", ",".join(s.serials), "update", "action", "reenable"],
             "Unlocks a disabled Chromebook."), True, "Chromebooks"),
+        R("cros_clear_user", [{"assign", "assigned", "assignment"}, {"clear", "blank", "remove", "empty", "delete",
+                                           "erase"}], ["serial"], lambda s: (
+            f"Blank the assigned user on {', '.join(s.serials)}",
+            ["cros_sn", ",".join(s.serials), "update", "user", ""],
+            "Empties the Assigned user field. It doesn't remove profiles or wipe the device."),
+          True, "Chromebook fleet", "Assigned users",
+          avoid={"all", "every", "last", "recent", "everything"}),
+        R("cros_set_user", [{"assign", "assigned"}, {"chromebook", "serial", "device"}],
+          ["serial", "user"], lambda s: (
+            f"Assign {', '.join(s.serials)} to {U(s)}",
+            ["cros_sn", ",".join(s.serials), "update", "user", U(s)],
+            "Sets the Chromebook's Assigned user field."), True, "Chromebook fleet",
+          "Assigned users", avoid={"clear", "blank", "remove", "empty", "last", "recent",
+                                   "all", "every", "sync", "erase"}),
         R("cros_move", [{"chromebook"}, {"move"}], ["serial", "ou"], lambda s: (
             f"Move Chromebook {', '.join(s.serials)} to {s.ous[0]}",
             ["cros_sn", ",".join(s.serials), "update", "ou", s.ous[0]],

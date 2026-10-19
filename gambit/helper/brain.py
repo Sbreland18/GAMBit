@@ -14,7 +14,7 @@ from .knowledge import Doc, Knowledge
 ACTION_WORDS = {"reset", "suspend", "unsuspend", "enable", "disable", "move", "transfer",
                 "signout", "add", "remove", "delete", "create", "list", "find", "info",
                 "command", "member", "forward", "delegate", "vacation", "2sv", "alias",
-                "transfer", "aue", "inactive"}
+                "transfer", "aue", "inactive", "clear", "blank", "assign"}
 CONTROL = {"howto", "walk", "explain", "command", "tell", "know", "use", "using", "work",
            "works", "doe"}
 HELLO = {"hi", "hello", "hey", "howdy", "morning", "afternoon", "yo"}
@@ -132,6 +132,23 @@ class Brain:
 
         # 5. a GAM command recipe
         ranked = hc.rank(words, slots)
+        raw_words = set(re.findall(r"[a-z]+", text.lower()))   # "all"/"every" are stop words
+        kept = [x for x in ranked if not (x[1].avoid & raw_words)]
+        bulk = bool(raw_words & {"all", "every", "each", "everything", "everyone"})
+        if len(kept) < len(ranked) or bulk:  # ruled out, or a whole-fleet job – don't settle
+            kept = [x for x in kept if x[0] > 0]
+        ranked = kept
+        if ranked and ranked[0][1].id.startswith("cros") and hc.missing(ranked[0][1], slots):
+            # the recipe is missing details – if the Guide clearly points somewhere else
+            # (a whole-fleet tool, say), that's the better answer
+            gterms = [t for t in terms if t not in CONTROL] or terms
+            r0 = ranked[0][1]
+            for gs, gd in self.k.search(gterms, limit=2):
+                cov = self._coverage(gterms, gd)
+                if gd.kind in ("task", "tab") and gd.page != r0.page and \
+                        ((gs >= 12 and cov >= 0.7) or (gs >= 25 and cov >= 0.45)):
+                    ranked = []
+                    break
         how = "howto" in words or "walk" in words
         want_cmd = bool(words & ACTION_WORDS) or "command" in words or (
             bool(ranked) and not hc.missing(ranked[0][1], slots) and not how)

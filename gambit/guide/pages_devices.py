@@ -22,7 +22,7 @@ PAGES = {
     "Chromebook fleet": dict(
         what="Everything for the whole fleet: carts and classrooms, bulk updates, summer "
              "collection, end-of-updates planning, loaners, repairs, labels, health, apps, "
-             "printers, OS versions, assignment sync, withdrawn students' devices, device "
+             "printers, OS versions, assignment sync, assigned users, withdrawn students' devices, device "
              "history, lost & stolen, and redistribution.",
         steps=["Click **Load Chromebooks** once; most tabs use that list.",
                "Pick the tab for the job – each tab starts with a short explanation."],
@@ -43,6 +43,17 @@ PAGES = {
             "Repairs": "Repair tickets with status history; the device's notes show IN "
                        "REPAIR. Can open help-desk tickets.",
             "Labels": "Print asset labels with Code 39 barcodes.",
+            "Assigned users": "Blank the Assigned user field (all Chromebooks, org units, "
+                              "serials or asset IDs), or set it to the person who last "
+                              "signed in. *Preview* shows the plan; filters keep teachers "
+                              "and technicians out (students only, ignore list, last used "
+                              "within N days, only fill blanks). Old values are saved "
+                              "first and *Undo last change* restores them. *Move it to the "
+                              "student's school org unit*: a student in /Students/Hancock "
+                              "High School/9th Grade signs in → the Chromebook moves to "
+                              "/Chromebooks/Hancock High School (school level and device "
+                              "org unit pattern are settings). *Don't move* protects loaner, "
+                              "repair and lost org units; *Every morning…* runs it daily.",
             "Lost & stolen": "Look up the serial, then *Mark it*: disables the device, notes "
                              "it, can move it to a lost org unit, opens a ticket and writes a "
                              "one-page report for police or insurance. *It's been found* "
