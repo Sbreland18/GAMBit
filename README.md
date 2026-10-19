@@ -771,6 +771,8 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Several Chromebooks at once:** on Chromebooks → Find / list devices (Asset ID or Search text) and One device → Find by asset ID, type or paste several values separated by commas, spaces or new lines, like `HS0116, HS0189`. GAMbit sends them as one GAM `queries` search.
+
 Click **💬 Helper** in the top bar or press **F2**. A sentence typed into the top search box
 goes to the Helper too.
 

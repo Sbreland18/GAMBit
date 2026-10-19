@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QLabel, QLineEdit, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
@@ -42,6 +44,29 @@ def asset_query(asset: str) -> str:
     """Admin console search for an asset ID (quoted so spaces and dashes work)."""
     a = (asset or "").strip().replace('"', "")
     return f'asset_id:"{a}"' if any(c in a for c in " :") else f"asset_id:{a}"
+
+
+def split_items(text: str, ids: bool = True) -> list[str]:
+    """Several values typed or pasted into one box: split on commas, semicolons and new lines.
+    For IDs (asset tags, serials) a space-separated list works too, when every piece has a
+    digit in it (so an asset ID like "Cart 3" with one space still stays whole)."""
+    t = (text or "").strip()
+    if re.search(r"[,;\n\t]", t):
+        parts = re.split(r"[,;\n\t]+", t)
+    elif ids and " " in t and all(any(c.isdigit() for c in p) for p in t.split()) \
+            and len(t.split()) > 1 and not re.fullmatch(r"\S+ \d+", t):
+        parts = t.split()
+    else:
+        parts = [t]
+    return list(dict.fromkeys(p.strip() for p in parts if p.strip()))
+
+
+def query_args(queries: list[str]) -> list[str]:
+    """`query X` for one search, `queries "X","Y"` for several (GAM runs each and merges)."""
+    if len(queries) == 1:
+        return ["query", queries[0]]
+    return ["queries", ",".join(q if "," not in q and '"' not in q else
+                                "'" + q.replace("'", "") + "'" for q in queries)]
 
 
 def shape_rows(rows: list[dict]) -> tuple[list[str], list[list[str]]]:
@@ -94,7 +119,8 @@ class DevicesPage(Page):
         form.addRow("Serial number", self.row(
             self.sn, button("Show info", "primary", self.cros_info),
             button("Last signed-in user", slot=self.last_user), stretch=False))
-        self.find_asset = QLineEdit(placeholderText="Asset ID / tag, e.g. HMS-01234")
+        self.find_asset = QLineEdit(placeholderText="Asset ID / tag, e.g. HMS-01234 (or several, "
+                                                    "comma separated)")
         self.find_asset.returnPressed.connect(self.by_asset)
         form.addRow("…or asset ID", self.row(self.find_asset,
                                              button("Find by asset ID", slot=self.by_asset),
@@ -154,11 +180,9 @@ class DevicesPage(Page):
             import io
             rows = list(csv.DictReader(io.StringIO(out or "")))
             if code != 0 or not rows:
-                if "," not in s:          # maybe it was an asset ID, not a serial
-                    self.find_asset.setText(s)
-                    self.by_asset()
-                    return
-                self.last.setText("Couldn't find that device.")
+                # maybe they were asset IDs, not serials
+                self.find_asset.setText(s)
+                self.by_asset()
                 return
             lines = []
             for r in rows:
@@ -189,6 +213,9 @@ class DevicesPage(Page):
             if not sns:
                 self.last.setText(f"No Chromebook has asset ID <b>{a}</b>.")
                 return
+            wanted = split_items(a)
+            found = {(r.get("annotatedAssetId") or "").lower() for r in rows}
+            missing = [x for x in wanted if x.lower() not in found]
             self.sn.setText(",".join(sns))
             self.last.setText("<br>".join(
                 f"Asset ID <b>{r.get('annotatedAssetId', '')}</b> → serial "
@@ -196,10 +223,11 @@ class DevicesPage(Page):
                 f"{r.get('orgUnitPath', '')}" + (f" · assigned to {r['annotatedUser']}"
                                                  if r.get("annotatedUser") else "")
                 for r in rows) + ("<br>More than one device has this asset ID – check "
-                                  "which one you mean." if len(rows) > 1 else ""))
-        self.run(["print", "cros", "query", asset_query(a), "fields",
-                  "serialnumber,annotatedassetid,annotateduser,status,orgunitpath"], done,
-                 quiet=True)
+                                  "which one you mean." if len(rows) > len(wanted) else "") +
+                (f"<br>Not found: <b>{', '.join(missing)}</b>" if missing else ""))
+        self.run(["print", "cros", *query_args([asset_query(x) for x in split_items(a)]),
+                  "fields", "serialnumber,annotatedassetid,annotateduser,status,orgunitpath"],
+                 done, quiet=True)
 
     def move(self):
         if (s := self._serials()) and self.need(("an OU path", self.ou)):
@@ -253,12 +281,14 @@ class DevicesPage(Page):
         self.l_mode = QComboBox()
         self.l_mode.addItems(["In org unit(s)", "Search text",
                               "Not synced in 30+ days", "All devices", "Asset ID"])
-        self.l_val = QLineEdit(placeholderText="serial, user, asset id…")
+        self.l_val = QLineEdit(placeholderText="serial, user, asset id… (separate several with "
+                                                "commas)")
         self.l_ous = OUMultiField(self.directory)
         self.l_mode.currentIndexChanged.connect(
             lambda i: (self.l_val.setVisible(i in (1, 4)), self.l_ous.setVisible(i == 0),
-                       self.l_val.setPlaceholderText("asset ID, e.g. HMS-01234" if i == 4
-                                                     else "serial, user, asset id…")))
+                       self.l_val.setPlaceholderText(
+                           "asset IDs, e.g. HS0116, HS0189" if i == 4 else
+                           "serial, user, asset id… (separate several with commas)")))
         self.l_val.setVisible(False)
         form.addRow("Show", self.row(self.l_mode, self.l_val, self.l_ous, stretch=False))
         form.addRow("", self.row(button("Search", "primary", self.list_devices),
@@ -299,9 +329,9 @@ class DevicesPage(Page):
             if not v:
                 self.info("Type the asset ID.")
                 return
-            args += ["query", asset_query(v)]
+            args += query_args([asset_query(x) for x in split_items(v)])
         elif i == 1 and v:
-            args += ["query", v]
+            args += query_args(split_items(v, ids=False))
         elif i == 2:
             args += ["querytime1", "-30d", "query", "sync:..#querytime1#"]
         args += ["fields", CROS_FIELDS + LAST_USER_FIELDS,

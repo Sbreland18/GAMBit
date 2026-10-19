@@ -160,6 +160,10 @@ def extract(text: str, users: list[dict], groups: list[dict], ous: list[str],
                  re.fullmatch(r"\d+", x)]
     s.assets = [x for x in ASSET.findall(text or "") if x.upper() not in s.serials and
                 "-" in x]
+    if re.search(r"\basset|\btags?\b", low):
+        # "asset HS0116, HS0189" – the ones that look like serials are really asset IDs
+        s.assets = list(dict.fromkeys(s.assets + [x for x in s.serials if ASSET.fullmatch(x)]))
+        s.serials = [x for x in s.serials if x not in s.assets]
     m = DAYS.search(low)
     if m:
         n, unit = int(m.group(1)), m.group(2).lower()
@@ -312,17 +316,17 @@ def _recipes() -> list[Recipe]:
                      "in the background; it can take hours for big drives)."), True,
           "Workflows", "Staff leaving"),
         R("cros_disable", [{"chromebook"}, {"disable", "suspend"}], ["serial"], lambda s: (
-            f"Disable Chromebook {s.serials[0]}",
-            ["cros_sn", s.serials[0], "update", "action", "disable"],
+            f"Disable Chromebook {', '.join(s.serials)}",
+            ["cros_sn", ",".join(s.serials), "update", "action", "disable"],
             "Locks the Chromebook with a 'return this device' screen until it's re-enabled."),
           True, "Chromebooks", avoid={"enable", "unsuspend"}),
         R("cros_enable", [{"chromebook"}, {"enable", "unsuspend"}], ["serial"], lambda s: (
-            f"Re-enable Chromebook {s.serials[0]}",
-            ["cros_sn", s.serials[0], "update", "action", "reenable"],
+            f"Re-enable Chromebook {', '.join(s.serials)}",
+            ["cros_sn", ",".join(s.serials), "update", "action", "reenable"],
             "Unlocks a disabled Chromebook."), True, "Chromebooks"),
         R("cros_move", [{"chromebook"}, {"move"}], ["serial", "ou"], lambda s: (
-            f"Move Chromebook {s.serials[0]} to {s.ous[0]}",
-            ["cros_sn", s.serials[0], "update", "ou", s.ous[0]],
+            f"Move Chromebook {', '.join(s.serials)} to {s.ous[0]}",
+            ["cros_sn", ",".join(s.serials), "update", "ou", s.ous[0]],
             "Moves the device so that org unit's Chrome policies apply."), True,
           "Chromebooks"),
         R("cros_stale", [{"chromebook"}, {"sync", "inactive"}], ["days"], lambda s: (
@@ -337,13 +341,15 @@ def _recipes() -> list[Recipe]:
             "Lists Chromebooks assigned to or recently used by them."), False,
           "Chromebooks", avoid={"move", "disable", "enable"}),
         R("cros_info", [{"chromebook", "serial", "asset"}], ["serial"], lambda s: (
-            f"Details for Chromebook {s.serials[0]}",
-            ["info", "cros", "cros_sn", s.serials[0]],
+            f"Details for Chromebook {', '.join(s.serials)}",
+            ["info", "cros", "cros_sn", ",".join(s.serials)],
             "Shows its user, org unit, OS version, last check-in and more."), False,
           "Chromebooks", avoid={"move", "disable", "enable"}),
         R("cros_asset", [{"chromebook", "asset", "find", "info"}], ["asset"], lambda s: (
-            f"Find the Chromebook with asset ID {s.assets[0]}",
-            ["print", "cros", "query", f"asset_id:{s.assets[0]}", "fields", CROS_FIELDS],
+            f"Find the Chromebook with asset ID {', '.join(s.assets)}",
+            ["print", "cros", *(["query", f"asset_id:{s.assets[0]}"] if len(s.assets) == 1 else
+                                ["queries", ",".join(f"asset_id:{a}" for a in s.assets)]),
+             "fields", CROS_FIELDS],
             "Looks the device up by its asset tag."), False, "Chromebooks"),
         R("cros_in_ou", [{"chromebook"}, {"list", "find", "ou", "info"}], ["ou"], lambda s: (
             f"Chromebooks in {s.ous[0]}",

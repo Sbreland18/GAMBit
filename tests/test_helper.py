@@ -236,3 +236,20 @@ def test_help_and_thanks_during_a_follow_up(b):
     b.respond("create a group called robotics club")
     assert "three ways" in b.respond("help").text
     assert "welcome" in b.respond("thanks").text
+
+
+def test_several_asset_ids_and_serials(b):
+    c = cmd(b.respond("find chromebooks with asset HS0116, HS0189"))
+    assert "queries asset_id:HS0116,asset_id:HS0189" in c
+    assert "asset_id:HS0116" in cmd(b.respond("whats the serial for asset tag HS0116"))
+    assert "cros_sn 5CD123ABC,5CD999XYZ" in cmd(b.respond("disable chromebooks 5CD123ABC,5CD999XYZ"))
+
+
+def test_chromebook_search_splits_lists():
+    from gambit.ui.pages.devices import asset_query, query_args, split_items
+    assert query_args([asset_query(x) for x in split_items("HS0116,HS0189")]) == \
+        ["queries", "asset_id:HS0116,asset_id:HS0189"]
+    assert split_items("HS0116 HS0189") == ["HS0116", "HS0189"]
+    assert split_items("HS0116\nHS0189;HS0116") == ["HS0116", "HS0189"]
+    assert split_items("Cart 3") == ["Cart 3"]
+    assert query_args(["status:ACTIVE model:x"]) == ["query", "status:ACTIVE model:x"]
