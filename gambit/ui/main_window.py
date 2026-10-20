@@ -36,7 +36,6 @@ from .pages.approvals import ApprovalsPage
 from .pages.diagnostics_page import DiagnosticsPage
 from .pages.livetest_page import LiveTestPage
 from .pages.schedules_page import SchedulesPage
-from .pages.tasks_page import TasksPage
 from .pages.fleet_page import FleetPage
 from .pages.compliance_page import CompliancePage
 from .pages.investigations_page import InvestigationsPage
@@ -62,7 +61,6 @@ from .pages.timeline_page import TimelinePage
 from .pages.lookup_page import LookupPage
 from .pages.builder import BuilderPage
 from .pages.rostersync import RosterSyncPage
-from .pages.scheduled import ScheduledPage
 from .pages.services import ServicesPage
 from .widgets import button
 
@@ -105,10 +103,9 @@ NAV = [
     ("Activity log", ActivityPage),
     "AUTOMATION",
     ("Approvals", ApprovalsPage), ("Ticket queue", TicketQueuePage),
-    ("Scheduled jobs", ScheduledPage), ("Run later & freezes", ChangeCalendarPage),
+    ("Run later & freezes", ChangeCalendarPage),
     ("Stale content", StaleContentPage),
-    ("Schedules", SchedulesPage), ("Background tasks", TasksPage),
-    ("Clean-up rules", CleanupPage),
+    ("Schedules", SchedulesPage), ("Clean-up rules", CleanupPage),
     "TOOLS",
     ("Command Builder", BuilderPage),
     ("Bulk (CSV)", BulkPage),
@@ -121,6 +118,9 @@ NAV = [
 ADVANCED = {"More services", "Policies by org unit", "Command Builder", "Bulk (CSV)",
             "Command Console", "Live test"}
 PAGES = [n for n in NAV if not isinstance(n, str)]
+# old page names → (page, tab) now that they live inside another page
+PAGE_ALIASES = {"Background tasks": ("Schedules", "Setup & health"),
+                "Scheduled jobs": ("Schedules", "Report & command jobs")}
 
 
 class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
@@ -395,6 +395,14 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         return self._stack_pages[i] if 0 <= i < len(self._stack_pages) else None
 
     def go(self, name: str):
+        alias = PAGE_ALIASES.get(name)
+        if alias:                      # pages that became tabs of another page
+            page, tab = alias
+            self.go(page)
+            p = self.pages.get(page)
+            if p is not None and hasattr(p, "show_tab"):
+                p.show_tab(tab)
+            return
         idx = [n for n, _ in PAGES].index(name)
         row = next(r for r, i in self._row_page.items() if i == idx)
         self.nav.setCurrentRow(row)

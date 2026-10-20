@@ -21,10 +21,13 @@ def _data_dir() -> str:
 
 
 def _load_devices():
-    code, rows, err = run_gam_csv(["print", "cros", "fields", fleet.FIELDS, "listlimit", "1"],
-                                  timeout=1800)
+    """One read of every field the fleet tabs need; shared through fleet_cache."""
+    from ... import fleet_cache
+    fleet_cache.clear()                 # “Load Chromebooks” always asks Google afresh
+    code, rows, err = run_gam_csv(list(fleet_cache.ARGS), timeout=1800)
     if code != 0:
         raise RuntimeError(err.strip().splitlines()[-1] if err.strip() else "GAM failed")
+    fleet_cache.store(rows)
     return fleet.devices(rows)
 
 
@@ -37,6 +40,8 @@ class FleetPage(Page):
         self.devs: list[dict] = []
         top = QHBoxLayout()
         self.load_btn = button("Load Chromebooks", "primary", self.load)
+        from ... import fleet_cache
+        self.runner.finished.connect(lambda _code, cmd: fleet_cache.changed(str(cmd)))
         self.loaded = QLabel("Not loaded yet. Large fleets take a minute or two.",
                              objectName="Muted")
         top.addWidget(self.load_btn)
@@ -93,11 +98,23 @@ class FleetPage(Page):
         self.loaded.setText("Loading Chromebooks from Google…")
 
         def done(devs):
+            import time as _t
             self.devs = devs
             self.load_btn.setEnabled(True)
-            self.loaded.setText(f"{len(devs):,} Chromebooks loaded.")
+            self.loaded.setText(
+                f"{len(devs):,} Chromebooks loaded at {_t.strftime('%I:%M %p').lstrip('0')} "
+                "– every tab on this page uses this list (Assigned users, Assignment sync, "
+                "Redistribution, Asset register, Withdrawn students' devices…), so they "
+                "don't need to load again. Load again for the latest.")
             self.show_inventory()
             self.show_aue()
+            for i in range(self.tabs.count()):
+                tab = self.tabs.widget(i)
+                if hasattr(tab, "on_fleet_loaded"):
+                    try:
+                        tab.on_fleet_loaded()
+                    except Exception:  # noqa: BLE001
+                        pass
             if callable(then):
                 then()
 

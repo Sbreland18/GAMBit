@@ -16,7 +16,8 @@ from ..pickers import OUField, OUMultiField
 from ..schedule_edit import ScheduleEdit, describe
 from ..widgets import Page, Worker, button
 
-COLS = ["Name", "Type", "What it does", "When", "On", "Last run", "Next run", "Result"]
+COLS = ["Name", "Type", "What it does", "When", "On", "Last run", "Next run", "Result",
+        "Windows task"]
 # which page owns each kind of built-in task (for “Open its page”)
 OWNER = {"sync": "Roster sync", "daily": "Workflows", "groups": "Groups",
          "requests": "Approvals", "digest": "Settings & Updates", "devicesync": "Chromebook fleet",
@@ -193,10 +194,10 @@ class JobDialog(QDialog):
 # ================================================================== page ===
 class SchedulesPage(Page):
     title = "Schedules"
-    subtitle = ("Every job GAMbit runs on a schedule – your saved jobs and GAMbit's own "
-                "background tasks. Edit, duplicate, turn on or off, change the time and days, "
-                "or run one now. Jobs run through Windows Task Scheduler, so GAMbit doesn't "
-                "need to be open.")
+    subtitle = ("Everything GAMbit runs on a schedule, in one place – your saved jobs, report "
+                "and command jobs, roster syncs and GAMbit's own background tasks. Edit, "
+                "turn on or off, change the time and days, run now, or check their logs. Jobs "
+                "run through Windows Task Scheduler, so GAMbit doesn't need to be open.")
 
     def build(self):
         if not IS_WINDOWS:
@@ -205,12 +206,16 @@ class SchedulesPage(Page):
                           objectName="Banner")
             warn.setWordWrap(True)
             self.body.addWidget(warn)
+        from PySide6.QtWidgets import QTabWidget
+        allw = QWidget()
+        al = QVBoxLayout(allw)
+        al.setContentsMargins(0, 6, 0, 0)
         new = button("+ New job ▾", "primary")
         menu = QMenu(new)
         for kind, k in saved_jobs.KINDS.items():
             menu.addAction(k["label"], lambda kd=kind: self.new_job(kd))
         new.setMenu(menu)
-        self.body.addLayout(self.row(
+        al.addLayout(self.row(
             new, button("Edit…", slot=self.edit), button("Duplicate", slot=self.duplicate),
             button("Turn on / off", slot=self.toggle),
             button("Change time && days…", slot=self.change_when),
@@ -226,17 +231,58 @@ class SchedulesPage(Page):
         self.table.setTextElideMode(Qt.ElideRight)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        for c, w in ((0, 260), (1, 150), (3, 170), (4, 50), (5, 140), (6, 140), (7, 90)):
+        for c, w in ((0, 260), (1, 150), (3, 170), (4, 50), (5, 140), (6, 140), (7, 90),
+                     (8, 240)):
             self.table.setColumnWidth(c, w)
         self.table.doubleClicked.connect(lambda *_: self.edit())
-        self.body.addWidget(self.table, 2)
+        al.addWidget(self.table, 2)
         self.status = QLabel("", objectName="Muted")
-        self.body.addWidget(self.status)
-        self.body.addWidget(QLabel("Last run's log:"))
+        al.addWidget(self.status)
+        al.addWidget(QLabel("Last run's log:"))
         self.log = QPlainTextEdit(readOnly=True)
-        self.body.addWidget(self.log, 1)
+        al.addWidget(self.log, 1)
         self.table.itemSelectionChanged.connect(self._show_log)
         self.rows: list[dict] = []
+
+        # the other two former pages live here as tabs
+        from .scheduled import ScheduledPage
+        from .tasks_page import TasksPage
+        self.jobs_page = ScheduledPage(self.app)
+        self.health_page = TasksPage(self.app)
+        for sub in (self.jobs_page, self.health_page):
+            for lab in sub.findChildren(QLabel):
+                if lab.objectName() in ("PageTitle", "PageSub", "HelpStrip") or (
+                        lab.objectName() == "Banner" and "Windows Task Scheduler" in
+                        QLabel.text(lab) and "only" in QLabel.text(lab)):
+                    lab.hide()        # this page already says it at the top
+            if getattr(sub, "help_strip", None) is not None:
+                sub.help_strip.hide()
+                sub.help_strip = None  # so “page tips” never shows it inside a tab
+        self.tabs = QTabWidget()
+        self.tabs.addTab(allw, "All schedules")
+        self.tabs.addTab(self.jobs_page, "Report && command jobs")
+        self.tabs.addTab(self.health_page, "Setup && health")
+        self.tabs.currentChanged.connect(self._tab_changed)
+        self.body.addWidget(self.tabs, 1)
+        # old names still work for code that looks them up
+        self.app.pages.setdefault("Scheduled jobs", self.jobs_page)
+        self.app.pages.setdefault("Background tasks", self.health_page)
+
+    def show_tab(self, title: str):
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i).replace("&&", "&") == title:
+                self.tabs.setCurrentIndex(i)
+                return
+
+    def _tab_changed(self, i: int):
+        w = self.tabs.widget(i)
+        if w is self.health_page or w is self.jobs_page:
+            try:
+                w.on_show()
+            except Exception:  # noqa: BLE001
+                pass
+        elif i == 0:
+            self.refresh()
 
     def on_show(self):
         try:
@@ -255,27 +301,44 @@ class SchedulesPage(Page):
             return tasks_health.rows()
 
         def done(task_rows):
-            by_name = {r["name"]: r for r in task_rows}
+            sched = [r for r in task_rows if r.get("scheduled")]
+            by_name = {r["name"]: r for r in sched}
+            by_job: dict = {}
+            for r in sched:
+                a = r.get("args") or []
+                if a[:2] == ["--task", "job"] and "--name" in a:
+                    by_job.setdefault(a[a.index("--name") + 1], []).append(r)
+            used: set = set()
             out = []
             for j in saved_jobs.jobs():
-                t = by_name.pop(saved_jobs.task_name(j), {})
+                t = by_name.get(saved_jobs.task_name(j)) or \
+                    next(iter(by_job.get(j["id"], [])), None) or {}
+                if t:
+                    used.add(t["name"])
+                for extra in by_job.get(j["id"], []):     # an older copy of the same job
+                    used.add(extra["name"])
                 out.append({"kind": "job", "job": j, "name": j["name"],
                             "type": "Saved job", "what": saved_jobs.describe(j),
                             "when": saved_jobs.when(j), "on": j.get("enabled", True),
                             "last": t.get("last") or (j.get("last_run") or "").replace("T", " "),
                             "next": t.get("next", ""), "result": self._result(t, j),
-                            "task": saved_jobs.task_name(j), "log": t.get("log") or [],
+                            "task": t.get("name") or saved_jobs.task_name(j),
+                            "log": t.get("log") or [],
                             "args": ["--task", "job", "--name", j["id"]]})
-            for r in task_rows:
-                if r.get("job_id") or r["name"] not in by_name or not r.get("scheduled"):
+            for r in sched:
+                if r["name"] in used:
                     continue
-                when = self._when(r)
-                out.append({"kind": "task", "name": r["name"], "type": "GAMbit task",
-                            "what": r.get("what", ""), "when": when,
+                orphan = r.get("orphan_job")
+                out.append({"kind": "orphan" if orphan else "task", "name": r["name"],
+                            "type": "Saved job (settings missing)" if orphan else
+                            ("Roster sync" if _task_key(r.get("args") or []) == "sync" else
+                             "Report / command job" if not r.get("args") else "GAMbit task"),
+                            "what": r.get("what", ""), "when": self._when(r),
                             "on": r.get("status", "").lower() != "disabled",
                             "last": r.get("last", ""), "next": r.get("next", ""),
                             "result": self._result(r, None), "task": r["name"],
-                            "args": r.get("args") or [], "log": r.get("log") or []})
+                            "orphan": orphan, "args": r.get("args") or [],
+                            "log": r.get("log") or []})
             self.rows = out
             self._fill()
         Worker(load, on_done=done, on_error=lambda e: (setattr(self, "rows", []),
@@ -339,7 +402,7 @@ class SchedulesPage(Page):
             i = self.table.rowCount()
             self.table.insertRow(i)
             vals = [r["name"], r["type"], r["what"], r["when"], "✔" if r["on"] else "off",
-                    r["last"], r["next"], r["result"]]
+                    r["last"], r["next"], r["result"], r.get("task", "")]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(str(v))
                 it.setToolTip(str(v))
@@ -347,8 +410,13 @@ class SchedulesPage(Page):
                     it.setForeground(Qt.gray)
                 self.table.setItem(i, c, it)
         jobs = sum(1 for r in self.rows if r["kind"] == "job")
-        self.status.setText(f"{jobs} saved job(s) · {len(self.rows) - jobs} other GAMbit "
-                            "task(s). Double-click a saved job to edit it.")
+        orphans = sum(1 for r in self.rows if r["kind"] == "orphan")
+        self.status.setText(f"{jobs} saved job(s) · {len(self.rows) - jobs} other scheduled "
+                            "task(s) in Windows Task Scheduler's GAMbit folder. Double-click a "
+                            "saved job to edit it." +
+                            (f" ⚠ {orphans} task(s) belong to saved jobs whose settings are "
+                             "missing – select one and click Edit… to adopt it." if orphans
+                             else ""))
 
     def _sel(self) -> dict | None:
         rows = {i.row() for i in self.table.selectedIndexes()}
@@ -392,6 +460,10 @@ class SchedulesPage(Page):
             self._preview(made)
 
     def edit(self):
+        r = self._sel()
+        if r and r["kind"] == "orphan":
+            self.adopt(r)
+            return
         r = self._need("job")
         if not r:
             return
@@ -403,6 +475,32 @@ class SchedulesPage(Page):
         self._schedule(job, old_task)
         if dlg.want_preview:
             self._preview(job)
+
+    def adopt(self, r: dict):
+        """A Windows task for a saved job whose settings are gone: set it up again as a
+        saved job (same task), or leave it."""
+        from PySide6.QtWidgets import QInputDialog
+        kinds = list(saved_jobs.KINDS)
+        labels = [saved_jobs.KINDS[k]["label"] for k in kinds]
+        guess = 1 if "move" in r["name"].lower() else 0
+        label, ok = QInputDialog.getItem(
+            self, "Adopt this task", f"“{r['task']}” runs a saved job whose settings aren't "
+            "on this PC. What kind of job is it?", labels, guess, False)
+        if not ok:
+            return
+        kind = kinds[labels.index(label)]
+        from ...tools import assigned_users as au
+        name = r["name"][len(saved_jobs.PREFIX):] if r["name"].startswith(saved_jobs.PREFIX) \
+            else r["name"]
+        base = au.options() if kind == "assigned" else au.move_options()
+        job = {"id": r["orphan"], "kind": kind, "name": name, "enabled": r["on"],
+               "time": "05:45", "days": ["MON", "TUE", "WED", "THU", "FRI"],
+               "scope_ous": [], "opts": saved_jobs._clean(kind, base)}
+        dlg = JobDialog(self, self.directory, job)
+        if not dlg.exec():
+            return
+        made = saved_jobs.adopt(dlg.result_job())
+        self._schedule(made, old_task=r["task"])
 
     def _schedule(self, job: dict, old_task: str = ""):
         try:
@@ -523,7 +621,11 @@ class SchedulesPage(Page):
             k = saved_jobs.KINDS[r["job"]["kind"]]
             goto(self.app, k["page"], k["tab"])
         else:
-            goto(self.app, OWNER.get(_task_key(r["args"]), "Background tasks"))
+            target = OWNER.get(_task_key(r["args"]))
+            if target:
+                goto(self.app, target)
+            else:
+                self.show_tab("Report & command jobs")
 
     def delete(self):
         r = self._need()

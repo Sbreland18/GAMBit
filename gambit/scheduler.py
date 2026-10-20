@@ -277,6 +277,8 @@ $r = @(Get-ScheduledTask -TaskPath '\@FOLDER@\' -ErrorAction SilentlyContinue | 
     Start  = $(if ($t) { [string]$t.StartBoundary } else { '' })
     Days   = $(if ($t -and $t.DaysOfWeek) { [int]$t.DaysOfWeek } else { 0 })
     Kind   = $(if ($t) { [string]$t.CimClass.CimClassName } else { '' })
+    Exe    = $(if (@($_.Actions).Count) { [string]@($_.Actions)[0].Execute } else { '' })
+    Args   = $(if (@($_.Actions).Count) { [string]@($_.Actions)[0].Arguments } else { '' })
   }
 })
 ConvertTo-Json -InputObject $r -Compress
@@ -302,7 +304,32 @@ def _from_ps(items: list) -> list[dict]:
         out.append({"Name": t["Name"], "Next run": t.get("Next") or "",
                     "Last run": t.get("Last") or "", "Last result": str(t.get("Result", "")),
                     "Status": t.get("State") or "", "Schedule": sched, "time": hhmm,
-                    "days": days})
+                    "days": days, "exe": t.get("Exe") or "",
+                    "task_args": task_args(t.get("Exe") or "", t.get("Args") or "")})
+    return out
+
+
+def task_args(exe: str, arguments: str = "") -> list[str]:
+    """The GAMbit arguments a task runs (--task … --name …), read from its .cmd script or
+    its action – so every task in GAMbit's folder can be recognised."""
+    import shlex
+    text = arguments or ""
+    path = (exe or "").strip().strip('"')
+    if path.lower().endswith((".cmd", ".bat")) and os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read() + " " + text
+        except OSError:
+            pass
+    m = re.search(r"--task\s+(\S+)(?:.*?--name\s+(\"[^\"]*\"|\S+))?", text, re.S)
+    if not m:
+        return []
+    out = ["--task", m.group(1).strip('"')]
+    if m.group(2):
+        try:
+            out += ["--name", shlex.split(m.group(2))[0]]
+        except ValueError:
+            out += ["--name", m.group(2).strip('"')]
     return out
 
 

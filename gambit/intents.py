@@ -153,8 +153,8 @@ INTENTS = [
     ("Run a security report", "2-step 2sv audit external sharing apps admins",
      "Security reports", None),
     ("Who uses the most storage", "storage quota space drive full", "Security reports", None),
-    ("Check background tasks are running", "scheduled nightly tasks health", "Background tasks",
-     None),
+    ("Check background tasks are running", "scheduled nightly tasks health", "Schedules",
+     "Setup & health"),
     ("Check GAM is set up correctly", "diagnostics access scopes broken not working",
      "Diagnostics", None),
     ("Test GAMbit safely", "live test checklist try dry run", "Live test", None),
@@ -288,7 +288,7 @@ INTENTS = [
     ("Make a second scheduled job for other org units", "second another job copy duplicate "
      "org units schedule chromebook move blank", "Schedules", None),
     ("Do scheduled jobs run when GAMbit is closed?", "scheduled jobs background closed "
-     "minimize tray open running task scheduler asleep off", "Background tasks", None),
+     "minimize tray open running task scheduler asleep off", "Schedules", "Setup & health"),
     ("Dark mode", "dark mode theme colors night black background light mode",
      "Settings & Updates", None),
     ("Ask the Helper", "assistant chat ai question help me ask helper", "Guide", None),

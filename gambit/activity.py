@@ -109,8 +109,172 @@ def _write(entry: dict):
             pass
 
 
+# ============================================ plain-English Chromebook changes ===
+_CROS_ENT = {"cros": "id", "cros_sn": "serial"}
+_ACTIONS = {"disable": "disabled", "reenable": "re-enabled", "deprovision": "deprovisioned",
+            "deprovision_same_model_replace": "deprovisioned (replaced)",
+            "deprovision_different_model_replace": "deprovisioned (replaced)",
+            "deprovision_retiring_device": "deprovisioned (retired)",
+            "disable_wiped": "disabled", "remote_powerwash": "powerwashed",
+            "wipe_users": "wiped the users", "reboot": "rebooted"}
+
+
+def _cros_target(args: list[str]):
+    """(kind, [ids or serials], rest) for Chromebook commands, else None."""
+    a = list(args)
+    if a[:1] == ["select"] and len(a) > 2:
+        a = a[2:]
+    if len(a) >= 3 and a[0] == "update" and a[1] == "cros":
+        return "id", [x for x in a[2].split(",") if x], a[3:]
+    if len(a) >= 3 and a[0].lower() in _CROS_ENT:
+        kind = _CROS_ENT[a[0].lower()]
+        return kind, [x for x in a[1].split(",") if x], a[2:]
+    if len(a) >= 3 and a[0].lower() in ("cros_ou", "cros_ou_and_children"):
+        return "ou", [a[1]], a[2:]
+    return None
+
+
+def device_labels(kind: str, items: list[str]) -> list[str]:
+    from . import device_names
+    if kind == "id":
+        return [device_names.label(x) for x in items]
+    return list(items)
+
+
+def describe(args: list[str]) -> str:
+    """'Moved Chromebook 5CD0372JK1 (asset HS2074) to /Chrome Devices/Hancock High School'
+    – or '' for commands that aren't Chromebook changes (their command already says it)."""
+    try:
+        t = _cros_target(strip_config(list(args or [])))
+    except Exception:  # noqa: BLE001
+        return ""
+    if not t:
+        return ""
+    kind, items, rest = t
+    low = [x.lower() for x in rest]
+    if not low:
+        return ""
+    if low[0] == "update":
+        rest, low = rest[1:], low[1:]
+    did = []
+    i = 0
+    while i < len(low):
+        k = low[i]
+        v = rest[i + 1] if i + 1 < len(rest) else ""
+        if k in ("ou", "org"):
+            did.append(f"moved to {v}")
+        elif k == "user":
+            did.append(f"assigned user set to {v}" if v else "assigned user blanked")
+        elif k in ("assetid", "asset", "tag"):
+            did.append(f"asset ID set to {v}" if v else "asset ID blanked")
+        elif k == "location":
+            did.append(f"location set to {v}" if v else "location blanked")
+        elif k in ("notes", "updatenotes"):
+            did.append("notes updated")
+        elif k == "action":
+            did.append(_ACTIONS.get(v.lower(), f"action {v}"))
+        elif k == "issuecommand" and i + 2 < len(rest):
+            v = rest[i + 2]
+            did.append(_ACTIONS.get(v.lower(), f"sent {v}"))
+            i += 1
+        elif k in ("print", "show", "info", "get"):
+            return ""
+        else:
+            i += 1
+            continue
+        i += 2
+    if not did:
+        return ""
+    if kind == "ou":
+        who = f"every Chromebook in {items[0]}"
+    else:
+        names = device_labels(kind, items)
+        shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5
+                                        else "")
+        who = (f"Chromebook {shown}" if len(names) == 1 else
+               f"{len(names)} Chromebooks ({shown})")
+    return f"{who}: " + "; ".join(did)
+
+
+def describe_any(args: list[str]) -> str:
+    """Plain English for any logged command: Chromebook changes in detail, the common
+    account and group changes, else GAM's own one-line description."""
+    d = describe(args)
+    if d:
+        return d
+    a = strip_config(list(args or []))
+    if a[:1] == ["select"] and len(a) > 2:
+        a = a[2:]
+    low = [x.lower() for x in a]
+    try:
+        if low[:2] == ["update", "user"] and len(a) > 3:
+            u, rest = a[2], low[3:]
+            if rest[:2] == ["suspended", "on"]:
+                return f"Suspended {u}"
+            if rest[:2] == ["suspended", "off"]:
+                return f"Unsuspended {u}"
+            if rest[:1] == ["password"]:
+                return f"Reset {u}'s password"
+            if rest[:1] in (["ou"], ["org"]) and len(a) > 4:
+                return f"Moved {u} to {a[4]}"
+            return f"Updated {u} ({', '.join(rest[::2][:4])})"
+        if low[:1] == ["user"] and len(a) > 2:
+            u, verb = a[1], low[2]
+            return {"signout": f"Signed {u} out everywhere",
+                    "turnoff2sv": f"Turned off 2-Step Verification for {u}",
+                    "deprovision": f"Removed {u}'s app passwords and tokens"}.get(
+                verb, "")
+        if low[:2] == ["update", "group"] and len(a) > 4:
+            g = a[2]
+            if low[3] in ("add", "remove", "delete", "sync"):
+                who = a[-1]
+                n = who.count(",") + 1
+                who = who if n <= 3 else f"{n} members"
+                return (f"Added {who} to {g}" if low[3] == "add" else
+                        f"Synced the members of {g}" if low[3] == "sync" else
+                        f"Removed {who} from {g}")
+        if low[:2] == ["create", "user"] and len(a) > 2:
+            return f"Created the account {a[2]}"
+        if low[:2] == ["delete", "user"] and len(a) > 2:
+            return f"Deleted the account {a[2]}"
+        if low[:2] == ["undelete", "user"] and len(a) > 2:
+            return f"Restored the deleted account {a[2]}"
+        if low[:2] == ["create", "datatransfer"] and len(a) > 4:
+            return f"Started moving {a[2]}'s {a[3]} files to {a[4]}"
+        if low[:2] == ["create", "alias"] and len(a) > 4:
+            return f"Added the alias {a[2]} to {a[4]}"
+        if low[:2] == ["create", "group"] and len(a) > 2:
+            return f"Created the group {a[2]}"
+        if low[:2] == ["delete", "group"] and len(a) > 2:
+            return f"Deleted the group {a[2]}"
+    except IndexError:
+        pass
+    try:
+        from .helper import verify
+        return verify.describe(a) or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def named_command(args: list[str]) -> str:
+    """The command with Chromebook device IDs shown as their serial numbers."""
+    t = _cros_target(strip_config(list(args or [])))
+    shown = display_command(args)
+    if not t or t[0] != "id":
+        return shown
+    from . import device_names
+    ids = t[1]
+    names = [device_names.serial_or_id(x) for x in ids]
+    if names == ids:
+        return shown
+    joined = ",".join(names[:5]) + (f",…+{len(names) - 5} more" if len(names) > 5 else "")
+    return shown.replace(",".join(ids), f"[{joined}]", 1)
+
+
 def record(args: list[str], code: int, status: str, undo: Optional[dict],
            profile: str, undo_of: str = "", note: str = "") -> dict:
+    what = describe_any(args) if is_change(args) else ""
+    t = _cros_target(strip_config(list(args or []))) if what else None
     entry = {
         "id": uuid.uuid4().hex[:12],
         "time": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -120,6 +284,11 @@ def record(args: list[str], code: int, status: str, undo: Optional[dict],
         "undo": undo if (undo and code == 0) else None,
         "undo_of": undo_of, "note": note,
     }
+    if what:
+        entry["what"] = what
+        entry["command_named"] = named_command(args)
+        if t and t[0] != "ou":
+            entry["devices"] = device_labels(t[0], t[1])[:500]
     _write(entry)
     return entry
 

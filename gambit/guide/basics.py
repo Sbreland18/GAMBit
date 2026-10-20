@@ -211,18 +211,18 @@ Many features have an **Every night…**, **Every morning…** or **Every Monday
 creates a Windows Task Scheduler task that runs GAMbit with nobody at the PC
 (`GAMbit.exe --task …`).
 
-- **Automation → Schedules** lists every scheduled job – your saved jobs and GAMbit's own
-  tasks – to edit, duplicate, turn on/off, change the time and days, or run now. Saved jobs
-  (for example *Blank unused Chromebooks* or *Move Chromebooks to their students' schools*)
-  each keep their own settings and org units, so you can have one per school.
-- **Automation → Background tasks** lists every task, when it last ran and whether it
-  worked. *Run here now* runs one immediately; *Set up the standard tasks* creates the
-  recommended ones.
+- **Automation → Schedules** is the one place for everything GAMbit runs on a schedule:
+  - *All schedules* – every saved job, report job, roster sync and GAMbit task: edit,
+    duplicate, turn on/off, change the time and days, run now, see the last log. Saved jobs
+    (for example *Blank unused Chromebooks* or *Move Chromebooks to their students'
+    schools*) each keep their own settings and org units, so you can have one per school.
+  - *Report & command jobs* – run a Command Builder template on a schedule.
+  - *Setup & health* – set up the standard tasks, run one here, the task log, wake the PC.
 - **GAMbit doesn't need to be open.** Each task starts its own copy of GAMbit with no
   window, does the job and exits, so it runs whether GAMbit is open, minimized or closed.
 - The PC must be **on**, with you **signed in to Windows** (a locked screen is fine;
   signing out stops them). A job missed because the PC was asleep or off runs as soon as
-  it's back, and jobs run on battery too. *Wake this PC from sleep…* on Background tasks
+  it's back, and jobs run on battery too. *Wake this PC from sleep…* on Schedules → Setup & health
   wakes it for them.
 - For jobs that must never be missed, use a server or an always-on PC (*Server kit…*).
 - Jobs with a time-and-days picker (Chromebook fleet → Assigned users) run at the time

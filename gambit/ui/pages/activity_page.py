@@ -45,14 +45,14 @@ class ActivityPage(Page):
         bar.addWidget(button("Refresh", slot=self.refresh))
         self.body.addLayout(bar)
 
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["When", "Who", "Domain", "Command", "Result",
-                                              "Undo", "Note"])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["When", "Who", "Domain", "What was done",
+                                              "Command", "Result", "Undo", "Note"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        for c, w in ((0, 140), (1, 90), (2, 90), (4, 80), (5, 180), (6, 120)):
+        for c, w in ((0, 140), (1, 90), (2, 90), (4, 360), (5, 80), (6, 180), (7, 120)):
             self.table.setColumnWidth(c, w)
         self.table.doubleClicked.connect(lambda *_: self.explain_selected())
         self.body.addWidget(self.table, 1)
@@ -126,6 +126,9 @@ class ActivityPage(Page):
                on_error=lambda e: (self.sheet_status.setText(""), self.info(str(e))))
 
     def refresh(self):
+        _WHAT_CACHE.clear()          # device names may have been learned since
+        from ... import device_names
+        device_names.reload()
         self.entries = activity.load(self.range.currentData(), self.team.isChecked())
         self._filter()
 
@@ -148,11 +151,16 @@ class ActivityPage(Page):
                 undo = "↩ " + e["undo"].get("label", "available")
             note = e.get("note", "") or ("undo of an earlier change" if e.get("undo_of")
                                          else "")
+            what, named, devices = _what(e)
             vals = [e.get("time", "").replace("T", " "), e.get("who", ""),
-                    e.get("profile", ""), e.get("command", ""), res, undo, note]
+                    e.get("profile", ""), what, named, res, undo, note]
+            tips = {3: what + (("\n\nChromebooks:\n" + "\n".join(devices[:60]) +
+                                (f"\n…and {len(devices) - 60} more" if len(devices) > 60
+                                 else "")) if len(devices) > 1 else ""),
+                    4: e.get("command", "")}
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
-                it.setToolTip(v)
+                it.setToolTip(tips.get(c, v))
                 if c == 0:
                     it.setData(Qt.UserRole, e)
                 self.table.setItem(r, c, it)
@@ -201,8 +209,43 @@ class ActivityPage(Page):
             return
         with open(path, "w", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh)
-            w.writerow(["time", "who", "computer", "domain", "command", "result", "undone"])
+            w.writerow(["time", "who", "computer", "domain", "what was done", "chromebooks",
+                        "command", "result", "undone"])
             for e in self.entries:
+                what, _named, devices = _what(e)
                 w.writerow([e.get("time"), e.get("who"), e.get("computer"), e.get("profile"),
-                            e.get("command"), e.get("code"), e.get("undone")])
+                            what, "; ".join(devices), e.get("command"), e.get("code"),
+                            e.get("undone")])
 
+
+_WHAT_CACHE: dict = {}
+
+
+def _what(e: dict) -> tuple[str, str, list[str]]:
+    key = (e.get("id"), tuple(e.get("args") or []))
+    if key not in _WHAT_CACHE:
+        if len(_WHAT_CACHE) > 20000:
+            _WHAT_CACHE.clear()
+        _WHAT_CACHE[key] = _what_uncached(e)
+    return _WHAT_CACHE[key]
+
+
+def _what_uncached(e: dict) -> tuple[str, str, list[str]]:
+    """(what was done, command with serials, Chromebook names) – worked out again for
+    older entries, so they show serials too once GAMbit has seen those devices."""
+    from ... import activity
+    args = e.get("args") or []
+    what = e.get("what") or ""
+    if args and (not what or "Chromebook" in what):   # re-done: serials may be known now
+        what = activity.describe_any(args) or what
+    devices = []
+    try:
+        t = activity._cros_target(activity.strip_config(list(args)))
+        if t and t[0] != "ou":
+            devices = activity.device_labels(t[0], t[1])
+    except Exception:  # noqa: BLE001
+        devices = e.get("devices") or []
+    if not what:
+        what = e.get("note") or ""
+    named = activity.named_command(args) if args else e.get("command", "")
+    return what or e.get("command", ""), named, devices

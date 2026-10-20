@@ -771,6 +771,21 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **One Schedules page (Automation → Schedules).** Background tasks and Scheduled jobs are now its tabs: *All schedules*, *Report & command jobs* and *Setup & health*. Old links, roles and intents that name the old pages still open the right tab.
+  - *All schedules* lists every task in Task Scheduler's GAMbit folder and shows its Windows task name.
+  - GAMbit reads each task's `.cmd` script to find what it runs, so saved jobs are matched by ID as well as by name.
+  - A task belonging to a saved job whose settings are missing (for example after the broken update) is listed as *Saved job (settings missing)*. *Edit…* lets you adopt it again.
+- **Activity log: “What was done”.**
+  - Chromebook changes read like “Chromebook 5CD0372JK1 (asset HS2074): moved to /Chrome Devices/…”. The command column shows serials, `gam cros [5CD0372JK1] update ou …`.
+  - Hover over a row to see every Chromebook a batch changed. Export includes the list.
+  - Account and group changes get plain-English lines too.
+  - GAMbit learns device ID → serial / asset ID from every Chromebook listing (`device-names.json`), and older entries are re-described when shown. Undo and Run again still use the exact command.
+- **Chromebook fleet: one load for every tab.**
+  - *Load Chromebooks* at the top reads every field the tabs need once (`fleet_cache`).
+  - Assigned users fills in and previews straight away, including when it's limited to org units.
+  - Assignment sync, Redistribution, Asset register and Withdrawn students' devices answer from the same list instead of asking Google again.
+  - Any Chromebook change GAMbit makes clears the list, so nothing works from stale data. The list expires after an hour.
+
 - **Safer self-updates (fix).** The installer used to delete `_internal` before copying. If any GAMbit was still running, such as a background task, the copy failed half-way and GAMbit wouldn't open. The installer now:
   1. Closes every GAMbit (`taskkill /IM GAMbit.exe`).
   2. Renames `_internal` to `_internal.old`.

@@ -470,9 +470,11 @@ class AssignedUsersTab(ToolTab):
             self.info("Choose the org unit(s) or type the serials / asset IDs first.")
             return
         cmds = au.load_args(key, vals, self.ous.include_children() if key == "ou" else True)
-        self.status.setText("Loading Chromebooks and who last signed in…")
         if not self.directory.users:
             self.directory.refresh_users()      # needed for the student / district checks
+        if key in ("all", "ou") and self._from_fleet(key, vals):
+            return
+        self.status.setText("Loading Chromebooks and who last signed in…")
 
         def work():
             rows = []
@@ -483,20 +485,50 @@ class AssignedUsersTab(ToolTab):
                 rows += r
             return au.devices(rows)
 
-        def done(devs):
-            self.devs = devs
-            mode = getattr(self, "mode", "set")
-            if mode == "move":
-                self.preview_move(quiet=True)
-            elif mode == "stale":
-                self.preview_stale(quiet=True)
-            else:
-                self.preview(quiet=True)
-            blank = sum(1 for d in devs if not d["assigned"])
-            self.status.setText(f"{len(devs):,} Chromebook(s) · {len(devs) - blank:,} have an "
-                                f"assigned user · {blank:,} blank. The Plan column shows what "
-                                "“Set assigned users” would do.")
-        Worker(work, on_done=done, on_error=lambda e: self.status.setText(f"✖ {e}"))
+        Worker(work, on_done=self._show_devs,
+               on_error=lambda e: self.status.setText(f"✖ {e}"))
+
+    def _from_fleet(self, key: str, ous: list[str]) -> bool:
+        """Use the list loaded with “Load Chromebooks” at the top of the page."""
+        from ... import fleet_cache
+        rows = fleet_cache.all_rows()
+        if not rows:
+            return False
+        if key == "ou":
+            subs = self.ous.include_children()
+            want = [o.rstrip("/").lower() or "/" for o in ous]
+
+            def inside(r):
+                ou = (next((v for k, v in r.items() if (k or "").lower() == "orgunitpath"),
+                           "") or "/").rstrip("/").lower() or "/"
+                return any(ou == w or (subs and (w == "/" or ou.startswith(w + "/")))
+                           for w in want)
+            rows = [r for r in rows if inside(r)]
+        self._show_devs(au.devices(rows), from_fleet=True)
+        return True
+
+    def on_fleet_loaded(self):
+        """“Load Chromebooks” at the top of Chromebook fleet ran: fill this tab in too."""
+        key = self.scope.currentData()
+        if key in ("all", "ou") and (key == "all" or self.ous.paths()):
+            if not self.directory.users:
+                self.directory.refresh_users()
+            self._from_fleet(key, self.ous.paths())
+
+    def _show_devs(self, devs, from_fleet: bool = False):
+        self.devs = devs
+        mode = getattr(self, "mode", "set")
+        if mode == "move":
+            self.preview_move(quiet=True)
+        elif mode == "stale":
+            self.preview_stale(quiet=True)
+        else:
+            self.preview(quiet=True)
+        blank = sum(1 for d in devs if not d["assigned"])
+        self.status.setText(f"{len(devs):,} Chromebook(s) · {len(devs) - blank:,} have an "
+                            f"assigned user · {blank:,} blank" +
+                            (" – from the list loaded at the top of the page" if from_fleet
+                             else "") + ". The Plan column shows what would happen.")
 
     # ------------------------------------------------------------ preview ---
     def _opts(self) -> dict:
@@ -680,6 +712,8 @@ class AssignedUsersTab(ToolTab):
                        done=lambda _s: (os.replace(path, path + ".undone"), self._after()))
 
     def _after(self):
+        from ... import fleet_cache
+        fleet_cache.clear()           # the change made the shared list out of date
         if self.devs:
             self.load()
 

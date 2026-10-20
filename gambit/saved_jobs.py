@@ -74,6 +74,16 @@ def new(kind: str, name: str, opts: dict, scope_ous: list[str], time_hhmm: str,
     return job
 
 
+def adopt(job: dict) -> dict:
+    """Save a job under an id that already has a Windows task (its settings were lost)."""
+    items = [j for j in jobs() if j["id"] != job["id"]]
+    job = {**job, "name": unique_name(job["name"], job["id"]),
+           "opts": _clean(job["kind"], job.get("opts", {})),
+           "created": datetime.datetime.now().isoformat(timespec="seconds")}
+    _save_all(items + [job])
+    return job
+
+
 def update(job: dict) -> dict:
     """Save a changed job (same id). Returns the stored job."""
     items = jobs()

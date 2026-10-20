@@ -40,6 +40,13 @@ def run_gam_csv(args: list[str], timeout: int = 900) -> tuple[int, list[dict], s
     why = _refused(args)
     if why:
         return 77, [], f"Not run – {why}"
+    try:   # the whole fleet was just loaded on Chromebook fleet: use that list
+        from . import fleet_cache
+        cached = fleet_cache.get(args)
+        if cached is not None:
+            return 0, cached, ""
+    except Exception:  # noqa: BLE001
+        pass
     gam = settings.gam_path()
     if not gam:
         return -1, [], "GAM is not installed."
@@ -50,6 +57,12 @@ def run_gam_csv(args: list[str], timeout: int = 900) -> tuple[int, list[dict], s
     except OSError as exc:
         return 126, [], f"Couldn't start GAM: {exc}"
     rows = list(csv.DictReader(io.StringIO(p.stdout or "")))
+    if p.returncode == 0 and [str(a) for a in args[:2]] == ["print", "cros"]:
+        try:   # so the activity log can show serials instead of device IDs
+            from . import device_names
+            device_names.remember(rows)
+        except Exception:  # noqa: BLE001
+            pass
     return p.returncode, rows, p.stderr or ""
 
 
@@ -73,6 +86,11 @@ def run_gam_text(args: list[str], timeout: int = 120) -> tuple[int, str]:
         return 124, f"GAM didn't finish within {timeout} seconds."
     except OSError as exc:
         return 126, f"Couldn't start GAM: {exc}"
+    try:
+        from . import fleet_cache
+        fleet_cache.changed(" ".join(str(a) for a in args))
+    except Exception:  # noqa: BLE001
+        pass
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 

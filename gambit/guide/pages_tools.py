@@ -22,14 +22,6 @@ PAGES = {
                "*Handle password tickets now* resets passwords for verified requests."],
         tips=["Shown when a help desk is connected in Settings → Integrations."],
         keywords="ticket help desk incident iq zendesk queue"),
-    "Scheduled jobs": dict(
-        what="Run a saved Command Builder template on a schedule – for example a weekly "
-             "inactive-accounts report emailed to principals.",
-        steps=["Make a template in the Command Builder.",
-               "Pick it here with a schedule (daily, weekly, monthly or once), a results "
-               "folder and who gets the email.",
-               "**Create scheduled job**; *Run selected now* to test."],
-        keywords="schedule job report template recurring email results"),
     "Run later & freezes": dict(
         what="Changes queued to run tonight or on a date, change freezes that pause risky "
              "changes, and the request form for principals and secretaries.",
@@ -50,13 +42,6 @@ PAGES = {
                "Select items and **Clean up selected** (hide drives, archive classes, delete "
                "groups)."],
         keywords="stale old unused archive clean up shared drive class empty group"),
-    "Background tasks": dict(
-        what="Everything GAMbit runs with nobody at the PC, with last run and result.",
-        steps=["*Set up the standard tasks* the first time.",
-               "*Run here now* runs one task immediately; *Open the task log* shows its "
-               "output.",
-               "*Server kit…* helps move the tasks to an always-on PC."],
-        keywords="background task scheduler nightly automatic server"),
     "Schedules": dict(
         what="Every scheduled job in one list: your saved jobs (for example “Blank unused "
              "Chromebooks – Middle School” and a second one for the high school) and GAMbit's "
@@ -71,8 +56,23 @@ PAGES = {
                "for other org units.",
                "**Turn on / off** pauses a job without deleting it; **Change time & days…** "
                "works for GAMbit's own tasks too; **Run now** runs one here."],
+        tabs={
+            "All schedules": "Every scheduled job and background task GAMbit has in Windows "
+                             "Task Scheduler – saved jobs, report & command jobs, roster "
+                             "syncs and GAMbit's own tasks – with when it runs, whether it's "
+                             "on, and how the last run went.",
+            "Report & command jobs": "Run a saved Command Builder template on a schedule – "
+                                     "for example a weekly inactive-accounts report emailed "
+                                     "to principals. Pick the template, schedule, results "
+                                     "folder and who gets the email, then *Create scheduled "
+                                     "job*.",
+            "Setup & health": "Whether GAMbit's standard tasks are set up and working: *Set up "
+                              "the standard tasks*, *Run here now*, the task log, *Wake this "
+                              "PC*, and *Server kit…* for an always-on PC.",
+        },
         keywords="schedule scheduled jobs saved job edit enable disable turn off time days "
-                 "duplicate org units task scheduler"),
+                 "duplicate org units task scheduler background task nightly automatic "
+                 "server report template recurring email results health log"),
     "Clean-up rules": dict(
         what="Rules that find accounts to tidy up – long-inactive accounts, old suspended "
              "accounts, licenses on suspended accounts. Findings always go to Approvals.",

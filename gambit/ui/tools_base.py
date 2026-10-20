@@ -54,6 +54,14 @@ class ToolTab(QScrollArea):
 
     def read(self, args: list[str], then, what: str = "Reading from Google…"):
         """Run a read-only gam command; then(rows) gets the CSV rows (or None on failure)."""
+        try:   # the Chromebook fleet list loaded at the top of the page
+            from .. import fleet_cache
+            cached = fleet_cache.get([str(a) for a in args])
+            if cached is not None:
+                then(cached)
+                return
+        except Exception:  # noqa: BLE001
+            pass
         self.status.setText(what)
 
         def done(code, out, _err):

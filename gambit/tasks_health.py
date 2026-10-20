@@ -272,8 +272,24 @@ def rows() -> list[dict]:
     known = {d["name"] for d in defs}
     for n in sched:
         if n not in known:
-            defs.append({"name": n, "args": [], "freq": "", "time": "",
-                         "what": "Scheduled job (template / report)", "standard": False})
+            targs = sched[n].get("task_args") or []
+            what = "Scheduled job (template / report)"
+            extra = {}
+            if targs[:2] == ["--task", "job"] and "--name" in targs:
+                jid = targs[targs.index("--name") + 1]
+                from . import saved_jobs
+                j = saved_jobs.get(jid)
+                if j:
+                    what = f"Saved job: {saved_jobs.describe(j)} (old task name)"
+                    extra = {"job_id": jid, "stale_task": True}
+                else:
+                    what = ("Saved job whose settings aren't on this PC any more – Adopt it "
+                            "to keep it, or Delete it")
+                    extra = {"orphan_job": jid}
+            elif targs:
+                what = label_for(_key_for(targs))
+            defs.append({"name": n, "args": targs, "freq": "", "time": "", "what": what,
+                         "standard": False, **extra})
     out = []
     for d in defs:
         t = sched.get(d["name"])

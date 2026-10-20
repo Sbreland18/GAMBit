@@ -261,7 +261,14 @@ def is_admin() -> bool:
 def page_allowed(page: str, role: Optional[dict] = None) -> bool:
     role = role or my_role()
     pages = role.get("pages", ["*"])
+    if page in MERGED and page not in pages:   # roles saved before pages were combined
+        if any(p in pages for p in MERGED[page]):
+            return True
     return "*" in pages or page in pages or page in ("Home", "Guide", "Settings & Updates", "")
+
+
+# pages that were combined into one (old roles list the old names)
+MERGED = {"Schedules": ("Background tasks", "Scheduled jobs")}
 
 
 def page_view_only(page: str, role: Optional[dict] = None) -> bool:

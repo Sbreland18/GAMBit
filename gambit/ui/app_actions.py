@@ -26,7 +26,7 @@ ASSET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._#-]{1,30}$")   # asset tags like
 
 # Pages hidden in help-desk mode
 HELPDESK_HIDDEN = {"Diagnostics", "Live test", "Command Console", "Command Builder", "Bulk (CSV)", "Org units",
-                   "Licenses", "Scheduled jobs", "Settings & Updates", "More services",
+                   "Licenses", "Schedules", "Settings & Updates", "More services",
                    "Roster sync"}
 
 

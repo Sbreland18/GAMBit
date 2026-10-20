@@ -4,7 +4,7 @@ The Builder GUI rewrites __version__ automatically when you build a release.
 """
 
 APP_NAME = "GAMbit"
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # GitHub project that hosts GAMbit releases and latest.json
 GITHUB_REPO = "Sbreland18/GAMbit"
