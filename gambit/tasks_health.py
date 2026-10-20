@@ -69,6 +69,114 @@ def log_summary() -> dict:
     return out
 
 
+# ============================================================ run history ===
+def _runs_path() -> str:
+    from .support import logs_dir
+    return os.path.join(logs_dir(), "task_runs.jsonl")
+
+
+def record_run(key: str, started: str, code: int):
+    """One line per finished background run: what, when, exit code, and the log's verdict."""
+    import json
+    lg = log_summary().get(key, {})
+    lines = [x for x in lg.get("lines", []) if x and not x.startswith("Starting")]
+    skipped = any("update is being installed" in x for x in lines)
+    entry = {"key": key, "started": started,
+             "ended": datetime.datetime.now().isoformat(timespec="seconds"),
+             "code": code, "ok": code == 0 and not lg.get("failed"),
+             "skipped": skipped, "summary": (lines[-1] if lines else "")[:300]}
+    path = _runs_path()
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        # keep the file small: the last 2,000 runs
+        with open(path, encoding="utf-8") as fh:
+            rows = fh.readlines()
+        if len(rows) > 2500:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.writelines(rows[-2000:])
+    except OSError:
+        pass
+
+
+def runs_since(since: datetime.datetime) -> list[dict]:
+    """Finished background runs since `since`, newest first."""
+    import json
+    out = []
+    try:
+        with open(_runs_path(), encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                try:
+                    r = json.loads(ln)
+                    if datetime.datetime.fromisoformat(r["ended"]) >= since:
+                        out.append(r)
+                except (ValueError, KeyError):
+                    continue
+    except OSError:
+        return []
+    out.sort(key=lambda r: r["ended"], reverse=True)
+    return out
+
+
+_TASK_LABELS = {"daily": "Daily follow-ups", "requests": "Staff requests",
+                "groups": "Automatic groups", "digest": "Weekly digest",
+                "signatures": "Email signature roll-out", "guardians": "Guardian sync",
+                "settingswatch": "Settings watch", "devicesync": "Chromebook assignment sync",
+                "devicemove": "Move Chromebooks to students' schools",
+                "deviceassign": "Chromebook assigned users", "cleanup": "Clean-up rules",
+                "watchdog": "Watchdog", "schoolreports": "School reports",
+                "mismatch": "Mismatch report", "auditreport": "Audit report",
+                "teacherlists": "Teacher lists", "scorecard": "District scorecard",
+                "timemachine": "Account time machine", "questions": "Saved questions",
+                "leadersheet": "Leader sheet", "campaign2sv": "2-Step campaign",
+                "classroomsync": "Classroom roster sync", "baseline": "Security baseline",
+                "goingquiet": "Students going quiet"}
+
+
+def label_for(key: str) -> str:
+    task, _, name = key.partition(":")
+    if task == "job":
+        try:
+            from . import saved_jobs
+            j = saved_jobs.get(name)
+            return j["name"] if j else "Saved job (deleted)"
+        except Exception:  # noqa: BLE001
+            return "Saved job"
+    if task == "sync":
+        return f"Roster sync – {name}" if name else "Roster sync"
+    return _TASK_LABELS.get(task, task) + (f" – {name}" if name else "")
+
+
+def missed_jobs(since: datetime.datetime, now: datetime.datetime | None = None) -> list[dict]:
+    """Saved jobs that were due since `since` but have no recorded run (the PC was off,
+    GAMbit couldn't start, the task was deleted…)."""
+    from . import saved_jobs
+    now = now or datetime.datetime.now()
+    ran = {r["key"] for r in runs_since(since)}
+    out = []
+    for j in saved_jobs.jobs():
+        if not j.get("enabled", True) or f"job:{j['id']}" in ran:
+            continue
+        try:
+            hh, mm = (int(x) for x in (j.get("time") or "05:45").split(":"))
+        except ValueError:
+            continue
+        days = j.get("days") or []
+        names = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+        d = since.date()
+        while d <= now.date():
+            due = datetime.datetime.combine(d, datetime.time(hh, mm))
+            created = j.get("created", "")
+            if since <= due <= now - datetime.timedelta(minutes=20) and \
+                    (not days or names[d.weekday()] in days) and \
+                    (not created or due.isoformat() >= created):
+                out.append({"key": f"job:{j['id']}", "name": j["name"],
+                            "due": due.isoformat(timespec="minutes")})
+                break
+            d += datetime.timedelta(days=1)
+    return out
+
+
 def _key_for(args: list[str]) -> str:
     if "--task" not in args:
         return ""
@@ -183,7 +291,11 @@ def rows() -> list[dict]:
                     "next": (t or {}).get("Next run", ""),
                     "last": lg.get("last") or (t or {}).get("Last run", ""),
                     "result": res, "log": lg.get("lines", []),
-                    "status": (t or {}).get("Status", "")})
+                    "status": (t or {}).get("Status", ""),
+                    # the schedule Windows actually has (PowerShell listing)
+                    "real_time": (t or {}).get("time", ""),
+                    "real_days": (t or {}).get("days"),
+                    "real_kind": (t or {}).get("Schedule", "")})
     return out
 
 

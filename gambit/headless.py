@@ -136,6 +136,29 @@ def _onboard_retries(log) -> list[str]:
 
 
 def main(argv=None) -> int:
+    """Run one background task and record how it went (Home → Background jobs)."""
+    import datetime as _dt
+    argv = list(sys.argv[1:] if argv is None else argv)
+    task = argv[argv.index("--task") + 1] if "--task" in argv[:-1] else "?"
+    name = argv[argv.index("--name") + 1] if "--name" in argv[:-1] else ""
+    started = _dt.datetime.now().isoformat(timespec="seconds")
+    code = 1
+    try:
+        code = _main(argv)
+        return code
+    except SystemExit as exc:          # argparse
+        code = int(exc.code or 0)
+        raise
+    finally:
+        try:
+            from . import tasks_health
+            tasks_health.record_run(task + (f":{name}" if name else ""), started,
+                                    int(code or 0))
+        except Exception:  # noqa: BLE001 – recording must never break the task
+            pass
+
+
+def _main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="GAMbit", add_help=True)
     ap.add_argument("--task", required=True, choices=["sync", "daily", "requests", "groups", "digest",
                                                    "signatures", "guardians", "settingswatch",
@@ -157,6 +180,14 @@ def main(argv=None) -> int:
     from . import support
     support.setup_logging()
     log("Starting")
+    try:
+        from .updaters import update_in_progress
+        if update_in_progress():
+            log("A GAMbit update is being installed – skipped this run; the next one runs "
+                "as normal.")
+            return 0
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from . import deploy
         for line in deploy.apply_on_start():

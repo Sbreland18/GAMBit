@@ -40,6 +40,14 @@ class Settings:
         self._s.setValue(key, value)
         self._s.sync()
 
+    def fresh(self, key: str, default=None):
+        """get() after re-reading what other GAMbit processes (scheduled tasks) saved."""
+        try:
+            self._s.sync()
+        except Exception:  # noqa: BLE001
+            pass
+        return self.get(key, default)
+
     # --- GAM locations -------------------------------------------------
     @property
     def gam_dir(self) -> str:

@@ -269,10 +269,7 @@ class SchedulesPage(Page):
             for r in task_rows:
                 if r.get("job_id") or r["name"] not in by_name or not r.get("scheduled"):
                     continue
-                days = (r.get("days") or "MON").split(",") if r.get("freq") == "weekly" \
-                    else []
-                when = describe(r.get("time", ""), days) if r.get("freq") in (
-                    "daily", "weekly") else (r.get("freq") or "")
+                when = self._when(r)
                 out.append({"kind": "task", "name": r["name"], "type": "GAMbit task",
                             "what": r.get("what", ""), "when": when,
                             "on": r.get("status", "").lower() != "disabled",
@@ -284,17 +281,50 @@ class SchedulesPage(Page):
         Worker(load, on_done=done, on_error=lambda e: (setattr(self, "rows", []),
                                                        self._fallback(str(e))))
 
+    @staticmethod
+    def _when(r: dict) -> str:
+        """What Windows really has; else what GAMbit asked for."""
+        kind = (r.get("real_kind") or "").lower()
+        if r.get("real_time") and kind in ("daily", "weekly"):
+            return describe(r["real_time"], r.get("real_days") or [] if kind == "weekly"
+                            else [])
+        if r.get("real_time") and kind:
+            return f"{r.get('real_kind')} at {describe(r['real_time'], [])[13:]}"
+        days = (r.get("days") or "MON").split(",") if r.get("freq") == "weekly" else []
+        if r.get("freq") in ("daily", "weekly"):
+            return describe(r.get("time", ""), days)
+        return r.get("freq") or r.get("real_kind") or ""
+
     def _fallback(self, err: str):
         self.rows = [{"kind": "job", "job": j, "name": j["name"], "type": "Saved job",
                       "what": saved_jobs.describe(j), "when": saved_jobs.when(j),
                       "on": j.get("enabled", True), "last": "", "next": "", "result": "",
                       "task": saved_jobs.task_name(j),
                       "args": ["--task", "job", "--name", j["id"]]} for j in saved_jobs.jobs()]
+        mine = {r["task"] for r in self.rows}
+        try:                     # still show every task in GAMbit's Task Scheduler folder
+            from ... import scheduler
+            for t in scheduler.list_tasks():
+                if t["Name"] in mine:
+                    continue
+                r = {"real_time": t.get("time", ""), "real_days": t.get("days"),
+                     "real_kind": t.get("Schedule", "")}
+                self.rows.append({"kind": "task", "name": t["Name"], "type": "GAMbit task",
+                                  "what": "", "when": self._when(r) or t.get("Schedule", ""),
+                                  "on": (t.get("Status") or "").lower() != "disabled",
+                                  "last": t.get("Last run", ""), "next": t.get("Next run", ""),
+                                  "result": t.get("Last result", ""), "task": t["Name"],
+                                  "args": [], "log": []})
+        except Exception:  # noqa: BLE001
+            pass
         self._fill()
-        self.status.setText(f"Couldn't read Windows Task Scheduler: {err}")
+        self.status.setText(f"Some details couldn't be read ({err}) – the list shows what "
+                            "Windows Task Scheduler has.")
 
     @staticmethod
     def _result(t: dict, job: dict | None) -> str:
+        if job and IS_WINDOWS and not t.get("scheduled"):
+            return "⚠ not in Task Scheduler – Edit → Save to re-create"
         if t.get("state") == "failed" or (job and job.get("last_code")):
             return "✖ failed"
         if t.get("state") == "ok":

@@ -267,6 +267,9 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         from .. import deploy
         for line in deploy.apply_on_start():
             self.log_line("📦 " + line, "#7cc4ff")
+        settings.set("update/in_progress", 0)     # we're running, so any update finished
+        import datetime as _dt
+        settings.set("home/last_open", _dt.datetime.now().isoformat(timespec="seconds"))
         try:   # the single morning jobs from earlier versions become saved jobs
             from .. import saved_jobs
             for j in saved_jobs.migrate_legacy():

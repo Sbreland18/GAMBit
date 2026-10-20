@@ -6,6 +6,7 @@ import os
 import platform
 import shutil
 import subprocess
+import time
 import sys
 import tarfile
 import tempfile
@@ -275,10 +276,36 @@ def launch_installer(path: str):
     """Start the Inno Setup installer silently; it relaunches GAMbit when done."""
     if not IS_WINDOWS:
         raise RuntimeError("Automatic install is only supported on Windows.")
-    subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL",
-                      "/CLOSEAPPLICATIONS", "/NORESTART"],
+    import tempfile
+    from .settings import settings
+    log = os.path.join(tempfile.gettempdir(), "GAMbit-update.log")
+    settings.set("update/in_progress", time.time())   # background tasks wait it out
+    subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS",
+                      "/FORCECLOSEAPPLICATIONS", "/NORESTART", f"/LOG={log}",
+                      install_scope_flag()],
                      close_fds=True,
                      creationflags=subprocess.DETACHED_PROCESS)
+
+
+def install_scope_flag(exe: str | None = None) -> str:
+    """/CURRENTUSER when GAMbit is installed just for this user (under the user's own
+    folders), /ALLUSERS when it's in Program Files – so an update never switches the
+    install to the other place."""
+    exe = os.path.normcase(os.path.abspath(exe or sys.executable))
+    user_roots = [os.environ.get(k, "") for k in ("LOCALAPPDATA", "APPDATA", "USERPROFILE")]
+    if any(r and exe.startswith(os.path.normcase(os.path.abspath(r)) + os.sep)
+           for r in user_roots):
+        return "/CURRENTUSER"
+    return "/ALLUSERS"
+
+
+def update_in_progress(window: float = 15 * 60) -> bool:
+    from .settings import settings
+    try:
+        t = float(settings.get("update/in_progress", 0) or 0)
+    except (TypeError, ValueError):
+        t = 0
+    return bool(t) and time.time() - t < window
 
 
 def is_frozen() -> bool:

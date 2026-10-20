@@ -28,7 +28,7 @@ PREFIX = "GAMbit job - "
 # ============================================================== storage ===
 def jobs() -> list[dict]:
     try:
-        data = json.loads(settings.get("jobs/list", "[]") or "[]")
+        data = json.loads(settings.fresh("jobs/list", "[]") or "[]")
     except ValueError:
         data = []
     return [j for j in data if isinstance(j, dict) and j.get("id") and j.get("kind") in KINDS]

@@ -263,16 +263,75 @@ def tune_all() -> int:
     return sum(1 for t in list_tasks() if tune_task(t["Name"]))
 
 
+LIST_PS = r"""
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$r = @(Get-ScheduledTask -TaskPath '\@FOLDER@\' -ErrorAction SilentlyContinue | ForEach-Object {
+  $i = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+  $t = @($_.Triggers)[0]
+  [pscustomobject]@{
+    Name   = $_.TaskName
+    State  = [string]$_.State
+    Last   = $(if ($i -and $i.LastRunTime -and $i.LastRunTime.Year -gt 2000) { $i.LastRunTime.ToString('yyyy-MM-dd HH:mm') } else { '' })
+    Next   = $(if ($i -and $i.NextRunTime) { $i.NextRunTime.ToString('yyyy-MM-dd HH:mm') } else { '' })
+    Result = $(if ($i) { [string]$i.LastTaskResult } else { '' })
+    Start  = $(if ($t) { [string]$t.StartBoundary } else { '' })
+    Days   = $(if ($t -and $t.DaysOfWeek) { [int]$t.DaysOfWeek } else { 0 })
+    Kind   = $(if ($t) { [string]$t.CimClass.CimClassName } else { '' })
+  }
+})
+ConvertTo-Json -InputObject $r -Compress
+"""
+# Task Scheduler's DaysOfWeek bitmask
+DAY_BITS = [("SUN", 1), ("MON", 2), ("TUE", 4), ("WED", 8), ("THU", 16), ("FRI", 32),
+            ("SAT", 64)]
+
+
+def _from_ps(items: list) -> list[dict]:
+    out = []
+    for t in items or []:
+        if not isinstance(t, dict) or not t.get("Name"):
+            continue
+        start = t.get("Start") or ""
+        hhmm = start[11:16] if len(start) >= 16 else ""
+        mask = int(t.get("Days") or 0)
+        kind = (t.get("Kind") or "").lower()
+        days = [d for d, b in DAY_BITS if mask & b] if "weekly" in kind else []
+        sched = ("Weekly" if "weekly" in kind else "Daily" if "daily" in kind else
+                 "Monthly" if "monthly" in kind else "Time" if "time" in kind else
+                 t.get("Kind") or "")
+        out.append({"Name": t["Name"], "Next run": t.get("Next") or "",
+                    "Last run": t.get("Last") or "", "Last result": str(t.get("Result", "")),
+                    "Status": t.get("State") or "", "Schedule": sched, "time": hhmm,
+                    "days": days})
+    return out
+
+
 def list_tasks() -> list[dict]:
+    """GAMbit's tasks (its own folder in Task Scheduler only)."""
     if not IS_WINDOWS:
         return []
-    code, out = _run(["schtasks", "/Query", "/FO", "CSV", "/V"])
-    if code != 0:
-        return []
+    import json as _json
+    try:
+        code, out = _run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                          "Bypass", "-Command", LIST_PS.replace("@FOLDER@", TASK_FOLDER)])
+        txt = (out or "").strip()
+        start = txt.find("[")
+        if code == 0 and start >= 0:
+            data = _json.loads(txt[start:])
+            return _from_ps(data if isinstance(data, list) else [data])
+    except Exception:  # noqa: BLE001 – fall back to schtasks
+        pass
+    return _list_schtasks()
+
+
+def _list_schtasks() -> list[dict]:
+    # only our folder – asking for every task fails on PCs where some system tasks can't be
+    # read ("Access is denied"), which used to hide all of GAMbit's tasks
+    code, out = _run(["schtasks", "/Query", "/TN", f"\\{TASK_FOLDER}\\", "/FO", "CSV", "/V"])
     rows = []
-    for r in csv.DictReader(io.StringIO(out)):
-        tn = r.get("TaskName", "")
-        if tn.startswith(f"\\{TASK_FOLDER}\\") and r.get("TaskName") != "TaskName":
+    for r in csv.DictReader(io.StringIO(out or "")):
+        tn = r.get("TaskName", "") or ""
+        if tn.startswith(f"\\{TASK_FOLDER}\\") and tn != "TaskName":
             rows.append({"Name": tn.split("\\")[-1],
                          "Next run": r.get("Next Run Time", ""),
                          "Last run": r.get("Last Run Time", ""),

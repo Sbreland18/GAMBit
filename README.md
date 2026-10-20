@@ -771,6 +771,16 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Safer self-updates (fix).** The installer used to delete `_internal` before copying. If any GAMbit was still running, such as a background task, the copy failed half-way and GAMbit wouldn't open. The installer now:
+  1. Closes every GAMbit (`taskkill /IM GAMbit.exe`).
+  2. Renames `_internal` to `_internal.old`.
+  3. Copies the new files.
+  4. Deletes the old ones only after a successful install, and renames them back if the install doesn't finish.
+
+  Silent updates also pass `/CURRENTUSER` or `/ALLUSERS` to match where GAMbit is installed, and write `%TEMP%\GAMbit-update.log`. Background tasks skip their run while an update is installing.
+- **Schedules shows every task (fix).** GAMbit used to read the list with `schtasks /Query /V` over every Windows task. That fails with "Access is denied" on PCs with protected system tasks, and the whole list was thrown away. It now reads only GAMbit's folder through PowerShell `Get-ScheduledTask` (Unicode-safe, with real days and times and on/off state). `schtasks /Query /TN \GAMbit\` is the fallback, and partial output is kept. Saved jobs missing from Task Scheduler are flagged.
+- **Home → Background jobs.** It shows what ran since you were last in GAMbit, or at least the last 24 hours: ✔ succeeded, ✖ failed (with the reason) and ⚠ saved jobs that were due but didn't run. *Last 7 days* widens the view. Every background run now records its result in `logs\task_runs.jsonl`.
+
 - **Saved scheduled jobs and the Schedules page (Automation → Schedules):**
   - *Blank / set assigned users* and *Move Chromebooks to their students' schools* are now saved jobs. Each has a name, its own copy of the settings, its own org units (or all Chromebooks), and its own time and days. You can have several of the same kind, for example one per school.
   - In Chromebook fleet → Assigned users, *Save as a new scheduled job…* makes one from the tab's current settings. The tab itself stays free for everyday use.

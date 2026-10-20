@@ -75,6 +75,11 @@ class HomePage(Page):
         grid.addWidget(self.domain_card[0], 0, 2)
         lay.addLayout(grid)
 
+        # ------------------------------------------- overnight background jobs ---
+        from ..jobs_box import JobsBox
+        self.jobs_box = JobsBox(self)
+        lay.addWidget(self.jobs_box)
+
         # ---------------------------------------------------- dashboard ---
         head = QHBoxLayout()
         head.addWidget(QLabel("<b style='font-size:12pt'>At a glance</b>"))
@@ -100,8 +105,8 @@ class HomePage(Page):
              self._aue),
             ("stale", "Chromebooks not seen in 30 days", "List them", self._stale),
             ("alerts", "Security alerts (7 days)", "Open alerts", self._alerts),
-            ("jobs", "Scheduled jobs", "Open scheduled jobs",
-             lambda: self.app.go("Scheduled jobs")),
+            ("jobs", "Scheduled jobs", "Open Schedules",
+             lambda: self.app.go("Schedules")),
         ]
         for i, (key, label, hint, fn) in enumerate(spec):
             tile = StatTile(label, hint)
@@ -285,6 +290,8 @@ class HomePage(Page):
         self.domain_card[1].setStyleSheet(f"color:{color};")
 
     def on_show(self):
+        if hasattr(self, "jobs_box"):
+            self.jobs_box.refresh()
         if hasattr(self, "score_box"):
             self.score_box.refresh_scorecard()
         d = self.app.directory

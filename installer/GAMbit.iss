@@ -53,9 +53,13 @@ Source: "..\dist\GAMbit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 ; Optional deployment settings placed next to the installer (see README → Rolling out)
 Source: "{src}\gambit-deploy.json"; DestDir: "{app}"; Flags: external skipifsourcedoesntexist ignoreversion
 
-[InstallDelete]
-; Clear out files from the previous version before copying the new ones.
-Type: filesandordirs; Name: "{app}\_internal"
+; No [InstallDelete] of _internal: deleting it while any GAMbit (or a scheduled
+; background task) still had files open left a half-deleted install that wouldn't start.
+; [Code] below closes every GAMbit first, moves the old _internal aside, and puts it back
+; if the update doesn't finish.
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\_internal.old"
 
 [Icons]
 ; AppUserModelID matches the one GAMbit sets at start-up, so Windows ties the taskbar
@@ -69,6 +73,66 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; IconFilename:
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall; Check: not NoLaunch
 
 [Code]
+var
+  InstallOk: Boolean;
+
+function AppDirOrEmpty: String;
+begin
+  try
+    Result := ExpandConstant('{app}');
+  except
+    Result := '';
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  { close every running GAMbit – the window and any background task – so no file is
+    locked while the new version is copied }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM GAMbit.exe', '', SW_HIDE,
+       ewWaitUntilTerminated, Code);
+  Sleep(1500);
+  Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  App: String;
+begin
+  App := AppDirOrEmpty;
+  if App = '' then
+    Exit;
+  if CurStep = ssInstall then
+  begin
+    if DirExists(App + '\_internal.old') then
+      DelTree(App + '\_internal.old', True, True, True);
+    { move the old files aside (removes leftovers from older versions); if that isn't
+      possible the new files are simply copied over the old ones }
+    if DirExists(App + '\_internal') then
+      RenameFile(App + '\_internal', App + '\_internal.old');
+  end;
+  if CurStep = ssPostInstall then
+  begin
+    InstallOk := True;
+    DelTree(App + '\_internal.old', True, True, True);
+  end;
+end;
+
+procedure DeinitializeSetup;
+var
+  App: String;
+begin
+  { the update didn't finish: put the previous version back so GAMbit still opens }
+  App := AppDirOrEmpty;
+  if (not InstallOk) and (App <> '') and DirExists(App + '\_internal.old') then
+  begin
+    DelTree(App + '\_internal', True, True, True);
+    RenameFile(App + '\_internal.old', App + '\_internal');
+  end;
+end;
+
 function NoLaunch: Boolean;
 var
   i: Integer;
