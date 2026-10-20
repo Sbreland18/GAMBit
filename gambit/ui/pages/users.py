@@ -372,27 +372,154 @@ class UsersPage(Page):
             button("☆ Save this search", slot=self.save_search),
             button("Suspend selected", "danger", lambda: self.bulk_suspend(True)),
             button("Unsuspend selected", slot=lambda: self.bulk_suspend(False))))
+        self.saved = QComboBox()
+        self.saved.setMinimumWidth(260)
+        self.saved.currentIndexChanged.connect(self._saved_picked)
+        self.saved_run = button("▶ Run", "primary", lambda: self.run_saved())
+        self.saved_upd = button("Update with the search above", slot=self.update_saved)
+        self.saved_ren = button("Rename…", slot=self.rename_saved)
+        self.saved_del = button("Delete", "danger", self.delete_saved)
+        form.addRow("Saved", self.row(self.saved, self.saved_run, self.saved_upd,
+                                      self.saved_ren, self.saved_del, stretch=False))
+        self.saved_note = QLabel("", objectName="Muted")
+        self.saved_note.setWordWrap(True)
+        form.addRow("", self.saved_note)
         lay.addWidget(box)
         self.results = ResultsTable()
         lay.addWidget(self.results, 1)
         self._mode_changed(0)
+        self.refresh_saved()
         return w
+
+    # ------------------------------------------------------ saved searches ---
+    def form_spec(self) -> dict:
+        return {"mode": self.l_mode.currentText(), "value": self.l_value.text().strip(),
+                "ous": self.l_ous.paths(), "children": self.l_ous.include_children(),
+                "cf_field": self.cf_field.currentData() or "",
+                "cf_op": self.cf_op.currentData() or "is"}
+
+    def apply_spec(self, spec: dict):
+        """Put a saved search back on the form (without running it)."""
+        i = self.l_mode.findText(spec["mode"])
+        self.l_mode.setCurrentIndex(max(0, i))
+        self.l_value.setText(spec.get("value", ""))
+        self.l_ous.set_paths(spec.get("ous") or [])
+        self.l_ous.set_include_children(spec.get("children", True))
+        self.cf_op.setCurrentIndex(max(0, self.cf_op.findData(spec.get("cf_op", "is"))))
+        self._mode_changed(self.l_mode.currentIndex())
+        if spec.get("cf_field"):
+            if self.cf_field.findData(spec["cf_field"]) < 0:
+                self.cf_field.addItem(spec["cf_field"], spec["cf_field"])
+            self.cf_field.setCurrentIndex(self.cf_field.findData(spec["cf_field"]))
+
+    def _spec_problem(self, spec: dict) -> str:
+        m = spec["mode"]
+        if m == "In org unit(s)" and not spec["ous"]:
+            return "Click Choose… and tick one or more org units first."
+        if m in ("Name or email contains", "Custom query") and not spec["value"]:
+            return "Type what to search for first."
+        if m == "Custom field" and not spec["cf_field"]:
+            return "Pick a custom field first."
+        return ""
+
+    def _searches(self) -> list[dict]:
+        return [f for f in self.app.favorites() if f.get("kind") == "search"]
+
+    def refresh_saved(self, select_key: str = ""):
+        from ... import saved_searches as ss
+        cur = select_key or self.saved.currentData() or ""
+        self.saved.blockSignals(True)
+        self.saved.clear()
+        self.saved.addItem("Saved searches…", "")
+        for f in self._searches():
+            self.saved.addItem("🔎 " + f["label"], f["value"])
+            self.saved.setItemData(self.saved.count() - 1, ss.tooltip(f), 3)  # tooltip
+        i = self.saved.findData(cur) if cur else 0
+        self.saved.setCurrentIndex(max(0, i))
+        self.saved.blockSignals(False)
+        has = self.saved.count() > 1
+        for b in (self.saved, self.saved_run, self.saved_upd, self.saved_ren, self.saved_del):
+            b.setEnabled(has)
+        self._saved_picked()
+
+    def _current_saved(self) -> dict | None:
+        key = self.saved.currentData()
+        return next((f for f in self._searches() if f["value"] == key), None) if key else None
+
+    def _saved_picked(self, *_):
+        f = self._current_saved()
+        on = f is not None
+        for b in (self.saved_run, self.saved_upd, self.saved_ren, self.saved_del):
+            b.setEnabled(on)
+        if on:
+            from ... import saved_searches as ss
+            self.apply_spec(ss.spec_of(f))
+            self.saved_note.setText(ss.describe(ss.spec_of(f)) + " – change the search "
+                                    "above and click Update to save the change.")
+        else:
+            self.saved_note.setText("")
+
+    def run_saved(self, fav: dict | None = None):
+        from ... import saved_searches as ss
+        f = fav or self._current_saved()
+        if not f:
+            return
+        if fav:
+            self.refresh_saved(f["value"])
+        self.apply_spec(ss.spec_of(f))
+        self.list_users()
 
     def save_search(self):
         from PySide6.QtWidgets import QInputDialog
-        idx, val = self.l_mode.currentIndex(), self.l_value.text().strip()
-        q = {2: val, 3: "isSuspended=true", 4: val}.get(idx, "")
-        if idx == 1:
-            ous = self.l_ous.paths()
-            q = " ".join(f"orgUnitPath='{o}'" for o in ous[:1])
-        if not q:
-            self.info("Saved searches use “Name or email contains”, “Suspended users only”, "
-                      "a single org unit, or a Custom query.")
+        from ... import saved_searches as ss
+        spec = self.form_spec()
+        why = self._spec_problem(spec)
+        if why:
+            self.info(why)
             return
-        name, ok = QInputDialog.getText(self, "Save this search", "Name it (e.g. Staff without "
-                                        "2-step):", text=q)
+        name, ok = QInputDialog.getText(self, "Save this search", "Name it (e.g. All "
+                                        "schools – students):", text=ss.describe(spec)[:60])
+        if not ok or not name.strip():
+            return
+        key = ss.new_key()
+        favs = self.app.favorites()
+        favs.insert(0, {"kind": "search", "value": key, "label": name.strip(), "spec": spec})
+        self.app._save_favorites(favs[:40])
+        self.app.statusBar().showMessage(f"★ Saved the search “{name.strip()}”", 4000)
+        self.refresh_saved(key)
+
+    def update_saved(self):
+        from ... import saved_searches as ss
+        f = self._current_saved()
+        if not f:
+            return
+        spec = self.form_spec()
+        why = self._spec_problem(spec)
+        if why:
+            self.info(why)
+            return
+        if not self.confirm(f"Save the search on the form as “{f['label']}”?\n\n"
+                            f"Was: {ss.describe(ss.spec_of(f))}\nNow: {ss.describe(spec)}"):
+            return
+        self.app.update_favorite(f, {**f, "spec": spec})
+        self.refresh_saved(f["value"])
+
+    def rename_saved(self):
+        from PySide6.QtWidgets import QInputDialog
+        f = self._current_saved()
+        if not f:
+            return
+        name, ok = QInputDialog.getText(self, "Rename saved search", "New name:",
+                                        text=f["label"])
         if ok and name.strip():
-            self.app.add_favorite(q, "search", name.strip())
+            self.app.update_favorite(f, {**f, "label": name.strip()})
+            self.refresh_saved(f["value"])
+
+    def delete_saved(self):
+        f = self._current_saved()
+        if f and self.confirm(f"Delete the saved search “{f['label']}”?"):
+            self.app.remove_favorite(f)
+            self.refresh_saved()
 
     def _mode_changed(self, idx):
         hints = {2: "smith", 4: "orgUnitPath='/Staff' isAdmin=false", 5: "e.g. 7th Grade"}

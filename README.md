@@ -390,6 +390,10 @@ This keeps each Chromebook's assigned user, asset tag and org unit matching your
 
 These are rules such as "suspend students with no sign-in for 180 days", "delete accounts suspended over a year" or "release licenses from suspended accounts". Each rule has an org unit, a skip list and a safety cap. Rules never change anything themselves: every finding becomes one Approvals request. You can schedule them weekly with *Every Monday…*.
 
+## Saved user searches (Users → Find / list users)
+
+*☆ Save this search* keeps the whole search: the kind of search, every org unit you picked, *include sub-org units*, and the custom field test. The **Saved** list on the same tab loads one (▶ Run runs it); change the search and click *Update with the search above* to edit it, or *Rename…* / *Delete*. Saved searches also appear in Home → Favorites, where right-click gives Run, Edit, Rename and Remove. (Searches saved before this version kept only the first org unit – open them, pick the org units again and click Update.)
+
 ## Custom user fields (Settings & Updates → Custom user fields)
 
 Every district's custom schemas are different, so GAMbit reads yours from Google (`gam print schemas`) – or learns them from one person who has them filled in – and you tick the fields you want (for example Student_Information → Student_ID, Grade, Current_School) and their order.

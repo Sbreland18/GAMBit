@@ -150,6 +150,12 @@ class AppActions:
         home = self.pages.get("Home") if hasattr(self, "pages") else None
         if home is not None and hasattr(home, "show_favorites"):
             home.show_favorites()
+        users = self.pages.get("Users") if hasattr(self, "pages") else None
+        if users is not None and hasattr(users, "refresh_saved"):
+            try:
+                users.refresh_saved()
+            except Exception:  # noqa: BLE001
+                pass
 
     def fav_label(self, f: dict) -> str:
         icon = {"user": "👤", "group": "👥", "ou": "🏢", "serial": "💻",
@@ -184,6 +190,38 @@ class AppActions:
         self._save_favorites(favs[:40])
         self.statusBar().showMessage(f"★ Added {label} to favorites")
 
+    def update_favorite(self, old: dict, new: dict):
+        favs = self.favorites()
+        for i, x in enumerate(favs):
+            if x["kind"] == old["kind"] and x["value"] == old["value"]:
+                favs[i] = new
+                break
+        self._save_favorites(favs)
+
+    def rename_favorite(self, f: dict):
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "Rename favorite", "New name:", text=f["label"])
+        if ok and name.strip():
+            self.update_favorite(f, {**f, "label": name.strip()})
+
+    def edit_saved_search(self, f: dict):
+        """Open the saved search on Users → Find / list users without running it."""
+        p = self._users_find_tab()
+        if p is not None:
+            p.refresh_saved(f["value"])
+
+    def _users_find_tab(self):
+        self._go_safe("Users")
+        p = self.pages.get("Users")
+        if p is None:
+            return None
+        for tabs in p.findChildren(QTabWidget):
+            for i in range(tabs.count()):
+                if tabs.tabText(i).startswith("Find"):
+                    tabs.setCurrentIndex(i)
+                    return p
+        return p
+
     def remove_favorite(self, f: dict):
         self._save_favorites([x for x in self.favorites()
                               if not (x["kind"] == f["kind"] and x["value"] == f["value"])])
@@ -199,7 +237,7 @@ class AppActions:
         elif k == "serial":
             self.open_device(v)
         elif k == "search":
-            self.open_saved_search(v)
+            self.open_saved_search(f)
 
     def do_intent(self, it):
         _label, _words, page, tab = it
@@ -223,15 +261,14 @@ class AppActions:
             from .. import support
             support.ask_and_save(self, output_text=self.log.toPlainText())
 
-    def open_saved_search(self, query: str):
-        self._go_safe("Users")
-        p = self.pages["Users"]
-        tabs = p.findChild(QTabWidget)
-        if tabs:
-            tabs.setCurrentIndex(2)
-        p.l_mode.setCurrentIndex(4)
-        p.l_value.setText(query)
-        p.list_users()
+    def open_saved_search(self, fav):
+        """Run a saved search exactly as it was saved (every org unit, field and option)."""
+        if isinstance(fav, str):          # an old caller passing just the query
+            fav = next((f for f in self.favorites() if f.get("kind") == "search" and
+                        f["value"] == fav), {"kind": "search", "value": fav, "label": fav})
+        p = self._users_find_tab()
+        if p is not None:
+            p.run_saved(fav)
 
     def _refresh_search(self):
         d = self.directory

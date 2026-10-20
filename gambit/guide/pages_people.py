@@ -77,7 +77,12 @@ PAGES = {
                "**Create a user**: fill in the name, email, org unit and password, then "
                "**Create user**.",
                "**Find / list users**: search by org unit, name or status, select rows and act "
-               "on them (suspend, move, reset…). *☆ Save this search* keeps it.",
+               "on them (suspend, move, reset…). *☆ Save this search* keeps it – every org "
+               "unit, sub-org-unit setting and custom field test.",
+               "**Saved searches**: pick one in *Saved* to load it, then *▶ Run*. Change the "
+               "search and click *Update with the search above* to edit it; *Rename…* and "
+               "*Delete* are next to it. On Home, right-click a saved search for Run, Edit, "
+               "Rename and Remove.",
                "**Custom fields** (your custom schemas, e.g. Student_Information → Grade, "
                "Student ID): click *Custom fields…* (or Settings & Updates → Custom user "
                "fields), *Read schemas from Google* and tick the fields. They're added as "

@@ -209,6 +209,9 @@ class OUMultiField(QWidget):
     def include_children(self) -> bool:
         return self.sub.isChecked()
 
+    def set_include_children(self, on: bool):
+        self.sub.setChecked(bool(on))
+
 
 # =============================================================== people ===
 def _person_label(u: dict) -> str:

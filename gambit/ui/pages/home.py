@@ -298,6 +298,20 @@ class HomePage(Page):
         if d.connected is not None:
             self.set_connection(d.connected, d.domain if d.connected else "Not connected")
 
+    def _fav_menu(self, f: dict, b):
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(b)
+        m.addAction("Open" if f.get("kind") != "search" else "▶ Run",
+                    lambda: self.app.open_favorite(f))
+        if f.get("kind") == "search":
+            m.addAction("Edit the search…", lambda: self.app.edit_saved_search(f))
+        m.addAction("Rename…", lambda: self.app.rename_favorite(f))
+        m.addSeparator()
+        m.addAction("Remove from favorites", lambda: self.app.remove_favorite(f)
+                    if self.confirm(f"Remove {f['label']} from favorites?") else None)
+        m.exec(QCursor.pos())
+
     def show_favorites(self):
         while self.fav_row.count():
             it = self.fav_row.takeAt(0)
@@ -308,10 +322,13 @@ class HomePage(Page):
         for f in favs[:12]:
             b = button(self.app.fav_label(f)[2:].split("  <")[0],
                        slot=lambda _=False, f=f: self.app.open_favorite(f))
-            b.setToolTip(f"{f['value']} – right-click to remove")
+            tip = f["value"]
+            if f.get("kind") == "search":
+                from ... import saved_searches
+                tip = saved_searches.tooltip(f)
+            b.setToolTip(f"{tip} – right-click to edit, rename or remove")
             b.setContextMenuPolicy(Qt.CustomContextMenu)
             b.customContextMenuRequested.connect(
-                lambda _p, f=f: self.app.remove_favorite(f)
-                if self.confirm(f"Remove {f['label']} from favorites?") else None)
+                lambda _p, f=f, b=b: self._fav_menu(f, b))
             self.fav_row.addWidget(b)
         self.fav_row.addStretch(1)
