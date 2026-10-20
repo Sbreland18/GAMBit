@@ -189,7 +189,78 @@ def create_task(name: str, script: str, freq: str, time_hhmm: str,
     code, out = _run(args)
     if code != 0:
         raise RuntimeError(out.strip() or "schtasks failed")
+    tune_task(name)
     return out.strip()
+
+
+def tune_script(name: str, wake: bool) -> str:
+    """PowerShell that fixes the Task Scheduler defaults schtasks can't set:
+    run as soon as possible after a missed start (PC was off or asleep), run on battery,
+    don't stop when the laptop is unplugged, and optionally wake the PC for it."""
+    n = name.replace("'", "''")
+    folder = TASK_FOLDER.replace("'", "''")
+    return (f"$t = Get-ScheduledTask -TaskPath '\\{folder}\\' -TaskName '{n}' "
+            "-ErrorAction Stop; "
+            "$s = $t.Settings; $s.StartWhenAvailable = $true; "
+            "$s.DisallowStartIfOnBatteries = $false; $s.StopIfGoingOnBatteries = $false; "
+            f"$s.WakeToRun = ${'true' if wake else 'false'}; "
+            "Set-ScheduledTask -TaskPath $t.TaskPath -TaskName $t.TaskName -Settings $s "
+            "| Out-Null")
+
+
+def tune_task(name: str) -> bool:
+    """Apply tune_script to a GAMbit task. Never fails the caller – the task still runs on
+    time without it, it just won't catch up or run on battery."""
+    if not IS_WINDOWS:
+        return False
+    from .settings import settings
+    wake = bool(settings.get("tasks/wake", False))
+    try:
+        code, _out = _run(["powershell", "-NoProfile", "-NonInteractive",
+                           "-ExecutionPolicy", "Bypass", "-Command", tune_script(name, wake)])
+        return code == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+DAY_NAMES = {"MON": "Monday", "TUE": "Tuesday", "WED": "Wednesday", "THU": "Thursday",
+             "FRI": "Friday", "SAT": "Saturday", "SUN": "Sunday"}
+
+
+def set_enabled(name: str, on: bool) -> str:
+    """Turn a GAMbit task on or off without deleting it."""
+    if not IS_WINDOWS:
+        raise RuntimeError("Scheduled jobs use Windows Task Scheduler (Windows only).")
+    code, out = _run(["schtasks", "/Change", "/TN", f"{TASK_FOLDER}\\{name}",
+                      "/ENABLE" if on else "/DISABLE"])
+    if code != 0:
+        raise RuntimeError(out.strip() or "schtasks failed")
+    return out.strip()
+
+
+def schedule_script(name: str, time_hhmm: str, days: list[str]) -> str:
+    n = name.replace("'", "''")
+    folder = TASK_FOLDER.replace("'", "''")
+    ds = [DAY_NAMES[d] for d in DAY_NAMES if d in (days or [])]
+    trig = (f"New-ScheduledTaskTrigger -Daily -At '{time_hhmm}'" if len(ds) in (0, 7) else
+            f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek {','.join(ds)} -At '{time_hhmm}'")
+    return (f"$tr = {trig}; Set-ScheduledTask -TaskPath '\\{folder}\\' -TaskName '{n}' "
+            "-Trigger $tr -ErrorAction Stop | Out-Null")
+
+
+def set_schedule(name: str, time_hhmm: str, days: list[str]) -> None:
+    """Change any GAMbit task's time and days (keeps what it runs)."""
+    if not IS_WINDOWS:
+        raise RuntimeError("Scheduled jobs use Windows Task Scheduler (Windows only).")
+    code, out = _run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                      "Bypass", "-Command", schedule_script(name, time_hhmm, days)])
+    if code != 0:
+        raise RuntimeError(out.strip() or "Couldn't change the schedule")
+
+
+def tune_all() -> int:
+    """Re-apply the settings to every GAMbit task (after changing “wake the PC”)."""
+    return sum(1 for t in list_tasks() if tune_task(t["Name"]))
 
 
 def list_tasks() -> list[dict]:

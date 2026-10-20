@@ -62,7 +62,7 @@ QPlainTextEdit#Log {{ background: #0d1117; color: #d1d9e0; border-radius: 8px;
                      font-family: "Cascadia Mono", "Consolas", monospace; font-size: 9.5pt; }}
 QFrame#Card {{ background: white; border: 1px solid #dfe3e8; border-radius: 12px; }}
 QLabel#CardValue {{ font-size: 15pt; font-weight: 600; }}
-QLabel#Banner {{ background: #fff4ce; border: 1px solid #f2d675; border-radius: 8px; padding: 8px 12px; }}
+QLabel#Banner, QFrame#Banner {{ background: #fff4ce; border: 1px solid #f2d675; border-radius: 8px; padding: 8px 12px; }}
 
 /* Popups, menus and dialogs: always light with dark text, even when Windows is in dark mode */
 QComboBox QAbstractItemView {{

@@ -283,6 +283,12 @@ INTENTS = [
      "Folder tools"),
     ("Set up org units and schools", "org unit map designate which org units students staff "
      "chromebooks schools grades setup ou map", "Settings & Updates", None),
+    ("See and edit all my scheduled jobs", "schedules scheduled jobs list edit enable "
+     "disable turn off pause change time days saved job duplicate", "Schedules", None),
+    ("Make a second scheduled job for other org units", "second another job copy duplicate "
+     "org units schedule chromebook move blank", "Schedules", None),
+    ("Do scheduled jobs run when GAMbit is closed?", "scheduled jobs background closed "
+     "minimize tray open running task scheduler asleep off", "Background tasks", None),
     ("Dark mode", "dark mode theme colors night black background light mode",
      "Settings & Updates", None),
     ("Ask the Helper", "assistant chat ai question help me ask helper", "Guide", None),

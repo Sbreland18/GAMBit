@@ -211,11 +211,22 @@ Many features have an **Every night…**, **Every morning…** or **Every Monday
 creates a Windows Task Scheduler task that runs GAMbit with nobody at the PC
 (`GAMbit.exe --task …`).
 
+- **Automation → Schedules** lists every scheduled job – your saved jobs and GAMbit's own
+  tasks – to edit, duplicate, turn on/off, change the time and days, or run now. Saved jobs
+  (for example *Blank unused Chromebooks* or *Move Chromebooks to their students' schools*)
+  each keep their own settings and org units, so you can have one per school.
 - **Automation → Background tasks** lists every task, when it last ran and whether it
   worked. *Run here now* runs one immediately; *Set up the standard tasks* creates the
   recommended ones.
-- The PC that hosts the tasks must be on (a server or an always-on PC is best – see
-  *Server kit…*).
+- **GAMbit doesn't need to be open.** Each task starts its own copy of GAMbit with no
+  window, does the job and exits, so it runs whether GAMbit is open, minimized or closed.
+- The PC must be **on**, with you **signed in to Windows** (a locked screen is fine;
+  signing out stops them). A job missed because the PC was asleep or off runs as soon as
+  it's back, and jobs run on battery too. *Wake this PC from sleep…* on Background tasks
+  wakes it for them.
+- For jobs that must never be missed, use a server or an always-on PC (*Server kit…*).
+- Jobs with a time-and-days picker (Chromebook fleet → Assigned users) run at the time
+  and on the days you tick.
 - Failures are emailed or posted to Teams/Slack/Google Chat when alerts are set up
   (Settings → Google Sheets and email).
 - **Run later & freezes** (Automation) queues single changes for tonight and pauses risky

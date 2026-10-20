@@ -35,6 +35,7 @@ from .pages.activity_page import ActivityPage
 from .pages.approvals import ApprovalsPage
 from .pages.diagnostics_page import DiagnosticsPage
 from .pages.livetest_page import LiveTestPage
+from .pages.schedules_page import SchedulesPage
 from .pages.tasks_page import TasksPage
 from .pages.fleet_page import FleetPage
 from .pages.compliance_page import CompliancePage
@@ -106,7 +107,8 @@ NAV = [
     ("Approvals", ApprovalsPage), ("Ticket queue", TicketQueuePage),
     ("Scheduled jobs", ScheduledPage), ("Run later & freezes", ChangeCalendarPage),
     ("Stale content", StaleContentPage),
-    ("Background tasks", TasksPage), ("Clean-up rules", CleanupPage),
+    ("Schedules", SchedulesPage), ("Background tasks", TasksPage),
+    ("Clean-up rules", CleanupPage),
     "TOOLS",
     ("Command Builder", BuilderPage),
     ("Bulk (CSV)", BulkPage),
@@ -265,6 +267,13 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         from .. import deploy
         for line in deploy.apply_on_start():
             self.log_line("📦 " + line, "#7cc4ff")
+        try:   # the single morning jobs from earlier versions become saved jobs
+            from .. import saved_jobs
+            for j in saved_jobs.migrate_legacy():
+                self.log_line(f"Your schedule is now the saved job “{j['name']}” "
+                              "(Automation → Schedules).", "#7cc4ff")
+        except Exception:  # noqa: BLE001
+            pass
         self.start_session_ui()
         self.apply_helpdesk_mode()
         self.set_dry_run(bool(settings.get("safety/dry_run", False)))

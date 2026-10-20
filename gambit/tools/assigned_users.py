@@ -391,13 +391,14 @@ MOVE_TASK = {"name": "GAMbit move Chromebooks to students' schools",
                      "signed in", "standard": False}
 
 
-def run_move_task(log=print, run_csv=None, run_text=None, users=None, ous=None) -> int:
+def run_move_task(log=print, run_csv=None, run_text=None, users=None, ous=None,
+                  o: dict | None = None) -> int:
     """Background task: plan and apply the moves; stops if there are unusually many."""
     from .. import activity
     from ..directory import load_ous, load_users, run_gam_csv, run_gam_text
     run_csv = run_csv or (lambda a: run_gam_csv(a, 3600))
     run_text = run_text or run_gam_text
-    o = move_options()
+    o = {**move_options(), **(o or {})}
     scope = o.get("scope_ous") or []
     cmds = load_args("ou", scope) if scope else load_args("all", [])
     rows = []
@@ -477,14 +478,15 @@ ASSIGN_TASK = {"name": "GAMbit Chromebook assigned users",
                        "sets it to the student who last signed in", "standard": False}
 
 
-def run_assign_task(log=print, run_csv=None, run_text=None, users=None) -> int:
+def run_assign_task(log=print, run_csv=None, run_text=None, users=None,
+                    o: dict | None = None) -> int:
     """Background task: blank stale assignments, then fill in / update from the last
     signed-in student, with the saved settings. Stops if there are unusually many."""
     from .. import activity, ou_map
     from ..directory import load_ous, load_users, run_gam_csv, run_gam_text
     run_csv = run_csv or (lambda a: run_gam_csv(a, 3600))
     run_text = run_text or run_gam_text
-    o = options()
+    o = {**options(), **(o or {})}
     if not (o.get("sched_set") or o.get("sched_stale")):
         log("Assigned users: nothing is switched on for the morning run.")
         return 0

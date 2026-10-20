@@ -10,6 +10,10 @@ from .widgets import button
 DAYS = [("MON", "Mon"), ("TUE", "Tue"), ("WED", "Wed"), ("THU", "Thu"), ("FRI", "Fri"),
         ("SAT", "Sat"), ("SUN", "Sun")]
 WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI"]
+NOTE = ("Runs through Windows Task Scheduler, so GAMbit doesn't need to be open – closing it "
+        "is fine. This PC needs to be on with you signed in to Windows (a locked screen is "
+        "fine). If it was asleep or off at that time, the job runs as soon as it's back. "
+        "Background tasks lists every job and how its last run went.")
 
 
 def describe(time_hhmm: str, days: list[str]) -> str:
@@ -61,6 +65,9 @@ class ScheduleEdit(QWidget):
         h.addWidget(button("Weekdays", slot=lambda: self.set_days(WEEKDAYS)))
         h.addWidget(button("Every day", slot=lambda: self.set_days([d for d, _l in DAYS])))
         h.addStretch(1)
+        note = QLabel(NOTE, objectName="Muted")
+        note.setWordWrap(True)
+        v.addWidget(note)
         self.set(time_hhmm, days if days is not None else WEEKDAYS)
 
     def set_days(self, days: list[str]):

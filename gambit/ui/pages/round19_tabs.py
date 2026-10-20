@@ -52,6 +52,18 @@ class AssignedUsersTab(ToolTab):
                                     self.items, button("Load", "primary", self.load)))
         self._scope_changed()
         self.lay.addWidget(self.status)
+        from PySide6.QtWidgets import QFrame, QHBoxLayout
+        self.editing = None
+        self.edit_bar = QFrame(objectName="Banner")
+        eb = QHBoxLayout(self.edit_bar)
+        eb.setContentsMargins(8, 4, 8, 4)
+        self.edit_lbl = QLabel()
+        self.edit_lbl.setWordWrap(True)
+        eb.addWidget(self.edit_lbl, 1)
+        eb.addWidget(button("Save changes to the job", "primary", self.save_job_changes))
+        eb.addWidget(button("Stop editing", slot=self.stop_editing))
+        self.edit_bar.hide()
+        self.lay.addWidget(self.edit_bar)
 
         box = QGroupBox("Set it to the last signed-in user")
         bl = QVBoxLayout(box)
@@ -168,8 +180,9 @@ class AssignedUsersTab(ToolTab):
         self.m_sched_info = QLabel(objectName="Muted")
         self.m_sched_info.setWordWrap(True)
         sl.addWidget(self.m_sched_info)
-        sl.addLayout(self.row(button("Save && schedule", "primary", self.schedule_move),
-                              button("Turn off", slot=self.unschedule_move)))
+        sl.addLayout(self.row(button("Save as a new scheduled job…", "primary",
+                                     self.schedule_move),
+                              button("All schedules…", slot=self._open_schedules)))
         bl.addWidget(sb)
         self._move_sched_text(m)
         self.lay.addWidget(box)
@@ -297,49 +310,146 @@ class AssignedUsersTab(ToolTab):
                        f"Chromebook follows its student's school (backup: "
                        f"{os.path.basename(path)})", done=lambda _s: self._after())
 
-    def _move_sched_text(self, m=None):
-        from ..schedule_edit import describe
-        m = m or au.move_options()
-        where = ", ".join(m.get("scope_ous") or []) or "every Chromebook"
-        self.m_sched_info.setText(
-            (f"On: {describe(m.get('sched_time') or '05:50', m.get('sched_days') or [])}, "
-             f"for {where}. " if m.get("scheduled") else "Off. ") +
-            "Uses the settings above. If a run finds an unusually large number of moves it "
-            "stops and waits for you, and each run saves a backup, so Undo last change works "
-            "for it too.")
+    def _jobs_text(self, kind: str) -> str:
+        from ... import saved_jobs
+        js = [j for j in saved_jobs.jobs() if j["kind"] == kind]
+        if not js:
+            return "No saved jobs of this kind yet. "
+        return "Saved jobs: " + "; ".join(
+            f"{j['name']} ({saved_jobs.when(j)}{'' if j.get('enabled', True) else ', off'})"
+            for j in js[:4]) + (f"; and {len(js) - 4} more" if len(js) > 4 else "") + ". "
 
-    def schedule_move(self):
-        if not self.m_when.days():
+    def _move_sched_text(self, m=None):
+        self.m_sched_info.setText(
+            self._jobs_text("move") +
+            "Each saved job keeps its own copy of the settings above and of “Which "
+            "Chromebooks” (all, or the org units you chose) – so you can save one for each "
+            "school. Change, pause or delete them on Automation → Schedules.")
+
+    def _ask_job_name(self, kind: str, default: str) -> str:
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "Save as a scheduled job",
+                                        "Name for this job:", text=default)
+        return name.strip() if ok and name.strip() else ""
+
+    def _scope_for_job(self):
+        key = self.scope.currentData()
+        if key in ("serial", "asset"):
+            self.info("For a scheduled job, set “Which Chromebooks” to All Chromebooks or to "
+                      "org units.")
+            return None
+        if key == "ou" and not self.ous.paths():
+            self.info("Choose the org units first.")
+            return None
+        return self.ous.paths() if key == "ou" else []
+
+    def _save_new_job(self, kind: str, opts: dict, when) -> None:
+        from ... import saved_jobs
+        if not when.days():
             self.info("Tick at least one day.")
             return
-        if self.scope.currentData() in ("serial", "asset"):
-            self.info("For the scheduled move, set “Which Chromebooks” to All Chromebooks or "
-                      "to org units.")
+        scope = self._scope_for_job()
+        if scope is None:
             return
-        o = self._move_opts()
-        o.update(scheduled=True, sched_time=self.m_when.time_hhmm(),
-                 sched_days=self.m_when.days())
-        au.save_move_options({**au.move_options_saved(), **{k: o[k] for k in (
-            "scheduled", "sched_time", "sched_days", "scope_ous")}})
-        self._move_sched_text(au.move_options())
-        from ... import tasks_health
-        from ..schedule_edit import task_for
+        label = "Move Chromebooks" if kind == "move" else (
+            "Blank & set assigned users" if opts.get("sched_stale") and opts.get("sched_set")
+            else "Blank unused Chromebooks" if opts.get("sched_stale") else
+            "Set assigned users")
+        default = f"{label} – {', '.join(p.rsplit('/', 1)[-1] for p in scope[:2])}" \
+            if scope else f"{label} – all Chromebooks"
+        name = self._ask_job_name(kind, default)
+        if not name:
+            return
+        job = saved_jobs.new(kind, name, opts, scope, when.time_hhmm(), when.days())
         try:
-            tasks_health.create(task_for(au.MOVE_TASK, o["sched_time"], o["sched_days"]))
-            self.info(f"Scheduled – GAMbit will move Chromebooks to their students' schools "
-                      f"{self.m_when.text()}, with these settings.")
+            saved_jobs.schedule(job)
+            msg = f"Saved “{job['name']}” – it runs {saved_jobs.when(job)}."
         except Exception as exc:  # noqa: BLE001
-            self.info(f"Saved, but the task couldn't be created here:\n{exc}")
+            from ...settings import IS_WINDOWS
+            msg = (f"Saved “{job['name']}”, but Windows didn't accept the schedule:\n{exc}"
+                   if IS_WINDOWS else f"Saved “{job['name']}” – it's scheduled when GAMbit "
+                   "runs on Windows.")
+        self.info(msg + "\n\nSee, change or pause it on Automation → Schedules.")
+        self._move_sched_text()
+        self._morning_text()
+
+    def schedule_move(self):
+        self._save_new_job("move", self._move_opts(), self.m_when)
 
     def unschedule_move(self):
-        au.save_move_options({**au.move_options_saved(), "scheduled": False})
-        self._move_sched_text(au.move_options())
+        self._open_schedules()
+
+    def _open_schedules(self):
+        from .insight_pages import goto
+        goto(self.page.app, "Schedules")
+
+    # -------------------------------------------- editing a saved job here ---
+    def load_job(self, job: dict):
+        """Show a saved job's settings here, to preview what it does; Save changes writes
+        them back to the job."""
+        o = job.get("opts", {})
+        self.editing = job
+        if job.get("scope_ous"):
+            self.scope.setCurrentIndex(max(0, self.scope.findData("ou")))
+            self.ous.set_paths(job["scope_ous"])
+        else:
+            self.scope.setCurrentIndex(max(0, self.scope.findData("all")))
+        self.ignore.setText(o.get("ignore", ""))
+        self.max_days.setValue(int(o.get("max_days", 0) or 0))
+        if job["kind"] == "assigned":
+            self.blank_only.setCurrentIndex(0 if o.get("blank_only", True) else 1)
+            self.students.setChecked(bool(o.get("students_only", True)))
+            self.s_days.setValue(int(o.get("stale_days", 60) or 60))
+            self.s_never.setChecked(bool(o.get("stale_never")))
+            self.k_stale.setChecked(bool(o.get("sched_stale")))
+            self.k_set.setChecked(bool(o.get("sched_set")))
+            self.k_when.set(job.get("time", "05:45"), job.get("days") or [])
+        else:
+            self.m_who.setCurrentIndex(max(0, self.m_who.findData(o.get("who", "last"))))
+            self.m_src.setCurrentIndex(max(0, self.m_src.findData(o.get("source", "map"))))
+            self.m_root.set_path(o.get("student_root", "/Students"))
+            self.m_depth.setValue(int(o.get("school_depth", 1) or 1))
+            self.m_tpl.setText(o.get("ou_template", "/Chromebooks/{school}"))
+            self.m_skip.setText(o.get("skip_ous", ""))
+            self.m_active.setChecked(bool(o.get("only_active", True)))
+            self.m_when.set(job.get("time", "05:50"), job.get("days") or [])
+            self._src_changed()
+        self.edit_lbl.setText(f"✎ Showing saved job <b>{job['name']}</b>. Load the "
+                              "Chromebooks and preview to see what it would do; change "
+                              "anything here, then <b>Save changes to the job</b>.")
+        self.edit_bar.show()
+        self.verticalScrollBar().setValue(0)
+
+    def save_job_changes(self):
+        from ... import saved_jobs
+        job = getattr(self, "editing", None)
+        if not job:
+            return
+        scope = self._scope_for_job()
+        if scope is None:
+            return
+        old_task = saved_jobs.task_name(job)
+        if job["kind"] == "assigned":
+            opts = {**self._opts(), "sched_stale": self.k_stale.isChecked(),
+                    "sched_set": self.k_set.isChecked()}
+            when = self.k_when
+        else:
+            opts, when = self._move_opts(), self.m_when
+        if not when.days():
+            self.info("Tick at least one day.")
+            return
+        job = saved_jobs.update({**job, "opts": opts, "scope_ous": scope,
+                                 "time": when.time_hhmm(), "days": when.days()})
         try:
-            from ... import scheduler
-            scheduler.delete_task(au.MOVE_TASK["name"])
-        except Exception:  # noqa: BLE001
+            saved_jobs.schedule(job, old_task)
+        except Exception:  # noqa: BLE001 – not Windows: saved, not scheduled
             pass
-        self.info("The scheduled move is off.")
+        self.editing = job
+        self.info(f"Saved the changes to “{job['name']}”.")
+
+    def stop_editing(self):
+        self.editing = None
+        self.edit_bar.hide()
 
     def _scroll_to(self, w):
         self.ensureWidgetVisible(w, 50, 120)
@@ -469,65 +579,29 @@ class AssignedUsersTab(ToolTab):
         self.k_info = QLabel(objectName="Muted")
         self.k_info.setWordWrap(True)
         bl.addWidget(self.k_info)
-        bl.addLayout(self.row(button("Save && schedule", "primary", self.schedule_assign),
-                              button("Turn off", slot=self.unschedule_assign)))
+        bl.addLayout(self.row(button("Save as a new scheduled job…", "primary",
+                                     self.schedule_assign),
+                              button("All schedules…", slot=self._open_schedules)))
         self.lay.addWidget(box)
         self._morning_text(o)
 
     def _morning_text(self, o=None):
-        from ..schedule_edit import describe
-        o = o or au.options()
-        where = ", ".join(o.get("scope_ous") or []) or "every Chromebook"
-        on = [x for x, k in (("blank unused", "sched_stale"), ("set from the last student",
-                                                               "sched_set")) if o.get(k)]
-        when = describe(o.get("sched_time") or "05:45", o.get("sched_days") or [])
         self.k_info.setText(
-            (f"On: {' and '.join(on)} – {when}, for {where}. " if on else "Off. ") +
-            "Unused ones are blanked first, and those aren't filled in again from an old "
-            "sign-in. Each run saves a backup (Undo last change works for it), and if a run "
-            "would change an unusually large number of devices it stops and waits for you. "
-            "The org units it covers are the ones chosen in “Which Chromebooks” when you "
-            "click Save & schedule.")
+            self._jobs_text("assigned") +
+            "A saved job keeps its own copy of these settings and of “Which Chromebooks”, so "
+            "you can have one per school. Unused ones are blanked first, and those aren't "
+            "filled in again from an old sign-in. Each run saves a backup, and a run that "
+            "would change an unusually large number of devices stops and waits for you.")
 
     def schedule_assign(self):
         if not (self.k_stale.isChecked() or self.k_set.isChecked()):
             self.info("Tick at least one of the two jobs first.")
             return
-        if not self.k_when.days():
-            self.info("Tick at least one day.")
-            return
-        key = self.scope.currentData()
-        if key in ("serial", "asset"):
-            self.info("For the scheduled run, set “Which Chromebooks” to All Chromebooks or "
-                      "to org units.")
-            return
-        o = {**self._opts(), "sched_stale": self.k_stale.isChecked(),
-             "sched_set": self.k_set.isChecked(), "sched_time": self.k_when.time_hhmm(),
-             "sched_days": self.k_when.days(),
-             "scope_ous": self.ous.paths() if key == "ou" else []}
-        au.save_options(o)
-        self._morning_text(o)
-        from ... import tasks_health
-        from ..schedule_edit import task_for
-        try:
-            tasks_health.create(task_for(au.ASSIGN_TASK, o["sched_time"], o["sched_days"]))
-            self.info(f"Scheduled – it runs {self.k_when.text()} with these settings. "
-                      "Results show on Home and in Background tasks.")
-        except Exception as exc:  # noqa: BLE001
-            self.info(f"Saved, but the task couldn't be created here:\n{exc}")
+        self._save_new_job("assigned", {**self._opts(), "sched_stale": self.k_stale.isChecked(),
+                                        "sched_set": self.k_set.isChecked()}, self.k_when)
 
     def unschedule_assign(self):
-        o = {**au.options(), "sched_stale": False, "sched_set": False}
-        au.save_options(o)
-        self.k_stale.setChecked(False)
-        self.k_set.setChecked(False)
-        self._morning_text(o)
-        try:
-            from ... import scheduler
-            scheduler.delete_task(au.ASSIGN_TASK["name"])
-        except Exception:  # noqa: BLE001 – nothing scheduled, or not Windows
-            pass
-        self.info("The scheduled run is off.")
+        self._open_schedules()
 
     def preview(self, quiet=False):
         if not self.devs:

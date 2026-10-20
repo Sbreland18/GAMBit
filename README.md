@@ -771,6 +771,19 @@ Tabs added in future versions appear in the guide automatically, using their on-
 
 ## Round 19: the Helper (offline assistant)
 
+- **Saved scheduled jobs and the Schedules page (Automation → Schedules):**
+  - *Blank / set assigned users* and *Move Chromebooks to their students' schools* are now saved jobs. Each has a name, its own copy of the settings, its own org units (or all Chromebooks), and its own time and days. You can have several of the same kind, for example one per school.
+  - In Chromebook fleet → Assigned users, *Save as a new scheduled job…* makes one from the tab's current settings. The tab itself stays free for everyday use.
+  - The Schedules page lists saved jobs and every other GAMbit background task. It has *+ New job ▾*, *Edit…* (all settings, plus *Preview in Assigned users*, which loads the job into the tab with a *Save changes to the job* bar), *Duplicate* (made turned off), *Turn on / off* (`schtasks /Change /ENABLE|/DISABLE`), *Change time & days…* (any GAMbit task, via `Set-ScheduledTask -Trigger`), *Run now*, *Open its page* and *Delete*.
+  - Each job is one Windows task, `GAMbit job - <name>`, running `GAMbit.exe --task job --name <id>`.
+  - The single morning schedules from earlier versions become saved jobs automatically.
+
+- **Scheduled jobs run with GAMbit closed.** Every schedule is a Windows Task Scheduler task that runs `GAMbit.exe --task …` with no window, so GAMbit doesn't need to stay open or sit in the tray. The PC must be on, with the user signed in to Windows; a locked screen is fine.
+  - New: after creating a task, GAMbit sets *run as soon as possible after a missed start* (the PC was asleep or off), *run on battery* and *don't stop when unplugged*. These are applied with PowerShell `Set-ScheduledTask`.
+  - Background tasks has an optional *Wake this PC from sleep to run scheduled jobs*.
+  - The note is shown on Background tasks, under every time-and-days picker, and in the Guide.
+  - Background tasks lists the Assigned users and Chromebook move jobs with their real days.
+
 - **Assigned users: schedules and a move fix.**
   - Both scheduled jobs (*Run the move on a schedule* and *Run the assigned-user jobs on a schedule*) have a time and day picker (Mon–Sun, with Weekdays / Every day shortcuts). Picking every day creates a daily Windows task; otherwise a weekly task runs on the chosen days.
   - Fix: with "Students are under" set to one school (/StudentAccounts/Hancock Middle School), `{school}` became the grade (/Chrome Devices/8th Grade). A grade, graduation-year or former-student org unit right under "Students are under" now means that org unit itself is the school. Assignment sync uses the same rule.

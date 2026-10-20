@@ -30,6 +30,23 @@ class TasksPage(Page):
                           "complete on Windows.", objectName="Banner")
             warn.setWordWrap(True)
             self.body.addWidget(warn)
+        how = QLabel(
+            "<b>Do I need to leave GAMbit open?</b> No. Every scheduled job is a Windows Task "
+            "Scheduler task that starts its own copy of GAMbit with no window, does the job "
+            "and exits – so it runs whether GAMbit is open, minimized or closed. What it "
+            "does need: this PC turned on and you signed in to Windows (a locked screen is "
+            "fine; signing out stops them). A job missed because the PC was asleep or off "
+            "runs as soon as the PC is back, and jobs run on battery too. For jobs that must "
+            "never be missed, use an always-on PC (see <i>Server kit…</i>).")
+        how.setWordWrap(True)
+        how.setObjectName("Banner")
+        self.body.addWidget(how)
+        from PySide6.QtWidgets import QCheckBox
+        from ...settings import settings as _st
+        self.wake = QCheckBox("Wake this PC from sleep to run scheduled jobs")
+        self.wake.setChecked(bool(_st.get("tasks/wake", False)))
+        self.wake.toggled.connect(self._wake_changed)
+        self.body.addLayout(self.row(self.wake, stretch=True))
         self.body.addLayout(self.row(
             button("Refresh", slot=self.refresh),
             button("Set up the standard tasks", "primary", self.setup_missing),
@@ -66,8 +83,12 @@ class TasksPage(Page):
                 r = self.table.rowCount()
                 self.table.insertRow(r)
                 label, color = LOOK.get(d["state"], (d["state"], "#57606a"))
-                sched = {"daily": f"daily {d['time']}", "weekly": f"Mondays {d['time']}",
-                         "every15": "every 15 min"}.get(d["freq"], d["freq"])
+                if d["freq"] == "weekly":
+                    from ..schedule_edit import describe
+                    sched = describe(d["time"], (d.get("days") or "MON").split(","))
+                else:
+                    sched = {"daily": f"daily {d['time']}",
+                             "every15": "every 15 min"}.get(d["freq"], d["freq"])
                 for c, v in enumerate([d["name"], d["what"], label, d["last"], d["next"],
                                        sched]):
                     it = QTableWidgetItem(v)
@@ -155,3 +176,12 @@ class TasksPage(Page):
     def server_kit(self):
         from ..server_kit import ServerKitDialog
         ServerKitDialog(self).exec()
+
+    def _wake_changed(self, on: bool):
+        from ... import scheduler
+        from ...settings import settings as _st
+        _st.set("tasks/wake", bool(on))
+        n = scheduler.tune_all()
+        self.app.statusBar().showMessage(
+            f"Updated {n} scheduled job(s)." if n else "Saved – it applies to jobs as "
+            "they're scheduled.", 5000)

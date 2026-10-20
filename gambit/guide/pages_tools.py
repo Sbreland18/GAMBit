@@ -57,6 +57,22 @@ PAGES = {
                "output.",
                "*Server kit…* helps move the tasks to an always-on PC."],
         keywords="background task scheduler nightly automatic server"),
+    "Schedules": dict(
+        what="Every scheduled job in one list: your saved jobs (for example “Blank unused "
+             "Chromebooks – Middle School” and a second one for the high school) and GAMbit's "
+             "own background tasks. Edit, duplicate, turn on or off, change the time and days, "
+             "or run one now. GAMbit doesn't need to be open for them to run.",
+        steps=["**+ New job ▾** makes a saved job: pick the job type, then its name, time and "
+               "days, which Chromebooks (all, or chosen org units) and its own settings.",
+               "**Edit…** (or double-click) changes a saved job. *Preview in Assigned users* "
+               "loads it into the Assigned users tab so you can see what it would do, and "
+               "*Save changes to the job* there updates it.",
+               "**Duplicate** copies a job (turned off) – the quick way to make the same job "
+               "for other org units.",
+               "**Turn on / off** pauses a job without deleting it; **Change time & days…** "
+               "works for GAMbit's own tasks too; **Run now** runs one here."],
+        keywords="schedule scheduled jobs saved job edit enable disable turn off time days "
+                 "duplicate org units task scheduler"),
     "Clean-up rules": dict(
         what="Rules that find accounts to tidy up – long-inactive accounts, old suspended "
              "accounts, licenses on suspended accounts. Findings always go to Approvals.",

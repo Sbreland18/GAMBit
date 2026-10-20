@@ -109,6 +109,29 @@ def rows() -> list[dict]:
         defs.append(dict(_auto.ASSIGN_TASK))
     if settings.get("cleanup/scheduled", False):
         defs.append(dict(_auto.CLEANUP_TASK))
+    try:   # Chromebook fleet → Assigned users: the two jobs with their own time and days
+        from .tools import assigned_users as _au
+        from .ui.schedule_edit import task_for
+        ao, mo = _au.options(), _au.move_options()
+        if ao.get("sched_set") or ao.get("sched_stale"):
+            defs.append(task_for(_au.ASSIGN_TASK, ao.get("sched_time") or "05:45",
+                                 ao.get("sched_days") or []))
+        if mo.get("scheduled"):
+            defs.append(task_for(_au.MOVE_TASK, mo.get("sched_time") or "05:50",
+                                 mo.get("sched_days") or []))
+    except Exception:  # noqa: BLE001
+        pass
+    try:   # saved jobs (Schedules page)
+        from . import saved_jobs
+        from .ui.schedule_edit import task_for
+        for j in saved_jobs.jobs():
+            defs.append(task_for({"name": saved_jobs.task_name(j),
+                                  "args": ["--task", "job", "--name", j["id"]],
+                                  "what": f"Saved job: {saved_jobs.describe(j)}",
+                                  "standard": False, "job_id": j["id"]},
+                                 j["time"], j["days"]))
+    except Exception:  # noqa: BLE001
+        pass
     if reconcile_autofix_on():
         from .tools.reconcile import AUTOFIX_TASK
         defs.append(dict(AUTOFIX_TASK))
@@ -159,7 +182,8 @@ def rows() -> list[dict]:
         out.append({**d, "scheduled": bool(t), "state": state,
                     "next": (t or {}).get("Next run", ""),
                     "last": lg.get("last") or (t or {}).get("Last run", ""),
-                    "result": res, "log": lg.get("lines", [])})
+                    "result": res, "log": lg.get("lines", []),
+                    "status": (t or {}).get("Status", "")})
     return out
 
 
