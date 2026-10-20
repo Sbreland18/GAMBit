@@ -156,7 +156,8 @@ class OrgUnitsPage(Page):
         q = ["print", "users"]
         if self.path != "/":
             q += ["query", f"orgUnitPath='{self.path}'"]
-        self.run(q + ["fields", USER_FIELDS],
+        from ... import custom_fields
+        self.run(custom_fields.with_custom(q + ["fields", USER_FIELDS]),
                  lambda c, out, _e: self.results.load_csv(out) if c == 0 else None, quiet=True)
 
     def list_cros(self):

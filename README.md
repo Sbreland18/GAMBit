@@ -390,6 +390,16 @@ This keeps each Chromebook's assigned user, asset tag and org unit matching your
 
 These are rules such as "suspend students with no sign-in for 180 days", "delete accounts suspended over a year" or "release licenses from suspended accounts". Each rule has an org unit, a skip list and a safety cap. Rules never change anything themselves: every finding becomes one Approvals request. You can schedule them weekly with *Every Monday…*.
 
+## Custom user fields (Settings & Updates → Custom user fields)
+
+Every district's custom schemas are different, so GAMbit reads yours from Google (`gam print schemas`) – or learns them from one person who has them filled in – and you tick the fields you want (for example Student_Information → Student_ID, Grade, Current_School) and their order.
+
+- The ticked fields are added (`custom <schema>`) to Users → Find users, Org units → users, and Reports → Inactive accounts, so **Export CSV** and **Google Sheet** include them. Each field is one column; fields with several values are joined with “; ”.
+- Column names: *Friendly* (Grade, Student ID) or *GAM style* (`Student_Information.Grade`, ready to feed back to `gam update user … Student_Information.Grade <value>`).
+- Lookup shows them on the user card.
+- **Search**: Users → Find users → Show *Custom field*: is / contains / starts with / is empty / has a value, optionally limited to org units. Exact matches on searchable (indexed) fields use a Google query (`Student_Information.Grade='7th Grade'`); everything else loads the users and GAMbit checks each one.
+- With a team folder the choice is shared; it's also a group in the deployment file.
+
 ## Safer updates (Settings & Updates)
 
 Before installing an update, GAMbit saves a full backup of your settings (in `%APPDATA%\GAMbit\backups`, keeping the newest 10). If the new version misbehaves, *Go back to version X* reinstalls the previous release. *Restore settings from a backup…* puts your settings back.

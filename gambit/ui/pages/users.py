@@ -349,13 +349,26 @@ class UsersPage(Page):
         box, form = self.group("Search")
         self.l_mode = QComboBox()
         self.l_mode.addItems(["Everyone", "In org unit(s)", "Name or email contains",
-                              "Suspended users only", "Custom query"])
+                              "Suspended users only", "Custom query", "Custom field"])
         self.l_value = QLineEdit(placeholderText="e.g. /Students/2031")
         self.l_mode.currentIndexChanged.connect(self._mode_changed)
         self.l_ous = OUMultiField(self.directory)
-        form.addRow("Show", self.row(self.l_mode, self.l_value, self.l_ous, stretch=False))
+        self.cf_field = QComboBox()
+        self.cf_field.setMinimumWidth(220)
+        self.cf_op = QComboBox()
+        from ... import custom_fields as _cf
+        for k, lab in _cf.OPS.items():
+            self.cf_op.addItem(lab, k)
+        self.cf_op.currentIndexChanged.connect(lambda *_: self._mode_changed(
+            self.l_mode.currentIndex()))
+        form.addRow("Show", self.row(self.l_mode, self.cf_field, self.cf_op, self.l_value,
+                                     self.l_ous, stretch=False))
+        self.cf_note = QLabel("", objectName="Muted")
+        self.cf_note.setWordWrap(True)
+        form.addRow("", self.cf_note)
         form.addRow("", self.row(
             button("Search", "primary", self.list_users),
+            button("Custom fields…", slot=self.choose_custom_fields),
             button("☆ Save this search", slot=self.save_search),
             button("Suspend selected", "danger", lambda: self.bulk_suspend(True)),
             button("Unsuspend selected", slot=lambda: self.bulk_suspend(False))))
@@ -382,10 +395,89 @@ class UsersPage(Page):
             self.app.add_favorite(q, "search", name.strip())
 
     def _mode_changed(self, idx):
-        hints = {2: "smith", 4: "orgUnitPath='/Staff' isAdmin=false"}
-        self.l_value.setVisible(idx in (2, 4))
+        hints = {2: "smith", 4: "orgUnitPath='/Staff' isAdmin=false", 5: "e.g. 7th Grade"}
+        op = self.cf_op.currentData()
+        self.l_value.setVisible(idx in (2, 4) or (idx == 5 and op not in ("empty",
+                                                                          "notempty")))
         self.l_value.setPlaceholderText(hints.get(idx, ""))
-        self.l_ous.setVisible(idx == 1)
+        self.l_ous.setVisible(idx in (1, 5))
+        self.cf_field.setVisible(idx == 5)
+        self.cf_op.setVisible(idx == 5)
+        if idx == 5:
+            self._fill_cf_fields()
+        self._cf_note(idx)
+
+    def _fill_cf_fields(self):
+        from ... import custom_fields as cf
+        cur = self.cf_field.currentData()
+        self.cf_field.blockSignals(True)
+        self.cf_field.clear()
+        cfg = cf.config()
+        chosen = cf.columns()
+        allf = [f"{s}.{f['name']}" for s, x in cfg.get("schemas", {}).items()
+                for f in x.get("fields", [])]
+        for c in chosen + [c for c in allf if c not in chosen]:
+            self.cf_field.addItem(c, c)
+        if cur:
+            self.cf_field.setCurrentIndex(max(0, self.cf_field.findData(cur)))
+        self.cf_field.blockSignals(False)
+
+    def _cf_note(self, idx=None):
+        from ... import custom_fields as cf
+        idx = self.l_mode.currentIndex() if idx is None else idx
+        if idx == 5 and not self.cf_field.count():
+            self.cf_note.setText("Set up your custom fields first: click “Custom fields…” "
+                                 "and “Read schemas from Google”.")
+        elif idx == 5:
+            self.cf_note.setText("Pick org unit(s) to search only there (faster). Exact "
+                                 "matches on searchable fields are found by Google; other "
+                                 "searches load the users and check each one.")
+        elif cf.active():
+            self.cf_note.setText(f"Custom fields in the results: "
+                                 f"{', '.join(cf.label(c) for c in cf.columns()[:6])}"
+                                 f"{' …' if len(cf.columns()) > 6 else ''}")
+        else:
+            self.cf_note.setText("")
+
+    def choose_custom_fields(self):
+        from ..custom_fields_dialog import CustomFieldsDialog
+        if CustomFieldsDialog(self).exec():
+            self._mode_changed(self.l_mode.currentIndex())
+
+    def _custom_search(self):
+        from ... import custom_fields as cf
+        col, op = self.cf_field.currentData(), self.cf_op.currentData()
+        val = self.l_value.text().strip()
+        if not col:
+            self.choose_custom_fields()
+            return
+        if op in ("is", "contains", "starts") and not val:
+            self.info("Type what to look for.")
+            return
+        sq = cf.server_query(col, op, val)
+        ous = self.l_ous.paths() if self.l_ous.isVisible() else []
+        schemas = cf.schema_names((cf.columns() if cf.active() else []) + [col])
+        cmds = []
+        for ou in (ous or [None]):
+            q = [x for x in (f"orgUnitPath='{ou}'" if ou and ou != "/" else "", sq) if x]
+            cmds.append(["print", "users"] + (["query", " ".join(q)] if q else []) +
+                        ["fields", USER_FIELDS, "custom", ",".join(schemas)])
+        wanted = {o.lower() for o in ous}
+        direct = ous and not self.l_ous.include_children()
+
+        def keep(r):
+            if direct and (r.get("orgUnitPath") or "/").lower() not in wanted:
+                return False
+            return cf.matches(r, col, op, val)
+
+        def done(outs):
+            self.results.load_csv_many(outs, keep)
+            self.cf_note.setText(f"{self.results.row_count()} user(s) where {col} "
+                                 f"{cf.OPS[op]}" + (f" “{val}”" if op in ("is", "contains",
+                                                                          "starts") else "") +
+                                 (" (searched by Google)" if sq else
+                                  " (checked by GAMbit)") + ".")
+        self.run_many(cmds, done)
 
     def list_users(self):
         idx, val = self.l_mode.currentIndex(), self.l_value.text().strip()
@@ -399,12 +491,15 @@ class UsersPage(Page):
                 q = ["print", "users"]
                 if ou != "/":
                     q += ["query", f"orgUnitPath='{ou}'"]
-                cmds.append(q + ["fields", USER_FIELDS])
+                cmds.append(self._cf(q + ["fields", USER_FIELDS]))
             keep = None
             if not self.l_ous.include_children():  # only people directly in the chosen OUs
                 wanted = {o.lower() for o in ous}
                 keep = lambda r: (r.get("orgUnitPath") or "/").lower() in wanted  # noqa: E731
             self.run_many(cmds, lambda outs: self.results.load_csv_many(outs, keep))
+            return
+        if idx == 5:
+            self._custom_search()
             return
         args = ["print", "users"]
         if idx == 2 and val:
@@ -413,9 +508,14 @@ class UsersPage(Page):
             args += ["query", "isSuspended=true"]
         elif idx == 4 and val:
             args += ["query", val]
-        args += ["fields", USER_FIELDS]
+        args = self._cf(args + ["fields", USER_FIELDS])
         self.run(args, lambda c, out, _e: self.results.load_csv(out) if c == 0 else None,
                  quiet=True)
+
+    @staticmethod
+    def _cf(cmd):
+        from ... import custom_fields
+        return custom_fields.with_custom(cmd)
 
     def bulk_suspend(self, on: bool):
         emails = self.results.selected_values("primaryEmail")

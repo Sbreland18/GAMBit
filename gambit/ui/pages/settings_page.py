@@ -298,6 +298,19 @@ class SettingsPage(Page):
         self._oumap_text()
         lay.addWidget(box)
 
+        # ---- custom user fields ----
+        box, form = self.group("Custom user fields")
+        form.addRow(_muted("Your Google custom schemas (for example Student_Information → "
+                           "Grade, Student ID, Graduation year). Pick the fields to add to "
+                           "user lists and CSV exports, show in Lookup and search on."))
+        self.cf_lbl = QLabel("")
+        self.cf_lbl.setWordWrap(True)
+        form.addRow("Now", self.cf_lbl)
+        form.addRow("", self.row(button("Choose custom fields…", "primary",
+                                        self.open_custom_fields)))
+        self._cf_text()
+        lay.addWidget(box)
+
         # ---- cached lists ----
         box, form = self.group("Org units, users and groups")
         form.addRow(_muted("GAMbit keeps a copy of these lists so you can pick from them "
@@ -947,6 +960,18 @@ class SettingsPage(Page):
             f"Students: {', '.join(ou_map.roots('students')) or '—'} · Staff: "
             f"{', '.join(ou_map.roots('staff')) or '—'} · Chromebooks: "
             f"{', '.join(ou_map.roots('devices')) or '—'} · {len(sch)} school(s)")
+
+    def _cf_text(self):
+        from ... import custom_fields
+        from ..custom_fields_dialog import summary
+        custom_fields.reload()
+        self.cf_lbl.setText(summary())
+
+    def open_custom_fields(self):
+        from ..custom_fields_dialog import CustomFieldsDialog
+        if CustomFieldsDialog(self).exec():
+            self._cf_text()
+            self.app.statusBar().showMessage("Saved the custom user fields.", 4000)
 
     def open_ou_map(self):
         from ..ou_map_dialog import OUMapDialog

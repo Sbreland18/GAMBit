@@ -143,7 +143,8 @@ class LookupPage(Page):
             self.card.setText(
                 f"<b style='font-size:13pt'>{r.get('name.fullname', '')}</b> &lt;{e}&gt;<br>"
                 f"{state} · org unit <b>{r.get('orgunitpath', '/')}</b> · last sign-in {last} · "
-                f"2-step {tsv} · created {(r.get('creationtime') or '')[:10]}")
+                f"2-step {tsv} · created {(r.get('creationtime') or '')[:10]}" +
+                _custom_line(rows[0]))
             self.runner.run(["print", "cros", "query", f"user:{e}", "fields",
                              "serialnumber,annotatedassetid,annotatedlocation,status,lastsync,"
                              "model"], lambda c, o, _e: self.cros.load_csv(o if c == 0 else ""),
@@ -152,9 +153,11 @@ class LookupPage(Page):
                              "fields", "id,name,section,ownerid"],
                             lambda c, o, _e: self.classes.load_csv(o if c == 0 else ""),
                             quiet_stdout=True)
-        self.runner.run(["print", "users", "query", f"email:{e}", "fields",
-                         "primaryemail,name,suspended,ou,lastlogintime,"
-                         "isenrolledin2sv,creationtime"], got_user, quiet_stdout=True)
+        from ... import custom_fields
+        self.runner.run(custom_fields.with_custom(
+            ["print", "users", "query", f"email:{e}", "fields",
+             "primaryemail,name,suspended,ou,lastlogintime,isenrolledin2sv,creationtime"]),
+            got_user, quiet_stdout=True)
 
 
     def flags(self):
@@ -192,3 +195,18 @@ class LookupPage(Page):
         if e and self.confirm(f"Unsuspend {e}?"):
             self.runner.run(["update", "user", e, "suspended", "off"],
                             lambda *_: self.lookup())
+
+
+def _custom_line(row: dict) -> str:
+    """The chosen custom fields on the user card (Settings → Custom user fields)."""
+    import html
+    try:
+        from ... import custom_fields
+        vals = custom_fields.tidy_dict(row) if custom_fields.active() else []
+    except Exception:  # noqa: BLE001
+        vals = []
+    vals = [(k, v) for k, v in vals if str(v).strip()]
+    if not vals:
+        return ""
+    return "<br>" + " · ".join(f"{html.escape(k)} <b>{html.escape(str(v))}</b>"
+                               for k, v in vals)

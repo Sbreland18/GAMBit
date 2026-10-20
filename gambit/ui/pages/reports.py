@@ -110,7 +110,9 @@ class ReportsPage(Page):
             q = list(susp)
             if ou and ou != "/":
                 q.append(f"orgUnitPath='{ou}'")
-            cmds.append(base + (["query", " ".join(q)] if q else []) + fields)
+            from ... import custom_fields
+            cmds.append(custom_fields.with_custom(base + (["query", " ".join(q)] if q else []) +
+                                                  fields))
 
         def keep(r):
             last = parse_date(_col(r, "lastLoginTime"))

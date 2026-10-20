@@ -78,6 +78,14 @@ PAGES = {
                "**Create user**.",
                "**Find / list users**: search by org unit, name or status, select rows and act "
                "on them (suspend, move, reset…). *☆ Save this search* keeps it.",
+               "**Custom fields** (your custom schemas, e.g. Student_Information → Grade, "
+               "Student ID): click *Custom fields…* (or Settings & Updates → Custom user "
+               "fields), *Read schemas from Google* and tick the fields. They're added as "
+               "columns to user lists, so *Export CSV* includes them, and show in Lookup.",
+               "**Search a custom field**: Show → *Custom field*, pick the field, *is / "
+               "contains / starts with / is empty / has a value*, and optionally org units. "
+               "Exact matches on searchable fields are found by Google; the rest are checked "
+               "by GAMbit.",
                "Double-click a row anywhere to open that person."],
         tabs={
             "Manage a user": "Account: reset password (or just require a change at next "

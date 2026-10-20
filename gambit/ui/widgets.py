@@ -393,6 +393,12 @@ class ResultsTable(QWidget):
     hidden_columns: set = set()
 
     def set_rows(self, headers: list[str], rows: list[list[str]]):
+        try:   # customSchemas.S.F(.0.value) columns → one tidy column per custom field
+            from .. import custom_fields
+            if custom_fields.has_custom(headers):
+                headers, rows = custom_fields.tidy(list(headers), [list(r) for r in rows])
+        except Exception:  # noqa: BLE001 – never lose results over a label
+            pass
         self._headers = list(headers)
         self.table.setUpdatesEnabled(False)
         try:

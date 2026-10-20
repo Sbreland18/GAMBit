@@ -65,6 +65,8 @@ GROUPS = {
                          ("whd", ("url", "user")), ("teamdynamix", ("url", "app_id", "beid")),
                          ("osticket", ("url",))) for k in ks]),
     "onboard": ("New staff setup (groups, license, welcome email)", ["onboard/options"]),
+    "customfields": ("Custom user fields (which schema fields to show and export)",
+                     ["customfields/config"]),
 }
 SECRET_HINTS = ("token", "password", "webhook", "pin", "secret", "api_key")
 
