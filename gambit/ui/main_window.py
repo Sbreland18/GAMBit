@@ -263,11 +263,51 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         QTimer.singleShot(300, self._startup)
 
     # ---------------------------------------------------------- startup ---
+    def _unfinished_update(self, info: dict):
+        """The last update was started but GAMbit is still the old version."""
+        import os
+        from PySide6.QtWidgets import QMessageBox
+        from .. import updaters
+        log = updaters.update_log_tail()
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("The update didn't finish")
+        box.setText("GAMbit started installing an update, but it's still the old version – "
+                    "the installer stopped before it finished. Nothing was changed.")
+        box.setInformativeText(
+            "Run the installer again with its own window so you can see any message it "
+            "shows. Pick “Install for me only” if it asks. Your settings are kept.")
+        if log:
+            box.setDetailedText(f"Installer log ({info['log']}):\n\n{log}")
+        installer = info.get("installer") or ""
+        run = box.addButton("Run the installer", QMessageBox.AcceptRole) \
+            if installer and os.path.exists(installer) else None
+        get = box.addButton("Check for updates", QMessageBox.ActionRole)
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec()
+        if run is not None and box.clickedButton() is run:
+            try:
+                updaters.launch_installer(installer, silent=False)
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(self, "Couldn't start the installer", str(exc))
+                return
+            from PySide6.QtWidgets import QApplication
+            QApplication.quit()
+        elif box.clickedButton() is get and "Settings & Updates" in self.pages:
+            self.go("Settings & Updates")
+
     def _startup(self):
         from .. import deploy
         for line in deploy.apply_on_start():
             self.log_line("📦 " + line, "#7cc4ff")
+        try:
+            from .. import updaters
+            unfinished = updaters.unfinished_update()
+        except Exception:  # noqa: BLE001
+            unfinished = None
         settings.set("update/in_progress", 0)     # we're running, so any update finished
+        if unfinished:
+            QTimer.singleShot(800, lambda: self._unfinished_update(unfinished))
         import datetime as _dt
         settings.set("home/last_open", _dt.datetime.now().isoformat(timespec="seconds"))
         try:   # the single morning jobs from earlier versions become saved jobs

@@ -272,31 +272,80 @@ def download_app_update(update: AppUpdate, progress: Progress = None) -> str:
     return net.download(update.url, os.path.join(folder, name), progress)
 
 
-def launch_installer(path: str):
-    """Start the Inno Setup installer silently; it relaunches GAMbit when done."""
+APP_ID = "{6F1C2B7E-9A4D-4E1B-8C3F-2D5A7B9E0C41}"       # installer/GAMbit.iss AppId
+UPDATE_LOG_NAME = "GAMbit-update.log"
+
+
+def update_log_path() -> str:
+    return os.path.join(tempfile.gettempdir(), UPDATE_LOG_NAME)
+
+
+def launch_installer(path: str, silent: bool = True):
+    """Start the Inno Setup installer; it relaunches GAMbit when done.
+
+    silent=False shows the installer's own window (used to finish an update that didn't
+    complete, so any message it has is visible)."""
     if not IS_WINDOWS:
         raise RuntimeError("Automatic install is only supported on Windows.")
-    import tempfile
     from .settings import settings
-    log = os.path.join(tempfile.gettempdir(), "GAMbit-update.log")
     settings.set("update/in_progress", time.time())   # background tasks wait it out
-    subprocess.Popen([path, "/SILENT", "/SP-", "/NOCANCEL", "/CLOSEAPPLICATIONS",
-                      "/FORCECLOSEAPPLICATIONS", "/NORESTART", f"/LOG={log}",
-                      install_scope_flag()],
-                     close_fds=True,
-                     creationflags=subprocess.DETACHED_PROCESS)
+    settings.set("update/installer_path", path)
+    settings.set("update/from_version", __version__)
+    args = [path, "/SP-", "/NORESTART", f"/LOG={update_log_path()}"]
+    if silent:
+        args += ["/SILENT", "/NOCANCEL", "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS"]
+    scope = install_scope_flag()
+    if scope:
+        args.append(scope)
+    flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP |
+             getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0))
+    try:
+        subprocess.Popen(args, close_fds=True, creationflags=flags)
+    except OSError:          # breakaway isn't allowed in some job objects
+        subprocess.Popen(args, close_fds=True,
+                         creationflags=subprocess.DETACHED_PROCESS |
+                         subprocess.CREATE_NEW_PROCESS_GROUP)
 
 
-def install_scope_flag(exe: str | None = None) -> str:
-    """/CURRENTUSER when GAMbit is installed just for this user (under the user's own
-    folders), /ALLUSERS when it's in Program Files – so an update never switches the
-    install to the other place."""
-    exe = os.path.normcase(os.path.abspath(exe or sys.executable))
-    user_roots = [os.environ.get(k, "") for k in ("LOCALAPPDATA", "APPDATA", "USERPROFILE")]
-    if any(r and exe.startswith(os.path.normcase(os.path.abspath(r)) + os.sep)
-           for r in user_roots):
-        return "/CURRENTUSER"
-    return "/ALLUSERS"
+def install_scope_flag() -> str:
+    """/CURRENTUSER or /ALLUSERS from where Windows has GAMbit registered (the installer's
+    own uninstall entry), so an update never switches “just me” to “everyone”. Empty when
+    it can't tell – then the installer uses the previous install's mode by itself."""
+    try:
+        import winreg
+    except ImportError:
+        return ""
+    key = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{APP_ID}_is1"
+    for hive, flag in ((winreg.HKEY_CURRENT_USER, "/CURRENTUSER"),
+                       (winreg.HKEY_LOCAL_MACHINE, "/ALLUSERS")):
+        for view in (0, getattr(winreg, "KEY_WOW64_64KEY", 0),
+                     getattr(winreg, "KEY_WOW64_32KEY", 0)):
+            try:
+                with winreg.OpenKey(hive, key, 0, winreg.KEY_READ | view):
+                    return flag
+            except OSError:
+                continue
+    return ""
+
+
+def unfinished_update() -> dict | None:
+    """After a restart: an update was started but this is still the old version."""
+    from .settings import settings
+    started = float(settings.get("update/in_progress", 0) or 0)
+    if not started:
+        return None
+    if (settings.get("update/from_version", "") or "") != __version__:
+        return None                       # we're a different version: it worked
+    return {"started": started, "installer": settings.get("update/installer_path", "") or "",
+            "log": update_log_path()}
+
+
+def update_log_tail(lines: int = 25) -> str:
+    try:
+        with open(update_log_path(), encoding="utf-8", errors="replace") as fh:
+            return "".join(fh.readlines()[-lines:])
+    except OSError:
+        return ""
 
 
 def update_in_progress(window: float = 15 * 60) -> bool:

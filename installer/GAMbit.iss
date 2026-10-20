@@ -23,7 +23,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 ; Per-user install by default, so the app can update itself without an admin prompt.
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=commandline dialog
 OutputDir=..\dist\installer
 OutputBaseFilename=GAMbit-Setup-{#MyAppVersion}
 SetupIconFile=..\assets\gambit.ico
@@ -90,8 +90,9 @@ var
   Code: Integer;
 begin
   { close every running GAMbit – the window and any background task – so no file is
-    locked while the new version is copied }
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM GAMbit.exe', '', SW_HIDE,
+    locked while the new version is copied. No /T: that would also end this installer,
+    which GAMbit itself started. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM GAMbit.exe', '', SW_HIDE,
        ewWaitUntilTerminated, Code);
   Sleep(1500);
   Result := '';

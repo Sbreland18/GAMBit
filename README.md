@@ -394,6 +394,8 @@ These are rules such as "suspend students with no sign-in for 180 days", "delete
 
 Before installing an update, GAMbit saves a full backup of your settings (in `%APPDATA%\GAMbit\backups`, keeping the newest 10). If the new version misbehaves, *Go back to version X* reinstalls the previous release. *Restore settings from a backup…* puts your settings back.
 
+**Install now** closes GAMbit while the installer runs quietly, then GAMbit reopens by itself (about a minute). The installer keeps the install type you already have (just for you, or everyone), and writes its log to `%TEMP%\GAMbit-update.log`. If the update didn't finish, the next time you open GAMbit it says so and offers **Run the installer** with the installer's own window, so you can see any message it shows.
+
 ## Smaller extras
 
 - **Chat spaces** (More services): create a Google Chat space per school or department, and keep its members in step with a group.

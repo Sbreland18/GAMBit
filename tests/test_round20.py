@@ -20,13 +20,30 @@ def test_installer_never_deletes_the_app_before_copying():
     assert "procedure DeinitializeSetup" in iss and "not InstallOk" in iss   # roll back
 
 
-def test_update_keeps_the_install_type(monkeypatch, tmp_path):
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
-    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    exe = tmp_path / "Local" / "Programs" / "GAMbit" / "GAMbit.exe"
-    assert updaters.install_scope_flag(str(exe)) == "/CURRENTUSER"
-    assert updaters.install_scope_flag("/opt/Program Files/GAMbit/GAMbit.exe") == "/ALLUSERS"
+def test_update_keeps_the_install_type(monkeypatch):
+    """The scope comes from where Windows registered GAMbit, not from guessing the path."""
+    import sys
+    import types
+    found = {}
+
+    class Key:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def open_key(hive, key, _res, _access):
+        assert key.endswith(updaters.APP_ID + "_is1")
+        if found.get(hive):
+            return Key()
+        raise OSError("missing")
+    fake = types.SimpleNamespace(HKEY_CURRENT_USER="HKCU", HKEY_LOCAL_MACHINE="HKLM",
+                                 KEY_READ=1, KEY_WOW64_64KEY=2, KEY_WOW64_32KEY=4,
+                                 OpenKey=open_key)
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+    assert updaters.install_scope_flag() == ""          # unknown: installer decides
+    found["HKLM"] = True
+    assert updaters.install_scope_flag() == "/ALLUSERS"
+    found["HKCU"] = True
+    assert updaters.install_scope_flag() == "/CURRENTUSER"   # per-user wins
 
 
 def test_background_tasks_wait_while_updating():

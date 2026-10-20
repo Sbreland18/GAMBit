@@ -922,6 +922,11 @@ class SettingsPage(Page):
                                     f"Couldn't back up your settings first:\n{exc}\n\n"
                                     "Install the update anyway?") != QMessageBox.Yes:
                 return
+        QMessageBox.information(
+            self, "Installing the update",
+            "GAMbit will close now while the update installs, then open again by itself "
+            "in about a minute.\n\nIf it doesn't come back, just open GAMbit – it will "
+            "offer to finish the update with the installer's own window.")
         try:
             updaters.launch_installer(path)
         except Exception as exc:  # noqa: BLE001
