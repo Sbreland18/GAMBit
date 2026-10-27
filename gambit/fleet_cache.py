@@ -34,6 +34,11 @@ def store(rows: list[dict]):
         device_names.remember(rows)
     except Exception:  # noqa: BLE001
         pass
+    try:   # Devices → Device history
+        from . import device_insights
+        device_insights.remember(rows)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def clear():

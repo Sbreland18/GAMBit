@@ -14,10 +14,11 @@ import re
 from dataclasses import dataclass, field
 
 from . import basics, gam_ref, pages_admin, pages_devices, pages_people, pages_reports
-from . import pages_more, pages_tools
+from . import pages_more, pages_round25, pages_tools
 
 PAGES: dict[str, dict] = {}
-for _m in (pages_people, pages_devices, pages_admin, pages_reports, pages_tools, pages_more):
+for _m in (pages_people, pages_devices, pages_admin, pages_reports, pages_tools, pages_more,
+           pages_round25):
     PAGES.update(_m.PAGES)
 for _p, _tabs in pages_more.TABS.items():
     PAGES.setdefault(_p, {}).setdefault("tabs", {}).update(_tabs)

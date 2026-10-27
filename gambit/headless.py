@@ -166,7 +166,8 @@ def _main(argv=None) -> int:
                                                    "schoolreports", "mismatch", "auditreport",
                                                    "teacherlists", "scorecard", "timemachine",
                                                    "questions", "leadersheet", "campaign2sv",
-                                                   "classroomsync", "baseline", "goingquiet"])
+                                                   "classroomsync", "baseline", "goingquiet",
+                                                   "searchsheets", "fieldsync"])
     ap.add_argument("--name", default="")
     ap.add_argument("--profile", default="")
     args = ap.parse_args(argv)
@@ -242,6 +243,12 @@ def _main(argv=None) -> int:
                               "\n".join(f"• {r['Check']} ({r['Org unit']})" for r in fails[:20]),
                               "GAMbit security baseline")
             return 0
+        if args.task == "searchsheets":
+            from . import search_sheets
+            return 1 if search_sheets.run_all(log=log) else 0
+        if args.task == "fieldsync":
+            from . import field_check
+            return field_check.run_fill(log=log)
         if args.task == "goingquiet":
             from . import going_quiet
             going_quiet.send(log=log)

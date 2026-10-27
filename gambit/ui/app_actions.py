@@ -532,10 +532,7 @@ class AppActions:
         apply_helpdesk(on)
         self.hd_btn.setVisible(on)
         for row, idx in self._row_page.items():
-            pg = self.page_at(idx)
-            name = pg.title if hasattr(pg, "title") else ""
-            page_name = next((n for n, p in self.pages.items() if p is pg),
-                             name)
+            page_name = self.page_name_at(idx)
             self.nav.item(row).setHidden((on and page_name in HELPDESK_HIDDEN) or
                                          not team.page_allowed(page_name, role) or
                                          self._user_hidden(page_name))

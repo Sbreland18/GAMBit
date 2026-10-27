@@ -379,8 +379,12 @@ class UsersPage(Page):
         self.saved_upd = button("Update with the search above", slot=self.update_saved)
         self.saved_ren = button("Rename…", slot=self.rename_saved)
         self.saved_del = button("Delete", "danger", self.delete_saved)
+        self.saved_sheet = button("Google Sheet…", slot=self.sheet_saved)
+        self.saved_sheet.setToolTip("Keep a Google Sheet up to date with this search every "
+                                    "night (custom fields included)")
         form.addRow("Saved", self.row(self.saved, self.saved_run, self.saved_upd,
-                                      self.saved_ren, self.saved_del, stretch=False))
+                                      self.saved_ren, self.saved_del, self.saved_sheet,
+                                      stretch=False))
         self.saved_note = QLabel("", objectName="Muted")
         self.saved_note.setWordWrap(True)
         form.addRow("", self.saved_note)
@@ -438,7 +442,8 @@ class UsersPage(Page):
         self.saved.setCurrentIndex(max(0, i))
         self.saved.blockSignals(False)
         has = self.saved.count() > 1
-        for b in (self.saved, self.saved_run, self.saved_upd, self.saved_ren, self.saved_del):
+        for b in (self.saved, self.saved_run, self.saved_upd, self.saved_ren, self.saved_del,
+                  self.saved_sheet):
             b.setEnabled(has)
         self._saved_picked()
 
@@ -449,13 +454,20 @@ class UsersPage(Page):
     def _saved_picked(self, *_):
         f = self._current_saved()
         on = f is not None
-        for b in (self.saved_run, self.saved_upd, self.saved_ren, self.saved_del):
+        for b in (self.saved_run, self.saved_upd, self.saved_ren, self.saved_del,
+                  self.saved_sheet):
             b.setEnabled(on)
         if on:
             from ... import saved_searches as ss
             self.apply_spec(ss.spec_of(f))
-            self.saved_note.setText(ss.describe(ss.spec_of(f)) + " – change the search "
-                                    "above and click Update to save the change.")
+            sheet = (f.get("sheet") or {})
+            extra = ""
+            if sheet.get("url"):
+                extra = (" · 📄 keeps a Google Sheet up to date" +
+                         (f" (last {sheet['last'].replace('T', ' ')})" if sheet.get("last")
+                          else "") + (" – last refresh FAILED" if sheet.get("error") else ""))
+            self.saved_note.setText(ss.describe(ss.spec_of(f)) + extra + " – change the "
+                                    "search above and click Update to save the change.")
         else:
             self.saved_note.setText("")
 
@@ -515,6 +527,14 @@ class UsersPage(Page):
             self.app.update_favorite(f, {**f, "label": name.strip()})
             self.refresh_saved(f["value"])
 
+    def sheet_saved(self):
+        f = self._current_saved()
+        if not f:
+            return
+        from .round25_data import SearchSheetDialog
+        if SearchSheetDialog(self, f).exec():
+            self.refresh_saved(f["value"])
+
     def delete_saved(self):
         f = self._current_saved()
         if f and self.confirm(f"Delete the saved search “{f['label']}”?"):
@@ -571,73 +591,36 @@ class UsersPage(Page):
         if CustomFieldsDialog(self).exec():
             self._mode_changed(self.l_mode.currentIndex())
 
-    def _custom_search(self):
-        from ... import custom_fields as cf
-        col, op = self.cf_field.currentData(), self.cf_op.currentData()
-        val = self.l_value.text().strip()
-        if not col:
+    def list_users(self):
+        """Every kind of search goes through saved_searches.build, so a saved search run
+        later (or into a Google Sheet at night) gives exactly the same list."""
+        from ... import saved_searches as ss
+        spec = self.form_spec()
+        if spec["mode"] == "Custom field" and not spec["cf_field"]:
             self.choose_custom_fields()
             return
-        if op in ("is", "contains", "starts") and not val:
+        if spec["mode"] == "Custom field" and spec["cf_op"] in ("is", "contains", "starts") \
+                and not spec["value"]:
             self.info("Type what to look for.")
             return
-        sq = cf.server_query(col, op, val)
-        ous = self.l_ous.paths() if self.l_ous.isVisible() else []
-        schemas = cf.schema_names((cf.columns() if cf.active() else []) + [col])
-        cmds = []
-        for ou in (ous or [None]):
-            q = [x for x in (f"orgUnitPath='{ou}'" if ou and ou != "/" else "", sq) if x]
-            cmds.append(["print", "users"] + (["query", " ".join(q)] if q else []) +
-                        ["fields", USER_FIELDS, "custom", ",".join(schemas)])
-        wanted = {o.lower() for o in ous}
-        direct = ous and not self.l_ous.include_children()
-
-        def keep(r):
-            if direct and (r.get("orgUnitPath") or "/").lower() not in wanted:
-                return False
-            return cf.matches(r, col, op, val)
+        if spec["mode"] == "In org unit(s)" and not spec["ous"]:
+            self.info("Click Choose… and tick one or more org units.")
+            return
+        if spec["mode"] != "Custom field":
+            spec["ous"] = spec["ous"] if spec["mode"] == "In org unit(s)" else []
+        cmds, keep = ss.build(spec, USER_FIELDS)
 
         def done(outs):
             self.results.load_csv_many(outs, keep)
-            self.cf_note.setText(f"{self.results.row_count()} user(s) where {col} "
-                                 f"{cf.OPS[op]}" + (f" “{val}”" if op in ("is", "contains",
-                                                                          "starts") else "") +
-                                 (" (searched by Google)" if sq else
-                                  " (checked by GAMbit)") + ".")
+            if spec["mode"] == "Custom field":
+                from ... import custom_fields as cf
+                op, val, col = spec["cf_op"], spec["value"], spec["cf_field"]
+                sq = cf.server_query(col, op, val)
+                self.cf_note.setText(
+                    f"{self.results.row_count()} user(s) where {col} {cf.OPS[op]}" +
+                    (f" “{val}”" if op in ("is", "contains", "starts") else "") +
+                    (" (searched by Google)" if sq else " (checked by GAMbit)") + ".")
         self.run_many(cmds, done)
-
-    def list_users(self):
-        idx, val = self.l_mode.currentIndex(), self.l_value.text().strip()
-        if idx == 1:
-            ous = self.l_ous.paths()
-            if not ous:
-                self.info("Click Choose… and tick one or more org units.")
-                return
-            cmds = []
-            for ou in ous:
-                q = ["print", "users"]
-                if ou != "/":
-                    q += ["query", f"orgUnitPath='{ou}'"]
-                cmds.append(self._cf(q + ["fields", USER_FIELDS]))
-            keep = None
-            if not self.l_ous.include_children():  # only people directly in the chosen OUs
-                wanted = {o.lower() for o in ous}
-                keep = lambda r: (r.get("orgUnitPath") or "/").lower() in wanted  # noqa: E731
-            self.run_many(cmds, lambda outs: self.results.load_csv_many(outs, keep))
-            return
-        if idx == 5:
-            self._custom_search()
-            return
-        args = ["print", "users"]
-        if idx == 2 and val:
-            args += ["query", val]
-        elif idx == 3:
-            args += ["query", "isSuspended=true"]
-        elif idx == 4 and val:
-            args += ["query", val]
-        args = self._cf(args + ["fields", USER_FIELDS])
-        self.run(args, lambda c, out, _e: self.results.load_csv(out) if c == 0 else None,
-                 quiet=True)
 
     @staticmethod
     def _cf(cmd):

@@ -390,6 +390,37 @@ This keeps each Chromebook's assigned user, asset tag and org unit matching your
 
 These are rules such as "suspend students with no sign-in for 180 days", "delete accounts suspended over a year" or "release licenses from suspended accounts". Each rule has an org unit, a skip list and a safety cap. Rules never change anything themselves: every finding becomes one Approvals request. You can schedule them weekly with *Every Monday…*.
 
+## Custom field check (People → Custom field check)
+
+- **Field vs org unit:** compares the custom fields holding grade and school (e.g. `Student_Information.Grade`, `Current_School`) with what Settings → Org units & schools says about each student's org unit. Each mismatch offers **Move to the field's org unit** (when the map has exactly one org unit for that school and grade) or **Correct the field** (grades written as 7th Grade, 7, Grade 7 or 7th).
+- **Fill from the SIS:** pick a saved roster sync, map roster columns (or the mapped Student ID, grade, school…) to custom fields, choose a format, **Preview changes** and apply. People are matched by email, or by a student-ID custom field. The nightly task (`--task fieldsync`) stops and alerts you when more people would change than your limit.
+
+## Saved search sheets
+
+Users → Find / list users → pick a saved search → **Google Sheet…** keeps one tab of a Google Sheet up to date with that search (custom fields included) on the days and time you choose (`--task searchsheets`). The sheet keeps its link, sharing and formatting; the Saved row shows when it last refreshed and whether it failed.
+
+## Chromebook sharing and Device history (Devices)
+
+- **Chromebook sharing** reads the last few recent users of every Chromebook and lists swaps (assigned to one student, used by another – one click makes the last user the assigned user), students on several Chromebooks, and Chromebooks used by many students. Carts, loaners, labs and libraries are left out.
+- **Device history** builds up every time GAMbit reads the fleet (assigned user, recent user and org unit changes), and adds loaners, repairs and GAMbit's own changes. Search by student, serial or asset ID.
+
+## Senior checkout (Start here → Senior checkout)
+
+Find the graduating class by its graduation-year custom field (or org unit) with their Chromebooks. The checklist emails a Takeout reminder, notes each Chromebook “Collect – Class of …” and starts a collection, and queues the move to the graduates org unit, the suspension and the license removal on Run later & freezes for the dates you pick.
+
+## Clean-up by school (Reports)
+
+One list per building from the org unit map: idle and never-used accounts, suspended accounts still in school org units, Chromebooks not seen in N days, and Chromebooks assigned to suspended or deleted accounts – each with a fix, and an email of each school's list to its tech.
+
+## More of GAM
+
+- **Single sign-on** (Admin): which org units and groups use ClassLink/Clever/other SAML or OIDC profiles or Google passwords; set or remove an assignment (`inboundssoassignment`).
+- **Windows, Mac & phones** (Devices): endpoint-managed devices and their users; approve, block, wipe, cancel wipe, delete; devices not seen for N days.
+- **Shared drives by school** (Services): drives per org unit, drives with no manager, outside members, anyone-with-the-link; move drives and add managers.
+- **Chat posts** (Services): list a person's spaces, post an announcement, read a space's messages.
+- **Staff calendar status** (Services): out-of-office, focus time and working location for people, org units or groups.
+- **Domain & extras** (Admin): domain aliases, contact delegates, Google Tasks, Chrome browser profiles, browser enrollment tokens.
+
 ## Saved user searches (Users → Find / list users)
 
 *☆ Save this search* keeps the whole search: the kind of search, every org unit you picked, *include sub-org units*, and the custom field test. The **Saved** list on the same tab loads one (▶ Run runs it); change the search and click *Update with the search above* to edit it, or *Rename…* / *Delete*. Saved searches also appear in Home → Favorites, where right-click gives Run, Edit, Rename and Remove. (Searches saved before this version kept only the first org unit – open them, pick the org units again and click Update.)
@@ -403,6 +434,10 @@ Every district's custom schemas are different, so GAMbit reads yours from Google
 - Lookup shows them on the user card.
 - **Search**: Users → Find users → Show *Custom field*: is / contains / starts with / is empty / has a value, optionally limited to org units. Exact matches on searchable (indexed) fields use a Google query (`Student_Information.Grade='7th Grade'`); everything else loads the users and GAMbit checks each one.
 - With a team folder the choice is shared; it's also a group in the deployment file.
+
+## Start-up
+
+GAMbit shows a start-up screen (with what it's doing) as soon as it launches, and only builds the page you open – the other pages are built quietly in the background a few seconds later, so the window appears much sooner. Background tasks (`--task …`) skip all of the window code.
 
 ## Safer updates (Settings & Updates)
 

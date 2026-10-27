@@ -16,59 +16,105 @@ from ..resources import resource_path
 from ..settings import settings
 from ..version import APP_NAME, __version__
 from .session_actions import SessionActions
-from .pages.classroom import ClassroomPage
-from .pages.console import BulkPage, ConsolePage
-from .pages.devices import DevicesPage
-from .pages.drive import DrivePage
-from .pages.email import EmailPage
-from .pages.groups import GroupsPage
-from .pages.home import HomePage
-from .pages.licenses import LicensesPage
-from .pages.orgunits import OrgUnitsPage
-from .pages.reports import ReportsPage
-from .pages.settings_page import SettingsPage
-from .pages.users import UsersPage
-from .pages.workflows import WorkflowsPage
 from .app_actions import AppActions, MoreActions
 from .jobs_panel import JobsPanel
-from .pages.activity_page import ActivityPage
-from .pages.approvals import ApprovalsPage
-from .pages.diagnostics_page import DiagnosticsPage
-from .pages.livetest_page import LiveTestPage
-from .pages.schedules_page import SchedulesPage
-from .pages.fleet_page import FleetPage
-from .pages.compliance_page import CompliancePage
-from .pages.investigations_page import InvestigationsPage
-from .pages.more_tabs import StaffDevicesPage, UsagePage
-from .pages.recovery_tabs import SettingsWatchPage
-from .pages.ask_page import AskPage
-from .pages.insight_pages import (BudgetPage, MismatchPage, SchoolReportsPage,
-                                  TicketQueuePage)
-from .pages.round10_pages import AuditReportPage, TeacherListsPage
-from .pages.round11_pages import (OwnershipPage, PolicyRolloutsPage, TimeMachinePage,
-                                   TwoStepPage)
-from .pages.round12_pages import BaselinePage, ChangeCalendarPage, RecordsPage
-from .pages.guide_page import GuidePage
-from .pages.round15_pages import (BackToSchoolPage, MailboxAccessPage, OutsideChangesPage,
-                                  RecoveryCoveragePage, StaffCardPage)
-from .pages.round14_pages import (AIUsePage, CostPerStudentPage, DirectoryQualityPage,
-                                   MeetAttendancePage)
-from .pages.round13_pages import (AccessReviewPage, AccountTimingPage, GoingQuietPage,
-                                   StaleContentPage, StorageForecastPage)
-from .pages.automation_tabs import CleanupPage
-from .pages.policies_page import PoliciesPage
-from .pages.timeline_page import TimelinePage
-from .pages.lookup_page import LookupPage
-from .pages.builder import BuilderPage
-from .pages.rostersync import RosterSyncPage
-from .pages.services import ServicesPage
 from .widgets import button
+
+
+class _P:
+    """A page class imported only when the page is first opened, so GAMbit starts fast."""
+
+    def __init__(self, module: str, name: str):
+        self.module, self.__name__ = module, name
+
+    @property
+    def cls(self):
+        import importlib
+        return getattr(importlib.import_module(self.module, __package__), self.__name__)
+
+    def __call__(self, app):
+        return self.cls(app)
+
+
+ClassroomPage = _P(".pages.classroom", "ClassroomPage")
+BulkPage = _P(".pages.console", "BulkPage")
+ConsolePage = _P(".pages.console", "ConsolePage")
+DevicesPage = _P(".pages.devices", "DevicesPage")
+DrivePage = _P(".pages.drive", "DrivePage")
+EmailPage = _P(".pages.email", "EmailPage")
+GroupsPage = _P(".pages.groups", "GroupsPage")
+HomePage = _P(".pages.home", "HomePage")
+LicensesPage = _P(".pages.licenses", "LicensesPage")
+OrgUnitsPage = _P(".pages.orgunits", "OrgUnitsPage")
+ReportsPage = _P(".pages.reports", "ReportsPage")
+SettingsPage = _P(".pages.settings_page", "SettingsPage")
+UsersPage = _P(".pages.users", "UsersPage")
+WorkflowsPage = _P(".pages.workflows", "WorkflowsPage")
+ActivityPage = _P(".pages.activity_page", "ActivityPage")
+ApprovalsPage = _P(".pages.approvals", "ApprovalsPage")
+DiagnosticsPage = _P(".pages.diagnostics_page", "DiagnosticsPage")
+LiveTestPage = _P(".pages.livetest_page", "LiveTestPage")
+SchedulesPage = _P(".pages.schedules_page", "SchedulesPage")
+FleetPage = _P(".pages.fleet_page", "FleetPage")
+CompliancePage = _P(".pages.compliance_page", "CompliancePage")
+InvestigationsPage = _P(".pages.investigations_page", "InvestigationsPage")
+StaffDevicesPage = _P(".pages.more_tabs", "StaffDevicesPage")
+UsagePage = _P(".pages.more_tabs", "UsagePage")
+SettingsWatchPage = _P(".pages.recovery_tabs", "SettingsWatchPage")
+AskPage = _P(".pages.ask_page", "AskPage")
+BudgetPage = _P(".pages.insight_pages", "BudgetPage")
+MismatchPage = _P(".pages.insight_pages", "MismatchPage")
+SchoolReportsPage = _P(".pages.insight_pages", "SchoolReportsPage")
+TicketQueuePage = _P(".pages.insight_pages", "TicketQueuePage")
+AuditReportPage = _P(".pages.round10_pages", "AuditReportPage")
+TeacherListsPage = _P(".pages.round10_pages", "TeacherListsPage")
+OwnershipPage = _P(".pages.round11_pages", "OwnershipPage")
+PolicyRolloutsPage = _P(".pages.round11_pages", "PolicyRolloutsPage")
+TimeMachinePage = _P(".pages.round11_pages", "TimeMachinePage")
+TwoStepPage = _P(".pages.round11_pages", "TwoStepPage")
+BaselinePage = _P(".pages.round12_pages", "BaselinePage")
+ChangeCalendarPage = _P(".pages.round12_pages", "ChangeCalendarPage")
+RecordsPage = _P(".pages.round12_pages", "RecordsPage")
+GuidePage = _P(".pages.guide_page", "GuidePage")
+BackToSchoolPage = _P(".pages.round15_pages", "BackToSchoolPage")
+MailboxAccessPage = _P(".pages.round15_pages", "MailboxAccessPage")
+OutsideChangesPage = _P(".pages.round15_pages", "OutsideChangesPage")
+RecoveryCoveragePage = _P(".pages.round15_pages", "RecoveryCoveragePage")
+StaffCardPage = _P(".pages.round15_pages", "StaffCardPage")
+AIUsePage = _P(".pages.round14_pages", "AIUsePage")
+CostPerStudentPage = _P(".pages.round14_pages", "CostPerStudentPage")
+DirectoryQualityPage = _P(".pages.round14_pages", "DirectoryQualityPage")
+MeetAttendancePage = _P(".pages.round14_pages", "MeetAttendancePage")
+AccessReviewPage = _P(".pages.round13_pages", "AccessReviewPage")
+AccountTimingPage = _P(".pages.round13_pages", "AccountTimingPage")
+GoingQuietPage = _P(".pages.round13_pages", "GoingQuietPage")
+StaleContentPage = _P(".pages.round13_pages", "StaleContentPage")
+StorageForecastPage = _P(".pages.round13_pages", "StorageForecastPage")
+CleanupPage = _P(".pages.automation_tabs", "CleanupPage")
+PoliciesPage = _P(".pages.policies_page", "PoliciesPage")
+TimelinePage = _P(".pages.timeline_page", "TimelinePage")
+LookupPage = _P(".pages.lookup_page", "LookupPage")
+BuilderPage = _P(".pages.builder", "BuilderPage")
+RosterSyncPage = _P(".pages.rostersync", "RosterSyncPage")
+ServicesPage = _P(".pages.services", "ServicesPage")
+DeviceHistoryPage = _P(".pages.round25_data", "DeviceHistoryPage")
+FieldCheckPage = _P(".pages.round25_data", "FieldCheckPage")
+SchoolCleanupPage = _P(".pages.round25_data", "SchoolCleanupPage")
+SeniorCheckoutPage = _P(".pages.round25_data", "SeniorCheckoutPage")
+SharingPage = _P(".pages.round25_data", "SharingPage")
+CalendarStatusPage = _P(".pages.round25_gam", "CalendarStatusPage")
+ChatPostsPage = _P(".pages.round25_gam", "ChatPostsPage")
+EndpointsPage = _P(".pages.round25_gam", "EndpointsPage")
+ExtrasPage = _P(".pages.round25_gam", "ExtrasPage")
+SSOPage = _P(".pages.round25_gam", "SSOPage")
+SharedDrivesPage = _P(".pages.round25_gam", "SharedDrivesPage")
 
 # Sidebar: strings are section headings, tuples are pages.
 NAV = [
     ("Home", HomePage),
     ("Guide", GuidePage),
     ("Workflows", WorkflowsPage), ("Back to school", BackToSchoolPage),
+    ("Senior checkout", SeniorCheckoutPage),
     "PEOPLE",
     ("Users", UsersPage),
     ("Student lookup", LookupPage), ("Staff card", StaffCardPage),
@@ -76,13 +122,17 @@ NAV = [
     ("Classroom", ClassroomPage),
     ("Roster sync", RosterSyncPage), ("Mismatch report", MismatchPage),
     ("Account timeline", TimelinePage), ("Account time machine", TimeMachinePage),
-    ("Directory quality", DirectoryQualityPage),
+    ("Directory quality", DirectoryQualityPage), ("Custom field check", FieldCheckPage),
     "DEVICES",
     ("Chromebooks", DevicesPage),
     ("Chromebook fleet", FleetPage), ("Staff devices", StaffDevicesPage),
+    ("Chromebook sharing", SharingPage), ("Device history", DeviceHistoryPage),
+    ("Windows, Mac & phones", EndpointsPage),
     "SERVICES",
     ("Email", EmailPage),
     ("Google Drive", DrivePage),
+    ("Shared drives by school", SharedDrivesPage), ("Chat posts", ChatPostsPage),
+    ("Staff calendar status", CalendarStatusPage),
     ("More services", ServicesPage),
     "ADMIN",
     ("Org units", OrgUnitsPage),
@@ -92,12 +142,13 @@ NAV = [
     ("Security baseline", BaselinePage), ("Records requests", RecordsPage),
     ("Access review", AccessReviewPage), ("Cost per student", CostPerStudentPage),
     ("Mailbox access review", MailboxAccessPage), ("Account recovery", RecoveryCoveragePage),
+    ("Single sign-on", SSOPage), ("Domain & extras", ExtrasPage),
     "REPORTS",
     ("Reports", ReportsPage), ("School reports", SchoolReportsPage),
     ("Teacher lists", TeacherListsPage), ("Audit report", AuditReportPage),
     ("Students going quiet", GoingQuietPage), ("Account timing", AccountTimingPage),
     ("Storage forecast", StorageForecastPage), ("Meet attendance", MeetAttendancePage),
-    ("AI use", AIUsePage),
+    ("AI use", AIUsePage), ("Clean-up by school", SchoolCleanupPage),
     ("Security reports", CompliancePage), ("Investigations", InvestigationsPage), ("Usage", UsagePage),
     ("Settings watch", SettingsWatchPage), ("Changes outside GAMbit", OutsideChangesPage),
     ("Activity log", ActivityPage),
@@ -121,6 +172,48 @@ PAGES = [n for n in NAV if not isinstance(n, str)]
 # old page names → (page, tab) now that they live inside another page
 PAGE_ALIASES = {"Background tasks": ("Schedules", "Setup & health"),
                 "Scheduled jobs": ("Schedules", "Report & command jobs")}
+
+
+class LazyPages(dict):
+    """name → page. Pages are built the first time they're asked for; values() and items()
+    only list pages that exist already (everything else gets the current state when it's
+    built)."""
+
+    def __init__(self, win):
+        super().__init__()
+        self._win = win
+        self._classes: dict = {}
+        self._building: set = set()
+
+    def register(self, name, cls):
+        self._classes[name] = cls
+
+    def built(self, name) -> bool:
+        return dict.__contains__(self, name)
+
+    def __contains__(self, name):
+        return name in self._classes
+
+    def __getitem__(self, name):
+        if not dict.__contains__(self, name):
+            if name not in self._classes:
+                raise KeyError(name)
+            page = self._classes[name](self._win)
+            dict.__setitem__(self, name, page)
+            self._win._page_built(name, page)
+        return dict.__getitem__(self, name)
+
+    def get(self, name, default=None):
+        return self[name] if name in self._classes else default
+
+    def keys(self):
+        return list(self._classes)
+
+    def __iter__(self):
+        return iter(list(self._classes))
+
+    def __len__(self):
+        return len(self._classes)
 
 
 class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
@@ -159,8 +252,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
 
         # pages
         self.stack = QStackedWidget()
-        self._stack_pages: list = []
-        self.pages = {}
+        self._holders: list = []
+        self.pages = LazyPages(self)
         self._row_page: dict[int, int] = {}
         for entry in NAV:
             if isinstance(entry, str):
@@ -174,16 +267,15 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                 head.setForeground(QColor("#6f87a3"))
                 continue
             name, cls = entry
-            page = cls(self)
-            self.pages[name] = page
+            self.pages.register(name, cls)
             self._row_page[self.nav.count()] = self.stack.count()
             # each page sits in a scroll area so no page can force the window to be bigger
-            # than the screen (small laptops); pages scroll instead
+            # than the screen (small laptops); pages scroll instead. The page itself is
+            # built the first time it's needed (or in the background after start-up).
             holder = QScrollArea()
             holder.setWidgetResizable(True)
             holder.setFrameShape(QScrollArea.NoFrame)
-            holder.setWidget(page)
-            self._stack_pages.append(page)
+            self._holders.append(holder)
             self.stack.addWidget(holder)
             QListWidgetItem(name, self.nav)
         self.nav.currentRowChanged.connect(self._switch)
@@ -318,6 +410,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         except Exception:  # noqa: BLE001
             pass
         self.start_session_ui()
+        self.preload_pages()          # the rest of the pages, quietly in the background
         self.apply_helpdesk_mode()
         self.set_dry_run(bool(settings.get("safety/dry_run", False)))
         self.update_approvals_badge()
@@ -428,11 +521,57 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         self.apply_role()
 
     def page_at(self, idx: int):
-        return self._stack_pages[idx]
+        return self.pages[PAGES[idx][0]]
+
+    def page_name_at(self, idx: int) -> str:
+        return PAGES[idx][0] if 0 <= idx < len(PAGES) else ""
 
     def current_page(self):
         i = self.stack.currentIndex()
-        return self._stack_pages[i] if 0 <= i < len(self._stack_pages) else None
+        return self.pages[PAGES[i][0]] if 0 <= i < len(PAGES) else None
+
+    def _page_built(self, name: str, page):
+        """Put a newly built page in its place and give it the window's current state."""
+        idx = [n for n, _c in PAGES].index(name)
+        self._holders[idx].setWidget(page)
+        try:
+            from .widgets import apply_helpdesk
+            from ..gam_runner import helpdesk_on
+            from .. import team
+            on = helpdesk_on()
+            apply_helpdesk(on)
+            if hasattr(page, "set_helpdesk"):
+                page.set_helpdesk(on)
+            if hasattr(page, "set_role"):
+                page.set_role(team.my_role())
+            if hasattr(page, "dry_changed"):
+                page.dry_changed(bool(settings.get("safety/dry_run", False)))
+            from . import theme
+            if theme.is_dark():
+                theme.polish_tree(page)
+        except Exception:  # noqa: BLE001 – the page still works without these touches
+            pass
+
+    def preload_pages(self):
+        """Build the pages nobody has opened yet, one at a time while GAMbit is idle, so
+        opening them later is instant."""
+        todo = [n for n, _c in PAGES if not self.pages.built(n)]
+        if not todo:
+            return
+
+        def step():
+            if not todo:
+                return
+            n = todo.pop(0)
+            try:
+                self.pages[n]
+            except Exception:  # noqa: BLE001
+                pass
+            if todo:
+                busy = getattr(self.runner, "busy", False)
+                busy = busy() if callable(busy) else busy
+                QTimer.singleShot(600 if busy else 120, step)
+        QTimer.singleShot(4000, step)
 
     def go(self, name: str):
         alias = PAGE_ALIASES.get(name)
@@ -455,8 +594,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         name = [n for n, _ in PAGES][idx] if idx < len(PAGES) else ""
         self._current_page_name = name if name and team.page_allowed(name) else "Home"
         from . import theme
-        if theme.is_dark() and 0 <= idx < len(self._stack_pages):
-            theme.polish_tree(self._stack_pages[idx])
+        if theme.is_dark() and 0 <= idx < len(PAGES) and self.pages.built(PAGES[idx][0]):
+            theme.polish_tree(self.pages[PAGES[idx][0]])
         if name and not team.page_allowed(name):
             self.statusBar().showMessage(f"Your GAMbit role can't open {name}.", 5000)
             home = next(r for r, i in self._row_page.items() if i == 0)

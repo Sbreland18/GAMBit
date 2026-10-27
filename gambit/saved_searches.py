@@ -56,3 +56,83 @@ def tooltip(fav: dict) -> str:
 
 def dumps(spec: dict) -> str:
     return json.dumps(spec, sort_keys=True)
+
+
+# ================================================================ running ===
+USER_FIELDS = "primaryemail,name,suspended,ou,lastlogintime,creationtime"
+
+
+def build(spec: dict, fields: str = USER_FIELDS):
+    """(gam commands, keep(row) or None) for a search – used by the Users page and by the
+    scheduled Google Sheet refresh, so both give the same list."""
+    from . import custom_fields as cf
+    m, val = spec["mode"], (spec.get("value") or "").strip()
+    ous = [o for o in spec.get("ous") or []]
+    direct = bool(ous) and not spec.get("children", True)
+    wanted = {o.lower() for o in ous}
+
+    def in_ous(r):
+        return not direct or (r.get("orgUnitPath") or "/").lower() in wanted
+
+    if m == "Custom field":
+        col, op = spec.get("cf_field", ""), spec.get("cf_op", "is")
+        sq = cf.server_query(col, op, val)
+        schemas = cf.schema_names((cf.columns() if cf.active() else []) + [col])
+        cmds = []
+        for ou in (ous or [None]):
+            q = [x for x in (f"orgUnitPath='{ou}'" if ou and ou != "/" else "", sq) if x]
+            cmds.append(["print", "users"] + (["query", " ".join(q)] if q else []) +
+                        ["fields", fields, "custom", ",".join(schemas)])
+        return cmds, (lambda r: in_ous(r) and cf.matches(r, col, op, val))
+    if m == "In org unit(s)":
+        cmds = [cf.with_custom(["print", "users"] + (["query", f"orgUnitPath='{ou}'"]
+                                                     if ou != "/" else []) +
+                               ["fields", fields]) for ou in ous]
+        return cmds, (in_ous if direct else None)
+    q = {"Name or email contains": val, "Suspended users only": "isSuspended=true",
+         "Custom query": val}.get(m, "")
+    return [cf.with_custom(["print", "users"] + (["query", q] if q else []) +
+                           ["fields", fields])], None
+
+
+def merge(outs: list[str], keep=None) -> tuple[list[str], list[list[str]]]:
+    """Several CSV outputs → one de-duplicated table (custom fields tidied)."""
+    import csv
+    import io
+    return merge_rows([list(csv.DictReader(io.StringIO((t or "").strip()))) for t in outs],
+                      keep)
+
+
+def merge_rows(row_lists: list[list[dict]], keep=None) -> tuple[list[str], list[list[str]]]:
+    from . import custom_fields as cf
+    headers: list[str] = []
+    rows, seen = [], set()
+    for part in row_lists:
+        for r in part:
+            for h in r:
+                if h and h not in headers:
+                    headers.append(h)
+            if keep and not keep(r):
+                continue
+            key = tuple(sorted((str(k), str(v)) for k, v in r.items()))
+            if key not in seen:
+                seen.add(key)
+                rows.append(r)
+    table = [[r.get(h, "") or "" for h in headers] for r in rows]
+    return cf.tidy(headers, table) if cf.has_custom(headers) else (headers, table)
+
+
+def run(spec: dict, run_csv=None) -> tuple[list[str], list[list[str]]]:
+    """Run a saved search without the window: (headers, rows)."""
+    if run_csv is None:
+        from .directory import run_gam_csv
+        run_csv = (lambda a: run_gam_csv(a, 1800))
+    cmds, keep = build(spec)
+    parts = []
+    for c in cmds:
+        code, rows, err = run_csv(c)
+        if code != 0:
+            last = (err or "").strip().splitlines()[-1:] or [str(code)]
+            raise RuntimeError(f"GAM couldn't run the search: {last[0]}")
+        parts.append(rows)
+    return merge_rows(parts, keep)

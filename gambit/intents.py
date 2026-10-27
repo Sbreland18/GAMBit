@@ -5,6 +5,32 @@ from __future__ import annotations
 # (label shown, extra words people type, page, tab text or None)
 INTENTS = [
     ("Reset a password", "password reset forgot locked change pw", "Student lookup", None),
+    ("Check custom fields against org units", "custom field schema grade school mismatch "
+     "wrong org unit student_information", "Custom field check", "Field vs org unit"),
+    ("Fill custom fields from the SIS", "custom field schema student id sis roster fill "
+     "sync graduation year", "Custom field check", "Fill from the SIS"),
+    ("Keep a Google Sheet of a saved search up to date", "saved search sheet nightly "
+     "counselor list export schedule", "Users", "Find / list users"),
+    ("Find students swapping or sharing Chromebooks", "sharing swap swapped shared recent "
+     "users several chromebooks", "Chromebook sharing", None),
+    ("Device history for a student", "history damage fee previous chromebooks parent call "
+     "who had", "Device history", None),
+    ("Seniors at the end of the year", "seniors graduating graduation class of takeout "
+     "end of year checkout", "Senior checkout", None),
+    ("Clean-up list for each school", "cleanup clean up school building to do inactive "
+     "not seen", "Clean-up by school", None),
+    ("Single sign-on by org unit", "sso classlink clever saml sign in provider state "
+     "testing", "Single sign-on", None),
+    ("Windows laptops, Macs and phones", "windows mac ipad iphone android endpoint byod "
+     "approve block wipe", "Windows, Mac & phones", None),
+    ("Shared drives for a school", "shared drive team drive organizer manager outside "
+     "members", "Shared drives by school", None),
+    ("Post in Google Chat spaces", "chat post announcement message space", "Chat posts",
+     None),
+    ("Out of office for a building", "out of office ooo focus time working location pd day "
+     "calendar status", "Staff calendar status", None),
+    ("Domain aliases, Tasks and browser tokens", "domain alias contact delegate tasks "
+     "chrome browser profile enrollment token", "Domain & extras", None),
     ("Look up a student", "find student who kid lookup", "Student lookup", None),
     ("Add a new staff member", "new hire onboard create staff teacher account",
      "Workflows", "New staff"),

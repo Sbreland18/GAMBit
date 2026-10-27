@@ -2,11 +2,17 @@
 # PyInstaller build recipe for GAMbit (one-folder build, used by the installer).
 # Run via the Builder GUI, or:  python -m PyInstaller --noconfirm --clean GAMbit.spec
 
+from PyInstaller.utils.hooks import collect_submodules
+
+# Pages are imported only when first opened (faster start-up), so PyInstaller can't see
+# them by itself – include every GAMbit module explicitly.
+GAMBIT_MODULES = collect_submodules("gambit")
+
 a = Analysis(
     ["main.py"],
     pathex=["."],
     datas=[("assets", "assets")],
-    hiddenimports=["truststore", "qrcode", "cryptography"],
+    hiddenimports=["truststore", "qrcode", "cryptography"] + GAMBIT_MODULES,
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
               "PySide6.Qt3DCore", "PySide6.QtQuick", "PySide6.QtQml",
               "PySide6.QtMultimedia", "PySide6.QtCharts", "PySide6.QtDataVisualization"],

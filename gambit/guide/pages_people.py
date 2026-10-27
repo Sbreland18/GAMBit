@@ -83,6 +83,9 @@ PAGES = {
                "search and click *Update with the search above* to edit it; *Rename…* and "
                "*Delete* are next to it. On Home, right-click a saved search for Run, Edit, "
                "Rename and Remove.",
+               "**Google Sheet…** (next to a saved search) keeps a Google Sheet up to date "
+               "with that search on a schedule – custom fields included – so counselors can "
+               "bookmark a live list.",
                "**Custom fields** (your custom schemas, e.g. Student_Information → Grade, "
                "Student ID): click *Custom fields…* (or Settings & Updates → Custom user "
                "fields), *Read schemas from Google* and tick the fields. They're added as "

@@ -28,7 +28,12 @@ def _log_path() -> str:
     return os.path.join(logs_dir(), "tasks.log")
 
 
-_FAIL = re.compile(r"\bfailed\b(?!\s*[:=]?\s*0\b)", re.I)
+# "failed" means a failure – but not "0 failed", "no failed …", "failed: 0" or "0 failures"
+_FAIL = re.compile(r"(?<!\b0 )(?<!\bno )(?<!\bzero )\bfailed\b(?!\s*[:=]?\s*0\b)", re.I)
+
+
+def _looks_failed(msg: str) -> bool:
+    return msg.startswith("FAILED") or bool(_FAIL.search(msg))
 
 
 def _new_run(last: str, t: str, msg: str) -> bool:
@@ -64,7 +69,7 @@ def log_summary() -> dict:
             e["lines"] = []
         e["last"] = t
         e["lines"].append(msg)
-        if msg.startswith("FAILED") or _FAIL.search(msg):
+        if _looks_failed(msg):
             e["failed"] = True
     return out
 
@@ -109,6 +114,11 @@ def runs_since(since: datetime.datetime) -> list[dict]:
                 try:
                     r = json.loads(ln)
                     if datetime.datetime.fromisoformat(r["ended"]) >= since:
+                        # runs recorded before “0 failed” was read correctly
+                        if not r.get("ok") and r.get("code") == 0 and \
+                                not _looks_failed(r.get("summary", "")) and \
+                                re.search(r"\b0 failed\b", r.get("summary", ""), re.I):
+                            r["ok"] = True
                         out.append(r)
                 except (ValueError, KeyError):
                     continue
@@ -130,7 +140,8 @@ _TASK_LABELS = {"daily": "Daily follow-ups", "requests": "Staff requests",
                 "timemachine": "Account time machine", "questions": "Saved questions",
                 "leadersheet": "Leader sheet", "campaign2sv": "2-Step campaign",
                 "classroomsync": "Classroom roster sync", "baseline": "Security baseline",
-                "goingquiet": "Students going quiet"}
+                "goingquiet": "Students going quiet",
+                "searchsheets": "Saved search sheets", "fieldsync": "Custom fields from SIS"}
 
 
 def label_for(key: str) -> str:
@@ -265,6 +276,19 @@ def rows() -> list[dict]:
     if settings.get("watch/enabled", False):
         from .tools.recovery import TASK as WATCH
         defs.append(dict(WATCH))
+    try:   # saved search sheets and custom fields from the SIS (their own time and days)
+        from . import field_check, search_sheets
+        from .ui.schedule_edit import task_for
+        if search_sheets.linked():
+            defs.append(task_for(search_sheets.TASK,
+                                 settings.get(search_sheets.TIME_KEY, "") or "05:30",
+                                 [d for d in (settings.get(search_sheets.DAYS_KEY, "") or
+                                              "").split(",") if d]))
+        fc = field_check.fill_config()
+        if fc["profile"] and fc["fields"]:
+            defs.append(dict(field_check.FILL_TASK))
+    except Exception:  # noqa: BLE001
+        pass
     from . import parent_report
     pr = parent_report.options()
     if pr.get("principals") or pr.get("district_to"):
