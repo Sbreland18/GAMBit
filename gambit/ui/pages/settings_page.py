@@ -614,12 +614,20 @@ class SettingsPage(Page):
                 self.info(f"Can't use that folder:\n{exc}")
                 return
         settings.set("team/folder", path)
+        moved = ""
+        try:   # sign-in was turned on before the team folder: bring the access list along
+            from ...auth import access
+            moved = access.adopt_moved()
+        except Exception:  # noqa: BLE001
+            moved = ""
         self._team_text()
         self.app.apply_role()
         self.app.update_approvals_badge()
         if path:
             self.info("Saved. Roles, approvals, shared templates and the team activity log "
-                      "now use that folder. Set the same folder on each tech's PC.")
+                      "now use that folder. Set the same folder on each tech's PC." +
+                      (f"\n\nThe GAMbit sign-in access list was copied there from {moved}."
+                       if moved else ""))
 
     def manage_roles(self):
         from ..main_window import PAGES

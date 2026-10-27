@@ -172,13 +172,60 @@ def trust_first(doc: dict):
     _pin(doc)
 
 
+def _other_copies() -> list[str]:
+    """Where the list may still be after the team folder changed: where this PC last read
+    it, and GAMbit's own folder (where it lives before there's a team folder)."""
+    here = os.path.normcase(os.path.abspath(path()))
+    out = []
+    for c in (pinned().get("path", ""), os.path.join(_app_dir(), "access", "access.json")):
+        if c and os.path.normcase(os.path.abspath(c)) != here and c not in out:
+            out.append(c)
+    return out
+
+
+def adopt_moved() -> str:
+    """The team folder was set or changed after sign-in was turned on: bring the signed list
+    along to the new folder. Only a list signed by a key this PC already trusts is copied
+    (it isn't changed, so its signature stays valid). Returns where it came from, or ''."""
+    pin = pinned()
+    if exists() or not pin.get("keys"):
+        return ""
+    import shutil
+    for c in _other_copies():
+        if not os.path.isfile(c):
+            continue
+        try:
+            doc = check_signature(read_raw(c), pin["keys"])
+        except AccessError:
+            continue
+        if int(doc.get("serial", 0)) < int(pin.get("serial", 0)):
+            continue
+        os.makedirs(folder(), exist_ok=True)
+        tmp = path() + f".{uuid.uuid4().hex[:6]}.tmp"
+        shutil.copyfile(c, tmp)
+        os.replace(tmp, path())
+        return c
+    return ""
+
+
 def load() -> dict:
     """The verified access list. Raises AccessError when it can't be trusted."""
     pin = pinned()
+    if not exists() and pin.get("keys"):
+        try:
+            adopt_moved()
+        except OSError:
+            pass
     if not exists():
         if pin.get("keys"):
-            raise AccessError("This computer requires GAMbit sign-in, but the access list "
-                              f"is missing from {folder()}. Check the team folder.")
+            was = pin.get("path", "")
+            raise AccessError(
+                "This computer requires GAMbit sign-in, but the access list is missing from "
+                f"{folder()}." + (f" This computer last read it from {was}." if was and
+                                  os.path.normcase(was) != os.path.normcase(path()) else "") +
+                " If the team folder changed, put access.json back or set the old folder "
+                "again; otherwise use the emergency sign-in and save the access list again "
+                "(Users & access).")
         raise AccessError("No access list yet.")
     if not pin.get("keys"):
         raise AccessError("NOT_PINNED")

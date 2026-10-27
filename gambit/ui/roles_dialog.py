@@ -37,6 +37,9 @@ class RolesDialog(QDialog):
         people = self._people_tab()
         if not self.signed:        # with GAMbit sign-in, people are on Users & access
             tabs.addTab(people, "People")
+        else:                      # keep it (unshown) so its widgets aren't deleted
+            people.setParent(self)
+            people.hide()
         lay.addWidget(tabs, 1)
         bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._save)
@@ -278,8 +281,8 @@ class RolesDialog(QDialog):
         self.people.setCellWidget(r, 1, self._role_combo(role or "Help desk"))
 
     def _refresh_role_choices(self):
-        if not hasattr(self, "default_role"):
-            return
+        if not hasattr(self, "default_role") or getattr(self, "signed", False):
+            return              # with GAMbit sign-in, people get roles on Users & access
         cur = self.default_role.currentText() or self.data.get("default_role", "Full admin")
         self.default_role.clear()
         self.default_role.addItems(sorted(self.data["roles"]))
