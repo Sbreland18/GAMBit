@@ -1,6 +1,6 @@
 {
-  "version": "1.1.4",
-  "url": "https://github.com/Sbreland18/GAMbit/releases/download/v1.1.4/GAMbit-Setup-1.1.4.exe",
-  "notes": "New on Users \u2192 Find / list users: there\u2019s a Saved row under the search buttons.\n\nPick a saved search to load it into the form, then click \u25b6 Run.\nTo edit it: change the org units or other settings, then click Update with the search above. It shows the old and new versions before saving.\nRename\u2026 and Delete are next to it.\n\nOn Home: right-clicking a favorite now gives Run (or Open), Edit the search\u2026, Rename\u2026 and Remove from favorites. Edit opens it on the Users page without running it.",
-  "released": "2026-10-20"
+  "version": "1.1.5",
+  "url": "https://github.com/Sbreland18/GAMbit/releases/download/v1.1.5/GAMbit-Setup-1.1.5.exe",
+  "notes": "Start-up screen: a GAMbit window with the logo, version, a progress bar and what it\u2019s doing (\u201cLoading GAMbit\u2026\u201d, \u201cBuilding the window\u2026\u201d) appears as soon as it launches. It closes when the main window opens. A preview is attached.\n\nOpening faster: the slow part was GAMbit building all of its 90-plus pages before showing anything.\n\nIt now builds only Home at launch. The other pages are built quietly a few seconds after the window appears, so opening them later is still instant.\nOn my test machine, building the window went from about 5 seconds to under a second. Your PC took much longer, so I can\u2019t promise your exact time, but it should open noticeably sooner.\nScheduled jobs now skip the window code completely, so they start faster too.",
+  "released": "2026-10-27"
 }
