@@ -152,3 +152,56 @@ def ask_and_save(parent, description: str = "", output_text: str = ""):
                             f"Saved:\n{path}\n\nAttach this file when you report the problem.")
     QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
     return path
+
+
+FEEDBACK_KEY = "support/feedback_to"
+
+
+def send_feedback(parent, output_text: str = "") -> bool:
+    """Help → Send feedback: the problem report, emailed (to whoever looks after GAMbit)."""
+    import tempfile
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    from .settings import settings
+    to = (settings.get(FEEDBACK_KEY, "") or "").strip()
+    if "@" not in to:
+        to, ok = QInputDialog.getText(parent, "Send feedback", "Who looks after GAMbit? "
+                                      "(their email – saved for next time)")
+        to = (to or "").strip()
+        if not ok or "@" not in to:
+            return False
+        settings.set(FEEDBACK_KEY, to)
+    text, ok = QInputDialog.getMultiLineText(
+        parent, "Send feedback", "What would you like to tell us? An idea, something "
+        "confusing, or what went wrong.\n(For problems, GAMbit attaches its logs and "
+        "settings without passwords or tokens.)")
+    if not ok or not text.strip():
+        return False
+    attach = QMessageBox.question(parent, "Send feedback", "Attach GAMbit's problem report "
+                                  "(logs, settings without secrets, recent activity)?") == \
+        QMessageBox.Yes
+    path = ""
+    try:
+        if attach:
+            path = os.path.join(tempfile.mkdtemp(prefix="gambit_fb_"),
+                                os.path.basename(default_report_path()))
+            make_report(path, text, output_text)
+        from . import google_io
+        from .version import __version__
+        import platform
+        body = (f"{text.strip()}\n\n—\nGAMbit {__version__} on {platform.node()} "
+                f"({platform.platform()})\nFrom: {_who()}")
+        google_io.send_email(to, f"GAMbit feedback from {_who()}", body, attach=path)
+    except Exception as exc:  # noqa: BLE001
+        QMessageBox.warning(parent, "Send feedback", f"Couldn't send it:\n{exc}\n\nUse "
+                            "“Report a problem” to save the report as a file instead.")
+        return False
+    QMessageBox.information(parent, "Send feedback", f"Sent to {to}. Thank you!")
+    return True
+
+
+def _who() -> str:
+    try:
+        from . import team
+        return team.me()
+    except Exception:  # noqa: BLE001
+        return "?"

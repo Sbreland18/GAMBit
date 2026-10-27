@@ -63,7 +63,13 @@ class LookupPage(Page):
         acts = QHBoxLayout()
         self.reset_btn = button("Reset password", "primary", self.reset)
         self.reset_btn.setProperty("helpdesk_ok", True)
-        for b in (self.reset_btn,
+        self.check_btn = button("✅ Check everything", "primary", self.check_all)
+        self.check_btn.setProperty("helpdesk_ok", True)
+        self.check_btn.setToolTip("Suspended? Password? Org unit? Custom fields? Chromebook? "
+                                  "License? – every problem with a fix button")
+        self.card_btn = button("🖨 Print card", slot=self.print_card)
+        self.card_btn.setProperty("helpdesk_ok", True)
+        for b in (self.check_btn, self.reset_btn, self.card_btn,
                   button("Sign out everywhere", slot=self.signout),
                   button("Require a new password", slot=self.require_change),
                   button("Unsuspend", slot=self.unsuspend),
@@ -116,6 +122,8 @@ class LookupPage(Page):
             return
         self.pw.setText("")
         self.card.setText("Looking up…")
+        if hasattr(self.app, "remember"):
+            self.app.remember("user", e)
 
         def got_user(code, out, _err):
             rows = list(csv.DictReader(io.StringIO(out or ""))) if code == 0 else []
@@ -159,6 +167,32 @@ class LookupPage(Page):
              "primaryemail,name,suspended,ou,lastlogintime,isenrolledin2sv,creationtime"]),
             got_user, quiet_stdout=True)
 
+
+    def check_all(self, ticket_id: str = ""):
+        e = self._email()
+        if not e:
+            return
+        from ..person_check_dialog import PersonCheckDialog
+        if not ticket_id and hasattr(self.app, "ticket_box"):
+            from ...integrations import ticketing as tk
+            ticket_id = tk.ticket_id(self.app.ticket_box.text()) if tk.configured() else ""
+        PersonCheckDialog(self, e, ticket_id).exec()
+        self.lookup()
+
+    def print_card(self):
+        e = self._email()
+        if not e:
+            return
+        from ... import ou_map
+        from ..print_card import PrintCardDialog
+        u = next((x for x in self.directory.users if x["email"].lower() == e.lower()), {})
+        cb = ""
+        if self.cros.row_count():
+            r = {k.lower(): v for k, v in self.cros.row_dict(0).items()}
+            cb = r.get("serialnumber", "") + (f" (asset {r['annotatedassetid']})"
+                                               if r.get("annotatedassetid") else "")
+        PrintCardDialog(self, e, u.get("name", ""), cb,
+                        ou_map.school_of(u.get("ou", "")) if u else "").exec()
 
     def flags(self):
         e = self._email()

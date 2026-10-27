@@ -36,7 +36,26 @@ class StaffCardPage(Page):
         self.body.addWidget(self.table, 1)
         self.body.addLayout(self.row(
             button("Timeline", slot=lambda: self.app.open_timeline(self.who.email())),
-            button("Open in Users", slot=lambda: self.app.open_user(self.who.email()))))
+            button("Open in Users", slot=lambda: self.app.open_user(self.who.email())),
+            button("✅ Check everything", slot=self._check),
+            button("🖨 Print card", slot=self._card)))
+
+    def _check(self):
+        e = self.who.email()
+        if "@" not in e:
+            self.info("Choose the person first.")
+            return
+        from ..person_check_dialog import PersonCheckDialog
+        PersonCheckDialog(self, e).exec()
+
+    def _card(self):
+        e = self.who.email()
+        if "@" not in e:
+            self.info("Choose the person first.")
+            return
+        from ..print_card import PrintCardDialog
+        u = next((x for x in self.directory.users if x["email"].lower() == e.lower()), {})
+        PrintCardDialog(self, e, u.get("name", "")).exec()
 
     def load(self):
         from ... import staff_card as sc

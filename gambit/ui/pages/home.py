@@ -4,7 +4,7 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout,
     QWidget,
 )
 
@@ -55,17 +55,88 @@ class HomePage(Page):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
         inner = QWidget(objectName="Page")
-        lay = QVBoxLayout(inner)
-        lay.setContentsMargins(0, 0, 8, 0)
+        self.lay = QVBoxLayout(inner)
+        self.lay.setContentsMargins(0, 0, 8, 0)
         scroll.setWidget(inner)
+        head = QHBoxLayout()
+        head.addStretch(1)
+        head.addWidget(button("⚙ Customize Home…", slot=self.customize))
+        self.body.addLayout(head)
         self.body.addWidget(scroll)
 
         self.banner = QLabel("", objectName="Banner")
         self.banner.setWordWrap(True)
         self.banner.hide()
-        lay.addWidget(self.banner)
+        self.lay.addWidget(self.banner)
+        self.sections: dict[str, QWidget] = {}
+        self._builders = {
+            "status": self._w_status, "lookup": self._w_lookup, "jobs": self._w_jobs,
+            "approvals": self._w_approvals, "glance": self._w_glance,
+            "favorites": self._w_favorites, "recent": self._w_recent, "quick": self._w_quick,
+            "tickets": self._w_tickets, "notes": self._w_notes, "links": self._w_links,
+            "whatsnew": self._w_whatsnew, "scorecard": self._w_scorecard,
+            "started": self._w_started}
+        # always build the parts other code talks to (cards, tiles, favorites, jobs)
+        for k in ("status", "glance", "favorites", "jobs"):
+            self.sections[k] = self._builders[k]()
+        self._stretch = None
+        self.arrange()
+        self.app.directory.connection_changed.connect(
+            lambda ok, text: self.set_connection(ok, text if ok else "Not connected"))
+        self.app.directory.users_changed.connect(self._account_tiles)
+        self._busy = False
+        self.show_dashboard(dashboard.load_cached())
 
-        grid = QGridLayout()
+    # ------------------------------------------------------- layout ---
+    def _admin(self) -> bool:
+        try:
+            from ... import team
+            return team.is_admin() or not team.folder()
+        except Exception:  # noqa: BLE001
+            return True
+
+    def arrange(self):
+        """Lay the boxes out in the order (and with the ones) chosen in Customize Home."""
+        from ... import home_layout as hl
+        for w in self.sections.values():
+            self.lay.removeWidget(w)
+            w.hide()
+        if self._stretch is not None:
+            self.lay.removeItem(self._stretch)
+        self._on = {x["id"] for x in hl.layout(self._admin()) if x["on"]}
+        for item in hl.layout(self._admin()):
+            if not item["on"]:
+                continue
+            k = item["id"]
+            if k not in self.sections:
+                self.sections[k] = self._builders[k]()
+            w = self.sections[k]
+            self.lay.addWidget(w)
+            w.show()
+            if k == "favorites":
+                self.show_favorites()
+        self.lay.addStretch(1)
+        self._stretch = self.lay.itemAt(self.lay.count() - 1)
+        self.apply_tiles()
+
+    def customize(self):
+        from ..home_customize import HomeCustomizeDialog
+        if HomeCustomizeDialog(self).exec():
+            for k in ("quick", "links"):          # rebuilt with the new choices
+                w = self.sections.pop(k, None)
+                if w is not None:
+                    w.deleteLater()
+            self.arrange()
+
+    def refresh_widget(self, key: str):
+        if key == "recent" and "recent" in self.sections:
+            self._fill_recent()
+
+    # ------------------------------------------------------- the boxes ---
+    def _w_status(self):
+        w = QWidget()
+        grid = QGridLayout(w)
+        grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(12)
         self.gam_card = self._card("GAM version", "…")
         self.app_card = self._card(f"{APP_NAME} version", __version__)
@@ -73,23 +144,26 @@ class HomePage(Page):
         grid.addWidget(self.gam_card[0], 0, 0)
         grid.addWidget(self.app_card[0], 0, 1)
         grid.addWidget(self.domain_card[0], 0, 2)
-        lay.addLayout(grid)
+        return w
 
-        # ------------------------------------------- overnight background jobs ---
+    def _w_jobs(self):
         from ..jobs_box import JobsBox
         self.jobs_box = JobsBox(self)
-        lay.addWidget(self.jobs_box)
+        return self.jobs_box
 
-        # ---------------------------------------------------- dashboard ---
+    def _w_glance(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
         head = QHBoxLayout()
         head.addWidget(QLabel("<b style='font-size:12pt'>At a glance</b>"))
         self.updated = QLabel("", objectName="Muted")
         head.addWidget(self.updated, 1)
         self.refresh_btn = button("Refresh now", slot=self.refresh_dashboard)
         head.addWidget(self.refresh_btn)
-        lay.addLayout(head)
-        tiles = QGridLayout()
-        tiles.setSpacing(12)
+        v.addLayout(head)
+        self.tiles_grid = QGridLayout()
+        self.tiles_grid.setSpacing(12)
         self.t = {}
         spec = [
             ("accounts", "Active accounts", "Open Users", lambda: self._users(0)),
@@ -108,36 +182,238 @@ class HomePage(Page):
             ("jobs", "Scheduled jobs", "Open Schedules",
              lambda: self.app.go("Schedules")),
         ]
-        for i, (key, label, hint, fn) in enumerate(spec):
+        for key, label, hint, fn in spec:
             tile = StatTile(label, hint)
             tile.clicked.connect(fn)
             self.t[key] = tile
-            tiles.addWidget(tile, i // 5, i % 5)
-        lay.addLayout(tiles)
+        v.addLayout(self.tiles_grid)
+        return w
+
+    def apply_tiles(self):
+        from ... import home_layout as hl
+        if not hasattr(self, "tiles_grid"):
+            return
+        for t in self.t.values():
+            self.tiles_grid.removeWidget(t)
+            t.hide()
+        for i, key in enumerate(hl.tiles()):
+            t = self.t.get(key)
+            if t is not None:
+                self.tiles_grid.addWidget(t, i // 5, i % 5)
+                t.show()
+
+    def _w_scorecard(self):
         from .scorecard_box import scorecard_box
         self.score_box = scorecard_box(self)
-        lay.addWidget(self.score_box)
+        return self.score_box
 
+    def _w_favorites(self):
         self.fav_box, fform = self.group("★ Favorites")
         self.fav_row = QHBoxLayout()
         self.fav_row.setSpacing(8)
         fw = QWidget()
         fw.setLayout(self.fav_row)
         fform.addRow(fw)
-        lay.addWidget(self.fav_box)
         self.show_favorites()
+        return self.fav_box
 
+    def _w_quick(self):
+        from ... import home_layout as hl
         box, form = self.group("Quick actions")
-        form.addRow(self.row(
-            button("Find a user", "primary", lambda: self.app.go("Users")),
-            button("New staff / staff leaving", slot=lambda: self.app.go("Workflows")),
-            button("Roster sync", slot=lambda: self.app.go("Roster sync")),
-            button("Group members", slot=lambda: self.app.go("Groups")),
-            button("Out-of-office reply", slot=lambda: self.app.go("Email")),
-            button("Look up a Chromebook", slot=lambda: self.app.go("Chromebooks")),
-            button("Test connection", slot=self.app.test_connection)))
-        lay.addWidget(box)
+        names = hl.quick()
+        rows = [names[i:i + 6] for i in range(0, len(names), 6)]
+        for chunk in rows:
+            form.addRow(self.row(*[button(n, "primary" if i == 0 and chunk is rows[0] else "",
+                                          lambda _=False, n=n: self._quick(n))
+                                   for i, n in enumerate(chunk)]))
+        return box
 
+    def _quick(self, name: str):
+        from ... import home_layout as hl
+        what = hl.QUICK.get(name, "")
+        if what.startswith("page:"):
+            self.app._go_safe(what[5:])
+        elif what == "action:helper" and hasattr(self.app, "helper"):
+            self.app.helper.toggle()
+        elif what == "action:test":
+            self.app.test_connection()
+        elif what == "action:refresh":
+            self.app.refresh_everything()
+
+    def _w_lookup(self):
+        from ..pickers import PersonField
+        box, form = self.group("Quick look-up")
+        self.q_person = PersonField(self.app.directory, "A person's name or email, then Enter")
+        self.q_person.returnPressed.connect(self._q_person)
+        self.q_dev = QLineEdit(placeholderText="Chromebook serial or asset ID")
+        self.q_dev.returnPressed.connect(self._q_device)
+        form.addRow("Person", self.row(self.q_person, button("Look up", "primary",
+                                                             self._q_person),
+                                       button("✅ Check everything", slot=self._q_check),
+                                       stretch=False))
+        form.addRow("Chromebook", self.row(self.q_dev, button("Find", slot=self._q_device),
+                                           stretch=False))
+        return box
+
+    def _q_email(self):
+        e = self.q_person.email() or self.q_person.text().strip()
+        return e if "@" in e else ""
+
+    def _q_person(self):
+        e = self._q_email()
+        if e:
+            self.app.open_recent({"kind": "user", "value": e})
+
+    def _q_check(self):
+        e = self._q_email()
+        if not e:
+            self.info("Type the person first.")
+            return
+        from ..person_check_dialog import PersonCheckDialog
+        PersonCheckDialog(self, e).exec()
+
+    def _q_device(self):
+        t = self.q_dev.text().strip()
+        if not t:
+            return
+        if any(c in t for c in "-_.#") or t.isdigit():
+            self.app.open_asset(t)
+        else:
+            self.app.open_device(t.upper())
+
+    def _w_recent(self):
+        box, form = self.group("🕘 Recently viewed")
+        self.recent_wrap = QWidget()
+        self.recent_grid = QGridLayout(self.recent_wrap)
+        self.recent_grid.setContentsMargins(0, 0, 0, 0)
+        form.addRow(self.recent_wrap)
+        self._fill_recent()
+        return box
+
+    def _fill_recent(self):
+        from ... import user_prefs as up
+        while self.recent_grid.count():
+            it = self.recent_grid.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        items = up.recent(12)
+        if not items:
+            self.recent_grid.addWidget(QLabel("People, Chromebooks, groups and org units you "
+                                              "open show up here.", objectName="Muted"), 0, 0)
+            return
+        for i, r in enumerate(items):
+            b = button(up.recent_label(r)[2:].split("  <")[0],
+                       slot=lambda _=False, r=r: self.app.open_recent(r))
+            b.setToolTip(f"{r['value']} – opened {r.get('when', '').replace('T', ' ')}")
+            self.recent_grid.addWidget(b, i // 4, i % 4)
+
+    def _w_approvals(self):
+        box, form = self.group("Waiting for approval")
+        self.appr_lbl = QLabel("", wordWrap=True)
+        form.addRow(self.appr_lbl)
+        form.addRow(self.row(button("Open Approvals", slot=lambda: self.app._go_safe(
+            "Approvals"))))
+        self._fill_approvals()
+        return box
+
+    def _fill_approvals(self):
+        if not hasattr(self, "appr_lbl"):
+            return
+        try:
+            from ... import team
+            if not team.folder():
+                self.appr_lbl.setText("Approvals use the team folder (Settings → Team).")
+                return
+            mine = team.me().lower()
+            pend = team.list_requests("pending")
+            if team.is_admin():
+                txt = (f"<b>{len(pend)}</b> request(s) waiting for you: " +
+                       "; ".join(r.get("title", "")[:50] for r in pend[:4]) +
+                       ("…" if len(pend) > 4 else "")) if pend else "Nothing waiting."
+            else:
+                own = [r for r in team.list_requests() if (r.get("by") or "").lower() == mine]
+                waiting = [r for r in own if r.get("status") == "pending"]
+                done = [r for r in own if r.get("status") in ("approved", "done", "rejected")]
+                txt = (f"{len(waiting)} of your request(s) waiting" +
+                       (f" · latest decision: {done[0].get('title', '')[:50]} – "
+                        f"{done[0].get('status')}" if done else ""))
+            self.appr_lbl.setText(txt)
+        except Exception as exc:  # noqa: BLE001
+            self.appr_lbl.setText(f"Couldn't read approvals: {exc}")
+
+    def _w_tickets(self):
+        box, form = self.group("My open tickets")
+        self.tk_table = None
+        from ...integrations import ticketing as tk
+        if not (tk.configured() and tk.can("list")):
+            form.addRow(QLabel("Connect your help desk in Settings → Integrations to see "
+                               "open tickets here.", objectName="Muted", wordWrap=True))
+            return box
+        from ..widgets import ResultsTable
+        self.tk_table = ResultsTable()
+        self.tk_table.setMinimumHeight(160)
+        self.tk_status = QLabel("", objectName="Muted")
+        form.addRow(self.row(button("Load", slot=self._load_tickets),
+                             button("Open Ticket queue", slot=lambda: self.app._go_safe(
+                                 "Ticket queue")), self.tk_status))
+        form.addRow(self.tk_table)
+        return box
+
+    def _load_tickets(self):
+        from ...integrations import ticketing as tk
+        self.tk_status.setText("Loading…")
+
+        def done(rows):
+            cols = ["number", "subject", "for", "kind", "target"]
+            self.tk_table.set_rows(cols, [[str(r.get(c, "")) for c in cols]
+                                          for r in rows[:50]])
+            self.tk_status.setText(f"{len(rows)} open")
+        Worker(tk.list_open, on_done=done,
+               on_error=lambda e: self.tk_status.setText(str(e)[:120]))
+
+    def _w_notes(self):
+        from PySide6.QtWidgets import QPlainTextEdit
+        from ... import home_layout as hl
+        from ...settings import settings
+        box, form = self.group("📝 My notes")
+        self.notes = QPlainTextEdit(settings.get(hl.NOTES_KEY, "") or "")
+        self.notes.setPlaceholderText("Anything you want to remember – saved as you type, "
+                                      "only on this PC.")
+        self.notes.setMaximumHeight(140)
+        self.notes.textChanged.connect(lambda: settings.set(hl.NOTES_KEY,
+                                                            self.notes.toPlainText()))
+        form.addRow(self.notes)
+        return box
+
+    def _w_links(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from ... import home_layout as hl
+        box, form = self.group("🔗 My links")
+        links = hl.links()
+        if not links:
+            form.addRow(QLabel("Add links in Customize Home → Links (Admin console, your "
+                               "help desk, the district SIS…).", objectName="Muted",
+                               wordWrap=True))
+            return box
+        bs = [button(n, slot=lambda _=False, u=u: QDesktopServices.openUrl(
+            QUrl.fromLocalFile(u) if u.startswith("\\\\") else QUrl(u))) for n, u in links]
+        for i in range(0, len(bs), 6):
+            form.addRow(self.row(*bs[i:i + 6]))
+        return box
+
+    def _w_whatsnew(self):
+        from ... import whats_new
+        box, form = self.group("What's new")
+        n = len(whats_new.unseen())
+        top = ", ".join(e["title"] for e in whats_new.ENTRIES[:4])
+        form.addRow(QLabel((f"<b>{n} new thing(s)</b> since you last looked. " if n else "") +
+                           f"Lately: {top}…", wordWrap=True))
+        form.addRow(self.row(button("See what's new", slot=lambda: self.app.show_whats_new(
+            force=True))))
+        return box
+
+    def _w_started(self):
         box, form = self.group("Getting started")
         steps = QLabel(
             "New to GAM? The <b>Setup wizard</b> installs GAM and connects it to Google "
@@ -146,13 +422,7 @@ class HomePage(Page):
         form.addRow(steps)
         form.addRow(self.row(button("Open setup wizard", "primary", self.app.open_setup),
                              button("Take the tour", slot=self.app.start_tour)))
-        lay.addWidget(box)
-        lay.addStretch(1)
-        self.app.directory.connection_changed.connect(
-            lambda ok, text: self.set_connection(ok, text if ok else "Not connected"))
-        self.app.directory.users_changed.connect(self._account_tiles)
-        self._busy = False
-        self.show_dashboard(dashboard.load_cached())
+        return box
 
     # ---------------------------------------------------------- tiles ---
     def _account_tiles(self):
@@ -290,6 +560,9 @@ class HomePage(Page):
         self.domain_card[1].setStyleSheet(f"color:{color};")
 
     def on_show(self):
+        if hasattr(self, "recent_grid") and "recent" in self.sections:
+            self._fill_recent()
+        self._fill_approvals()
         if hasattr(self, "jobs_box"):
             self.jobs_box.refresh()
         if hasattr(self, "score_box"):
@@ -318,7 +591,8 @@ class HomePage(Page):
             if it.widget():
                 it.widget().deleteLater()
         favs = self.app.favorites() if hasattr(self.app, "favorites") else []
-        self.fav_box.setVisible(bool(favs))
+        self.fav_box.setVisible(bool(favs) and "favorites" in getattr(self, "_on",
+                                                                       {"favorites"}))
         for f in favs[:12]:
             b = button(self.app.fav_label(f)[2:].split("  <")[0],
                        slot=lambda _=False, f=f: self.app.open_favorite(f))

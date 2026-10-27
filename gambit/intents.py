@@ -5,6 +5,13 @@ from __future__ import annotations
 # (label shown, extra words people type, page, tab text or None)
 INTENTS = [
     ("Reset a password", "password reset forgot locked change pw", "Student lookup", None),
+    ("Check everything about a person", "check everything fix problems why can't sign in "
+     "broken account", "Student lookup", None),
+    ("Print an account card", "print card password slip label qr handout", "Student lookup",
+     None),
+    ("Customize Home", "customize home dashboard my home boxes widgets layout", "Home", None),
+    ("Practice mode or display settings", "practice training new tech contrast text size "
+     "tray alerts", "Settings & Updates", None),
     ("Check custom fields against org units", "custom field schema grade school mismatch "
      "wrong org unit student_information", "Custom field check", "Field vs org unit"),
     ("Fill custom fields from the SIS", "custom field schema student id sis roster fill "

@@ -72,6 +72,14 @@ class AppActions:
         self.dry_btn.setToolTip("When on, changes aren't made – GAMbit lists the exact GAM "
                                 "commands instead (look-ups still run).")
         h.addWidget(self.dry_btn)
+        self.practice_btn = button("🎓 Practice", slot=lambda: self.set_practice(
+            self.practice_btn.isChecked()))
+        self.practice_btn.setCheckable(True)
+        self.practice_btn.setProperty("helpdesk_ok", True)
+        self.practice_btn.setToolTip("Practice mode for new techs: changes to the test account "
+                                     "and test org unit run for real, everything else is a "
+                                     "dry run (Settings → Testing).")
+        h.addWidget(self.practice_btn)
         self.helper_btn = button("💬 Helper", slot=lambda: self.helper.toggle())
         self.helper_btn.setProperty("helpdesk_ok", True)
         self.helper_btn.setToolTip("Ask GAMbit's offline Helper – plain English is fine "
@@ -121,7 +129,47 @@ class AppActions:
                on_error=lambda e: self.log_line(f"Couldn't add the ticket note: {e}",
                                                 "#ff8a80"))
 
+    def set_practice(self, on: bool):
+        """Practice mode: dry run for everything except the test account and test org unit."""
+        from .. import user_prefs as up
+        ou, user = up.practice_target()
+        if on and not (ou or user):
+            QMessageBox.information(self, "Practice mode", "Set a test org unit or test "
+                                    "account first (Settings & Updates → Testing). Practice "
+                                    "changes run for real only there.")
+            self.practice_btn.setChecked(False)
+            return
+        if on and not up.practice_on():
+            settings.set("practice/prev_dry", bool(settings.get("safety/dry_run", False)))
+        settings.set(up.PRACTICE_KEY, bool(on))
+        self.practice_btn.setChecked(bool(on))
+        self.practice_btn.setStyleSheet("background:#e7f5e9;border-color:#2da44e;"
+                                        "font-weight:600;" if on else "")
+        self.practice_btn.setText("🎓 Practice is ON" if on else "🎓 Practice")
+        self.set_dry_run(True if on else bool(settings.get("practice/prev_dry", False)))
+        if on:
+            self.statusBar().showMessage(
+                f"Practice mode: changes to {user or ''}{' and ' if ou and user else ''}"
+                f"{ou or ''} run for real; everything else is a dry run.")
+
+    def install_practice(self):
+        from .. import user_prefs as up
+
+        def ok(args):
+            if not up.practice_on():
+                return False
+            d = self.directory
+            by_email = {u["email"].lower(): u for u in (getattr(d, "all_users", None) or
+                                                       d.users)}
+            return up.practice_allows(args, by_email)
+        self.runner.practice_ok = ok
+        if up.practice_on():
+            self.set_practice(True)
+
     def set_dry_run(self, on: bool):
+        from .. import user_prefs as up
+        if not on and up.practice_on():
+            on = True                    # practice mode keeps dry run on
         settings.set("safety/dry_run", bool(on))
         self.dry_btn.setChecked(bool(on))
         self.dry_btn.setStyleSheet("background:#fff4ce;border-color:#d4a72c;font-weight:600;"
@@ -273,7 +321,9 @@ class AppActions:
     def _refresh_search(self):
         d = self.directory
         from ..intents import labels
-        favs = [self.fav_label(f) for f in self.favorites()] + labels()
+        from .. import user_prefs as up
+        favs = [up.recent_label(r) for r in up.recent(8)] + \
+            [self.fav_label(f) for f in self.favorites()] + labels()
         items = favs + [f"👤 {u.get('name') or u['email']}  <{u['email']}>" for u in d.users]
         items += [f"👥 {g.get('name') or g['email']}  <{g['email']}>" for g in d.groups]
         items += [f"🏢 {p}" for p in d.ous]
@@ -291,6 +341,15 @@ class AppActions:
             from PySide6.QtCore import QTimer
             QTimer.singleShot(0, self.gsearch.clear)
             return
+        if text.startswith("🕘"):
+            from .. import user_prefs as up
+            r = next((r for r in up.recent() if up.recent_label(r) == text), None)
+            if r:
+                self.open_recent(r)
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, self.gsearch.clear)
+                return
+            text = text.lstrip("🕘 ").strip()
         if text.startswith("★"):
             f = next((f for f in self.favorites() if self.fav_label(f) == text), None)
             if f:
@@ -332,7 +391,21 @@ class AppActions:
         QTimer.singleShot(0, self.gsearch.clear)
 
     # ========================================================= navigation ===
+    def remember(self, kind: str, value: str, label: str = ""):
+        """Recently viewed (Home and the top of the search box)."""
+        from .. import user_prefs as up
+        if kind in ("user", "group") and not label:
+            src = self.directory.users if kind == "user" else self.directory.groups
+            hit = next((x for x in src if x.get("email", "").lower() == value.lower()), {})
+            label = hit.get("name") or ""
+        up.add_recent(kind, value, label)
+        self._refresh_search()
+        home = self.pages.get("Home") if self.pages.built("Home") else None
+        if home is not None and hasattr(home, "refresh_widget"):
+            home.refresh_widget("recent")
+
     def open_user(self, email: str):
+        self.remember("user", email)
         self.go("Users")
         p = self.pages["Users"]
         tabs = p.findChild(QTabWidget)
@@ -342,18 +415,21 @@ class AppActions:
         p.user_info()
 
     def open_group(self, email: str):
+        self.remember("group", email)
         self.go("Groups")
         p = self.pages["Groups"]
         p.tabs.setCurrentIndex(0)
         p.open_group(email)
 
     def open_ou(self, path: str):
+        self.remember("ou", path)
         self.go("Org units")
         p = self.pages["Org units"]
         p.path = path
         p._build()
 
     def open_device(self, serial: str):
+        self.remember("device", serial)
         self.go("Chromebooks")
         p = self.pages["Chromebooks"]
         p.tabs.setCurrentIndex(0)
@@ -366,6 +442,30 @@ class AppActions:
         p.tabs.setCurrentIndex(0)
         p.find_asset.setText(asset)
         p.by_asset()
+
+    def open_recent(self, r: dict):
+        k, v = r["kind"], r["value"]
+        if k == "user":
+            from .. import ou_map
+            u = next((x for x in self.directory.users if x["email"].lower() == v.lower()), {})
+            if u and ou_map.is_student(u.get("ou", ""), self.directory.ous):
+                self.open_lookup(v)
+            else:
+                self.open_user(v)
+        elif k == "group":
+            self.open_group(v)
+        elif k == "ou":
+            self.open_ou(v)
+        elif k == "device":
+            self.open_device(v)
+
+    def open_lookup(self, email: str):
+        self._go_safe("Student lookup")
+        p = self.pages.get("Student lookup")
+        if p is not None:
+            p.everyone.setChecked(True)
+            p.who.setText(email)
+            p.lookup()
 
     def open_builder(self, query: str = "", section: str = ""):
         self.go("Command Builder")
@@ -531,22 +631,27 @@ class AppActions:
         role = team.my_role()
         apply_helpdesk(on)
         self.hd_btn.setVisible(on)
+        from .. import user_prefs as up
+        folded = up.collapsed()
+        base: dict[int, bool] = {}
         for row, idx in self._row_page.items():
             page_name = self.page_name_at(idx)
-            self.nav.item(row).setHidden((on and page_name in HELPDESK_HIDDEN) or
-                                         not team.page_allowed(page_name, role) or
-                                         self._user_hidden(page_name))
-        # hide section headings whose pages are all hidden
-        header = None
-        visible_under = False
-        for r in range(self.nav.count() + 1):
-            it = self.nav.item(r) if r < self.nav.count() else None
-            if it is None or it.data(Qt.UserRole) == "header":
-                if header is not None:
-                    header.setHidden(not visible_under)
-                header, visible_under = it, False
-            elif not it.isHidden():
-                visible_under = True
+            base[row] = ((on and page_name in HELPDESK_HIDDEN) or
+                         not team.page_allowed(page_name, role) or
+                         self._user_hidden(page_name))
+        headers = getattr(self, "_header_row", {})
+        sections = getattr(self, "_row_section", {})
+        # a heading shows when something under it could show (folded or not)
+        seen_under: dict[str, bool] = {}
+        for row, hidden in base.items():
+            sec = sections.get(row, "")
+            seen_under[sec] = seen_under.get(sec, False) or not hidden
+        for row in range(self.nav.count()):
+            it = self.nav.item(row)
+            if row in headers:
+                it.setHidden(not seen_under.get(headers[row], False))
+            elif row in base:
+                it.setHidden(base[row] or sections.get(row, "") in folded)
         for p in self.pages.values():
             if hasattr(p, "set_helpdesk"):
                 p.set_helpdesk(on)
@@ -820,11 +925,14 @@ class MoreActions:
         if "Approvals" not in names:
             return
         idx = names.index("Approvals")
-        row = next((r for r, i in self._row_page.items() if i == idx), None)
-        if row is None:
+        rows = [r for r, i in self._row_page.items() if i == idx]
+        if not rows:
             return
         n = team.pending_count() if team.is_admin() else 0
-        self.nav.item(row).setText(f"Approvals ({n})" if n else "Approvals")
+        for row in rows:
+            self.nav.item(row).setText(f"Approvals ({n})" if n else "Approvals")
+        if hasattr(self, "tray_notify_approvals"):
+            self.tray_notify_approvals(n)
 
     def apply_role(self):
         """Show only the pages this person's role allows."""
@@ -920,8 +1028,13 @@ class MoreActions:
         ("Ctrl+.", "Stop the most recent command"),
         ("F5", "Refresh users, groups, org units and the dashboard"),
         ("Ctrl+Enter", "Run (in the Command Builder and Console)"),
+        ("Ctrl+Shift+L", "Student lookup"),
+        ("Ctrl+Shift+C", "Check everything about the person on Student lookup"),
+        ("Ctrl+Shift+P", "Pin this page to My pages (or unpin it)"),
+        ("Ctrl+Shift+N", "What's new"),
+        ("Ctrl+= / Ctrl+-", "Bigger / smaller text"),
         ("F1", "Open the guide at this page"),
-        ("Shift+F1", "This list of shortcuts"),
+        ("Shift+F1 or Ctrl+/", "This list of shortcuts"),
     ]
 
     def install_shortcuts(self):
@@ -944,12 +1057,59 @@ class MoreActions:
         sc("F1", self.open_guide)
         sc("F2", lambda: self.helper.toggle())
         sc("Shift+F1", self.show_help)
+        sc("Ctrl+/", self.show_help)
+        sc("Ctrl+Shift+L", lambda: self._go_safe("Student lookup"))
+        sc("Ctrl+Shift+C", self._check_current_person)
+        sc("Ctrl+Shift+P", self._pin_current)
+        sc("Ctrl+Shift+N", lambda: self.show_whats_new(force=True))
+        sc("Ctrl+=", lambda: self._bump_text(+1))
+        sc("Ctrl++", lambda: self._bump_text(+1))
+        sc("Ctrl+-", lambda: self._bump_text(-1))
         b = self.pages.get("Command Builder")
         if b is not None:
             QShortcut(QKeySequence("Ctrl+Return"), b, activated=b.run_preview)
         c = self.pages.get("Command Console")
         if c is not None:
             QShortcut(QKeySequence("Ctrl+Return"), c, activated=c.execute)
+
+    TEXT_SIZES = (0.9, 1.0, 1.15, 1.3, 1.5)
+
+    def _bump_text(self, step: int):
+        cur = float(settings.get("ui/text_scale", 1.0) or 1.0)
+        i = min(range(len(self.TEXT_SIZES)), key=lambda k: abs(self.TEXT_SIZES[k] - cur))
+        i = max(0, min(len(self.TEXT_SIZES) - 1, i + step))
+        self.set_text_scale(self.TEXT_SIZES[i])
+        self.statusBar().showMessage(f"Text size {int(self.TEXT_SIZES[i] * 100)}%", 3000)
+
+    def _current_name(self) -> str:
+        cur = self.current_page()
+        return next((n for n, p in self.pages.items() if p is cur), "")
+
+    def _pin_current(self):
+        n = self._current_name()
+        if n and n != "Home":
+            self.toggle_pin(n)
+
+    def _check_current_person(self):
+        p = self.pages.get("Student lookup")
+        if p is None:
+            return
+        if self._current_name() != "Student lookup":
+            self._go_safe("Student lookup")
+        if "@" in p.who.email():
+            p.check_all()
+
+    def show_whats_new(self, force: bool = False):
+        from .. import whats_new
+        from .whats_new_dialog import WhatsNewDialog
+        items = whats_new.ENTRIES if force else whats_new.unseen()
+        if items:
+            WhatsNewDialog(self, items).exec()
+            whats_new.mark_seen([e["id"] for e in items])
+
+    def send_feedback(self):
+        from .. import support
+        support.send_feedback(self, output_text=self.log.toPlainText())
 
     def _go_safe(self, name):
         from .app_actions import HELPDESK_HIDDEN
@@ -984,10 +1144,16 @@ class MoreActions:
         box.setText(f"<table>{rows}</table><p>Tip: right-click any results table for "
                     "quick actions.</p>")
         tour = box.addButton("Take the tour", QMessageBox.ActionRole)
+        new = box.addButton("What's new", QMessageBox.ActionRole)
+        fb = box.addButton("Send feedback…", QMessageBox.ActionRole)
         box.addButton(QMessageBox.Close)
         box.exec()
         if box.clickedButton() is tour:
             self.start_tour()
+        elif box.clickedButton() is new:
+            self.show_whats_new(force=True)
+        elif box.clickedButton() is fb:
+            self.send_feedback()
 
     # -- text size ------------------------------------------------------------------
     def set_theme(self, mode: str):

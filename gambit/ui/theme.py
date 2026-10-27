@@ -150,7 +150,14 @@ def apply_theme(app, scale: float | None = None, mode: str | None = None):
     font = app.font()
     font.setPointSizeF(10 * scale)
     app.setFont(font)
-    app.setStyleSheet(_dark_stylesheet(scale) if m == "dark" else scaled_stylesheet(scale))
+    css = _dark_stylesheet(scale) if m == "dark" else scaled_stylesheet(scale)
+    try:
+        from ..settings import settings as _s
+        if _s.get("ui/contrast", False):
+            css += contrast_css(m)
+    except Exception:  # noqa: BLE001
+        pass
+    app.setStyleSheet(css)
     _ScreenClamp.install(app)
     if not first:
         refresh_all(app)
@@ -524,3 +531,22 @@ def wanted_mode(app=None) -> str:
         except Exception:  # noqa: BLE001
             return "light"
     return "dark" if m == "dark" else "light"
+
+
+def contrast_css(mode: str) -> str:
+    """Settings → Appearance → High contrast: stronger text, borders and focus outlines."""
+    fg, bg, line = ("#ffffff", "#000000", "#ffffff") if mode == "dark" else \
+        ("#000000", "#ffffff", "#000000")
+    return f"""
+QWidget {{ color: {fg}; }}
+QLabel#Muted, QLabel#Small, QLabel#PageSub {{ color: {fg}; }}
+QPushButton, QLineEdit, QComboBox, QSpinBox, QDateEdit, QTimeEdit, QPlainTextEdit,
+QTextEdit, QTableView, QTableWidget, QTreeWidget, QListWidget {{
+    border: 2px solid {line};
+}}
+QPushButton:focus, QLineEdit:focus, QComboBox:focus, QListWidget:focus,
+QTableView:focus, QCheckBox:focus, QRadioButton:focus {{
+    outline: 3px solid #ffbf00; border: 3px solid #ffbf00;
+}}
+QFrame#Card {{ border: 2px solid {line}; background: {bg}; }}
+"""

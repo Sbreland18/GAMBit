@@ -255,20 +255,13 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         self._holders: list = []
         self.pages = LazyPages(self)
         self._row_page: dict[int, int] = {}
+        self._row_section: dict[int, str] = {}
+        self._header_row: dict[int, str] = {}
         for entry in NAV:
             if isinstance(entry, str):
-                head = QListWidgetItem(entry, self.nav)
-                head.setFlags(Qt.NoItemFlags)
-                head.setData(Qt.UserRole, "header")
-                f = head.font()
-                f.setPointSizeF(f.pointSizeF() * 0.8)
-                f.setBold(True)
-                head.setFont(f)
-                head.setForeground(QColor("#6f87a3"))
                 continue
             name, cls = entry
             self.pages.register(name, cls)
-            self._row_page[self.nav.count()] = self.stack.count()
             # each page sits in a scroll area so no page can force the window to be bigger
             # than the screen (small laptops); pages scroll instead. The page itself is
             # built the first time it's needed (or in the background after start-up).
@@ -277,7 +270,9 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             holder.setFrameShape(QScrollArea.NoFrame)
             self._holders.append(holder)
             self.stack.addWidget(holder)
-            QListWidgetItem(name, self.nav)
+        self._nav_built = False
+        self.build_nav(select=False)
+        self.nav.itemClicked.connect(self._nav_clicked)
         self.nav.currentRowChanged.connect(self._switch)
         self.nav.setContextMenuPolicy(Qt.CustomContextMenu)
         self.nav.customContextMenuRequested.connect(self._nav_menu)
@@ -352,7 +347,29 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             lambda ok, _t: ok and (self.pages["Home"].auto_refresh(), self.daily_tasks()))
         self.nav.setCurrentRow(0)
         self.statusBar().showMessage("Ready  ·  Press F1 for help")
+        from .tray import Tray
+        self.tray = Tray(self)
+        if self.tray.active:
+            from PySide6.QtWidgets import QApplication
+            QApplication.instance().setQuitOnLastWindowClosed(False)
         QTimer.singleShot(300, self._startup)
+
+    def closeEvent(self, event):
+        """With the tray on, closing only hides GAMbit (quit from the tray menu)."""
+        tray = getattr(self, "tray", None)
+        if tray is not None and tray.closing(event):
+            return
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None and not app.quitOnLastWindowClosed():
+            app.setQuitOnLastWindowClosed(True)
+            QTimer.singleShot(0, app.quit)
+        super().closeEvent(event)
+
+    def tray_notify_approvals(self, n: int):
+        tray = getattr(self, "tray", None)
+        if tray is not None:
+            tray.approvals(n)
 
     # ---------------------------------------------------------- startup ---
     def _unfinished_update(self, info: dict):
@@ -411,6 +428,15 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             pass
         self.start_session_ui()
         self.preload_pages()          # the rest of the pages, quietly in the background
+        self.install_practice()
+        try:
+            from .. import whats_new
+            whats_new.first_run_check()
+            if whats_new.unseen() and gam_setup.is_fully_set_up() and \
+                    not settings.get("whatsnew/off", False):
+                QTimer.singleShot(2500, self.show_whats_new)
+        except Exception:  # noqa: BLE001
+            pass
         self.apply_helpdesk_mode()
         self.set_dry_run(bool(settings.get("safety/dry_run", False)))
         self.update_approvals_badge()
@@ -495,6 +521,93 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         self.directory.test_connection(log=self.log_line)
 
     # -------------------------------------------------------------- nav ---
+    # ------------------------------------------------------------ sidebar ---
+    MY = "MY PAGES"
+
+    def build_nav(self, select: bool = True):
+        """The sidebar: My pages (pinned + most used) on top, then every section. Sections
+        fold with a click on their heading."""
+        from .. import team, user_prefs as up
+        names = [n for n, _c in PAGES]
+        cur = self.stack.currentIndex() if select else 0
+        self.nav.blockSignals(True)
+        self.nav.clear()
+        self._row_page, self._row_section, self._header_row = {}, {}, {}
+        avail = [n for n in names if team.page_allowed(n) and not self._user_hidden(n)
+                 and n not in ("Home",)]
+        pins, freq = up.my_pages(avail)
+        folded = up.collapsed()
+
+        def header(key):
+            it = QListWidgetItem(("▸ " if key in folded else "▾ ") + key.title()
+                                 if key != self.MY else ("▸ " if key in folded else "▾ ") +
+                                 "My pages", self.nav)
+            it.setFlags(Qt.ItemIsEnabled)
+            it.setData(Qt.UserRole, "header")
+            it.setData(Qt.UserRole + 1, key)
+            it.setToolTip("Click to fold or unfold this section")
+            f = it.font()
+            f.setPointSizeF(f.pointSizeF() * 0.8)
+            f.setBold(True)
+            it.setFont(f)
+            it.setForeground(QColor("#6f87a3"))
+            self._header_row[self.nav.count() - 1] = key
+
+        def item(name, section, tip=""):
+            self._row_page[self.nav.count()] = names.index(name)
+            self._row_section[self.nav.count()] = section
+            it = QListWidgetItem(name, self.nav)
+            if tip:
+                it.setToolTip(tip)
+        section = ""
+        for entry in NAV:
+            if isinstance(entry, str):
+                if not section and (pins or freq):
+                    header(self.MY)
+                    for n in pins:
+                        item(n, self.MY, "Pinned – right-click to unpin")
+                    for n in freq:
+                        item(n, self.MY, "One of the pages you use most")
+                section = entry
+                header(entry)
+                continue
+            item(entry[0], section)
+        self.nav.blockSignals(False)
+        self._nav_built = True
+        if hasattr(self, "hd_btn"):            # not during the first build in __init__
+            self.apply_helpdesk_mode()
+            self.update_approvals_badge()
+        if select:
+            row = next((r for r, i in self._row_page.items() if i == cur and
+                        self._row_section.get(r) != self.MY), None)
+            if row is not None:
+                self.nav.blockSignals(True)
+                self.nav.setCurrentRow(row)
+                self.nav.blockSignals(False)
+
+    def _nav_clicked(self, it):
+        if it is None or it.data(Qt.UserRole) != "header":
+            return
+        from .. import user_prefs as up
+        key = it.data(Qt.UserRole + 1)
+        folded = up.toggle_section(key)
+        label = "My pages" if key == self.MY else key.title()
+        it.setText(("▸ " if folded else "▾ ") + label)
+        self.apply_helpdesk_mode()
+
+    def fold_all(self, fold: bool):
+        from .. import user_prefs as up
+        keys = set(self._header_row.values())
+        up.set_collapsed(keys if fold else set())
+        self.build_nav()
+
+    def toggle_pin(self, name: str):
+        from .. import user_prefs as up
+        on = up.toggle_pin(name)
+        self.build_nav()
+        self.statusBar().showMessage(f"Pinned {name} to My pages." if on else
+                                     f"Unpinned {name}.", 4000)
+
     def _nav_menu(self, pos):
         from PySide6.QtWidgets import QMenu
         it = self.nav.itemAt(pos)
@@ -502,23 +615,37 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             return
         name = it.text().split(" (")[0]
         menu = QMenu(self)
+        from .. import user_prefs as up
+        if name != "Home":
+            menu.addAction("Unpin from My pages" if name in up.pinned() else
+                           "📌 Pin to My pages", lambda: self.toggle_pin(name))
         if name not in ("Home", "Settings & Updates"):
             menu.addAction(f"Hide “{name}” from my sidebar", lambda: self.hide_page(name))
         menu.addAction("Show all hidden pages", self.show_all_pages)
+        menu.addSeparator()
+        menu.addAction("Fold all sections", lambda: self.fold_all(True))
+        menu.addAction("Unfold all sections", lambda: self.fold_all(False))
+        menu.addAction("Hide my most-used pages" if up.show_frequent() else
+                       "Show my most-used pages", self._toggle_frequent)
         menu.exec(self.nav.viewport().mapToGlobal(pos))
+
+    def _toggle_frequent(self):
+        from .. import user_prefs as up
+        settings.set(up.FREQUENT_KEY, not up.show_frequent())
+        self.build_nav()
 
     def hide_page(self, name: str):
         import json
         hidden = set(json.loads(settings.get("ui/hidden_pages", "[]") or "[]"))
         hidden.add(name)
         settings.set("ui/hidden_pages", json.dumps(sorted(hidden)))
-        self.apply_role()
+        self.build_nav()
         self.statusBar().showMessage(f"Hid {name}. Right-click the sidebar to bring it back.")
 
     def show_all_pages(self):
         settings.set("ui/hidden_pages", "[]")
         settings.set("ui/show_advanced", True)
-        self.apply_role()
+        self.build_nav()
 
     def page_at(self, idx: int):
         return self.pages[PAGES[idx][0]]
@@ -604,6 +731,11 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             return
         self.stack.setCurrentIndex(self._row_page[row])
         self.current_page().on_show()
+        try:
+            from .. import user_prefs
+            user_prefs.bump(name)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---------------------------------------------------- shared hooks ---
     def set_gam_version(self, ver):

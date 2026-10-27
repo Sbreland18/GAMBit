@@ -4,7 +4,16 @@ PAGES = {
     "Home": dict(
         what="The district at a glance: account, license and Chromebook numbers, security "
              "alerts, failed jobs, favorites, quick actions and the weekly scorecard.",
-        steps=["Click any number tile to open the matching list (for example *Never signed "
+        steps=["**⚙ Customize Home…** (top right) chooses which boxes Home shows and in what "
+               "order: quick look-up, recently viewed, favorites, quick actions, waiting for "
+               "approval, my open tickets, my notes, my links, background jobs, the numbers, "
+               "the scorecard, what's new. Pick your quick actions, number tiles and links "
+               "there too. It's just for you; *Reset to the default* puts it back.",
+               "**Quick look-up**: type a person (or a Chromebook serial / asset ID) and press "
+               "Enter; *Check everything* runs the full check on that person.",
+               "**Recently viewed** lists the last people, Chromebooks, groups and org units "
+               "you opened (also at the top of the search box).",
+               "Click any number tile to open the matching list (for example *Never signed "
                "in* opens those accounts).",
                "Use the quick-action buttons (Find a user, Look up a Chromebook, New staff / "
                "staff leaving…) for everyday jobs.",
@@ -132,6 +141,13 @@ PAGES = {
         steps=["Type part of a name, email or student ID and click **Look up**.",
                "Use **Reset password** (an easy-to-read password is shown on screen), **Sign "
                "out everywhere**, **Require a new password** or **Unsuspend**.",
+               "**✅ Check everything** (Ctrl+Shift+C) checks the account, password, "
+               "sign-in, 2-Step, license, org unit, custom fields and their Chromebook, and "
+               "lists every problem with a fix button – or *Fix everything GAMbit can*. With "
+               "a ticket linked, *Add this to the ticket* posts what was found and fixed.",
+               "**🖨 Print card** prints (or saves as PDF) a card with their name, email, a "
+               "fresh temporary password if you tick it, their Chromebook and a QR code for "
+               "Google sign-in – two per page to cut in half, or one large.",
                "**Timeline** shows everything that happened to the account; **Open in "
                "Users** for everything else."],
         tips=["Unsuspend goes to Approvals for limited roles.",

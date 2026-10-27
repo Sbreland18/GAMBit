@@ -2,6 +2,44 @@
 "1. " numbered steps, "## " sub-heading, **bold**, `code`."""
 
 ARTICLES = [
+    ("everyday", "Making GAMbit yours", "my pages pin sidebar fold tray alerts recent "
+     "practice mode contrast shortcuts feedback customize home", """
+## My pages and the sidebar
+- Right-click any page → **📌 Pin to My pages**. Pinned pages sit at the top of the sidebar,
+  with the pages you use most underneath (right-click → *Hide my most-used pages* to turn
+  that off). Ctrl+Shift+P pins the page you're on.
+- Click a section heading (People, Devices…) to fold it. Right-click → *Fold all sections*.
+- With GAMbit sign-in or team roles, people only see the pages their role allows.
+
+## Home
+**⚙ Customize Home…** chooses the boxes, their order, your quick actions, number tiles and
+links. Techs who mostly help people might keep *Quick look-up*, *Recently viewed*, *Quick
+actions* and *My open tickets*.
+
+## The tray and desktop alerts
+Closing the window keeps GAMbit in the taskbar tray, so long jobs keep running. You get a
+Windows alert when a long command finishes while you're elsewhere, when a background job
+fails, and when a new approval request arrives. Quit from the tray icon's menu. Both can be
+turned off in Settings & Updates → Appearance and safety.
+
+## Practice mode (for new techs)
+**🎓 Practice** in the top bar: changes to the test account and the test org unit
+(Settings & Updates → Testing) run for real, everything else is a dry run – so a new tech
+can do whole jobs safely.
+
+## Before → after
+Confirmations for changes have **Show before → after…**: each field as it is in Google now
+and as it will be, before anything changes.
+
+## Easier to read, quicker to use
+Settings & Updates → Appearance: text size (up to Huge), **High contrast**. Ctrl+= and
+Ctrl+- change text size; Shift+F1 or Ctrl+/ lists every shortcut.
+
+## What's new and feedback
+After an update GAMbit lists what changed (Ctrl+Shift+N any time). **Send feedback…** (in
+the shortcuts window and Settings) emails your note – with the problem report attached if
+you like – to whoever looks after GAMbit.
+"""),
     ("welcome", "Welcome to GAMbit", "start overview what is gambit gam", """
 GAMbit is a point-and-click front end for **GAM**, the command-line tool Google Workspace
 admins use. Every button in GAMbit runs one or more GAM commands for you, shows you what it

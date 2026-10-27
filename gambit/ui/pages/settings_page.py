@@ -94,10 +94,10 @@ class SettingsPage(Page):
         box, form = self.group("Appearance and safety")
         self.text_size = QComboBox()
         for label, val in (("Small", 0.9), ("Normal", 1.0), ("Large", 1.15),
-                           ("Extra large", 1.3)):
+                           ("Extra large", 1.3), ("Huge", 1.5)):
             self.text_size.addItem(label, val)
         cur = float(settings.get("ui/text_scale", 1.0) or 1.0)
-        self.text_size.setCurrentIndex(min(range(4), key=lambda i: abs(
+        self.text_size.setCurrentIndex(min(range(5), key=lambda i: abs(
             self.text_size.itemData(i) - cur)))
         self.text_size.currentIndexChanged.connect(
             lambda _i: self.app.set_text_scale(self.text_size.currentData()))
@@ -114,6 +114,29 @@ class SettingsPage(Page):
         form.addRow("Colors", self.row(self.theme_box, QLabel(
             "Dark mode changes right away; a few lists pick it up the next time they load.",
             objectName="Muted")))
+        self.contrast = QCheckBox("High contrast (stronger text, borders and focus outlines)")
+        self.contrast.setChecked(bool(settings.get("ui/contrast", False)))
+        self.contrast.toggled.connect(lambda on: (settings.set("ui/contrast", on),
+                                                  self.app.set_theme(
+                                                      settings.get("ui/theme", "light"))))
+        form.addRow("", self.contrast)
+        self.tray_cb = QCheckBox("Keep GAMbit in the taskbar tray when I close the window")
+        self.tray_cb.setChecked(bool(settings.get("ui/tray", True)))
+        self.tray_cb.toggled.connect(self._tray_changed)
+        self.alerts_cb = QCheckBox("Desktop alerts: long jobs finished, background jobs "
+                                   "failed, approvals waiting")
+        self.alerts_cb.setChecked(bool(settings.get("ui/desktop_alerts", True)))
+        self.alerts_cb.toggled.connect(lambda on: settings.set("ui/desktop_alerts", on))
+        form.addRow("Tray", self.tray_cb)
+        form.addRow("", self.alerts_cb)
+        self.wn_cb = QCheckBox("Show “What's new” after an update")
+        self.wn_cb.setChecked(not settings.get("whatsnew/off", False))
+        self.wn_cb.toggled.connect(lambda on: settings.set("whatsnew/off", not on))
+        form.addRow("", self.row(self.wn_cb, button("What's new", slot=lambda:
+                                                   self.app.show_whats_new(force=True)),
+                                 button("Keyboard shortcuts", slot=self.app.show_help),
+                                 button("Send feedback…", slot=self.app.send_feedback),
+                                 stretch=False))
         self.threshold = QSpinBox()
         self.threshold.setRange(0, 100000)
         self.threshold.setSpecialValueText("Never ask")
@@ -242,7 +265,8 @@ class SettingsPage(Page):
             lambda: settings.set("digest/to", self.digest_to.text().strip()))
         form.addRow("Weekly digest", self.row(
             self.digest_to, button("Send now", slot=self._digest_now),
-            button("Every Monday…", slot=self._digest_schedule), stretch=False))
+            button("Every Monday…", slot=self._digest_schedule),
+            button("Licenses you bought…", slot=self._digest_seats), stretch=False))
         form.addRow("", _muted("Teams: in the channel choose ⋯ → Workflows → “Post to a channel "
                                "when a webhook request is received”. Slack: an Incoming "
                                "Webhook app. Google Chat: space → Apps & integrations → "
@@ -604,6 +628,25 @@ class SettingsPage(Page):
         if d:
             self.team_dir.setText(os.path.normpath(d))
             self._save_team()
+
+    def _digest_seats(self):
+        from PySide6.QtWidgets import QInputDialog
+        from ... import digest
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Licenses you bought", "One per line, license name = how many you bought, "
+            "e.g.\nGoogle Workspace for Education Plus = 1200\nThe digest warns when 95% "
+            "are used. Names as the Licenses page shows them.",
+            settings.get(digest.SEATS_KEY, "") or "")
+        if ok:
+            settings.set(digest.SEATS_KEY, text.strip())
+
+    def _tray_changed(self, on: bool):
+        settings.set("ui/tray", on)
+        tray = getattr(self.app, "tray", None)
+        if tray is not None:
+            tray.apply_setting()
+            from PySide6.QtWidgets import QApplication
+            QApplication.instance().setQuitOnLastWindowClosed(not tray.active)
 
     def _save_team(self):
         path = self.team_dir.text().strip()

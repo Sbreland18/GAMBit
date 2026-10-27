@@ -1039,8 +1039,9 @@ class ToolTabLike(ToolTab):
 class TicketQueuePage(Page):
     title = "Ticket queue"
     subtitle = ("Open help-desk tickets about accounts and Chromebooks. “Work on it” links "
-                "the ticket and opens the right GAMbit screen already filled in; what you do "
-                "is added to the ticket as a note. Password tickets can be handled end to end.")
+                "the ticket, opens the person (and checks everything about them) or the "
+                "Chromebook; what you do is added to the ticket as a note. Password tickets "
+                "can be handled end to end.")
 
     def build(self):
         from ...tools import ticket_auto
@@ -1205,10 +1206,18 @@ class TicketQueuePage(Page):
                 p.sn.setText(t["target"])
                 p.cros_info()
         elif t["kind"] == "account":
-            p = goto(app, "Users", "Manage a user")
-            if p is not None and hasattr(p, "m_email"):
-                p.m_email.setText(t["target"])
-                p.user_info()
+            # ticket-first: the person on Student lookup, then every check with fixes; what
+            # was fixed can go back on the ticket from the same window
+            if hasattr(app, "open_lookup") and app.pages.get("Student lookup") is not None:
+                app.open_lookup(t["target"])
+                p = app.pages["Student lookup"]
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(300, lambda: p.check_all(t["id"]))
+            else:
+                p = goto(app, "Users", "Manage a user")
+                if p is not None and hasattr(p, "m_email"):
+                    p.m_email.setText(t["target"])
+                    p.user_info()
         else:
             self.info("GAMbit couldn't tell what this ticket is about. It's linked in the top "
                       "bar, so notes still go to it.")

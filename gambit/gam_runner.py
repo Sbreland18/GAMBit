@@ -204,6 +204,7 @@ class GamRunner(QObject):
         #   guard(args) -> bool              role check (always, even in batches)
         self.guard = None
         self.dry_runs: list[str] = []
+        self.practice_ok = None      # practice mode: changes to the test account/OU run
         self.preflight = None
         self.on_submit = None
         self.on_record = None
@@ -232,7 +233,8 @@ class GamRunner(QObject):
             self.output.emit("GAM was not found. Open Settings & Updates to "
                              "install GAM or point GAMbit at gam.exe.\n", True)
             return False
-        if dry_run_on() and is_change(args):
+        if dry_run_on() and is_change(args) and not (
+                self.practice_ok is not None and self.practice_ok(list(args))):
             shown = display_command(args)
             self.dry_runs.append(shown)
             self.dry_run.emit(shown)

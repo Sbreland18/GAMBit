@@ -435,6 +435,20 @@ Every district's custom schemas are different, so GAMbit reads yours from Google
 - **Search**: Users → Find users → Show *Custom field*: is / contains / starts with / is empty / has a value, optionally limited to org units. Exact matches on searchable (indexed) fields use a Google query (`Student_Information.Grade='7th Grade'`); everything else loads the users and GAMbit checks each one.
 - With a team folder the choice is shared; it's also a group in the deployment file.
 
+## Making GAMbit yours
+
+- **My pages:** right-click a page → *Pin to My pages* (Ctrl+Shift+P); your most-used pages show there too. Click a section heading to fold it.
+- **Customize Home** (⚙ on Home): choose and order the boxes – quick look-up, recently viewed, favorites, quick actions, waiting for approval, my open tickets, notes, links, background jobs, numbers, scorecard, what's new – and pick quick actions, number tiles and links. Techs (non-admins) start with a people-focused layout.
+- **Tray and alerts:** closing the window keeps GAMbit in the tray; Windows alerts for long jobs finishing, background jobs failing and new approvals.
+- **Recently viewed** on Home and at the top of the search box.
+- **Check everything** (Student lookup / Staff card / Home look-up): suspended, password, sign-in, 2-Step, license, org unit, custom fields and Chromebook, each with a fix; posts a note to the linked ticket. **Ticket queue → Work on it** opens the person and runs it.
+- **Print card:** name, email, optional fresh temporary password, Chromebook and a QR code – print or PDF.
+- **Before → after** on change confirmations, read from Google first.
+- **Weekly digest** adds changes by tech, failed background jobs, licenses running low (set *Licenses you bought…*) and Chromebooks not seen.
+- **Practice mode** (🎓 in the top bar): real changes only for the test account and test org unit, dry run for everything else.
+- **Display:** text size up to Huge (Ctrl+= / Ctrl+-), High contrast, shortcuts list (Shift+F1 or Ctrl+/).
+- **What's new** after each update (Ctrl+Shift+N) and **Send feedback…**, which emails your note and the problem report.
+
 ## Start-up
 
 GAMbit shows a start-up screen (with what it's doing) as soon as it launches, and only builds the page you open – the other pages are built quietly in the background a few seconds later, so the window appears much sooner. Background tasks (`--task …`) skip all of the window code.

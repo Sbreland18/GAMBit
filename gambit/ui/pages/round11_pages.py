@@ -34,14 +34,21 @@ def run_or_request(page, steps_list: StepList, steps: list, title: str, reason: 
         return
     listing = "\n".join(f"• {lab}" for lab, _a in steps[:25]) + \
         (f"\n…and {len(steps) - 25} more" if len(steps) > 25 else "")
-    mb = QMessageBox(page)
-    mb.setWindowTitle(title)
-    mb.setText(f"{title}\n\n{listing}")
-    run = mb.addButton("Run now", QMessageBox.AcceptRole)
-    send = mb.addButton("Send for approval", QMessageBox.ActionRole) if team.folder() else None
-    mb.addButton(QMessageBox.Cancel)
-    mb.exec()
-    clicked = mb.clickedButton() or run
+    while True:
+        mb = QMessageBox(page)
+        mb.setWindowTitle(title)
+        mb.setText(f"{title}\n\n{listing}")
+        run = mb.addButton("Run now", QMessageBox.AcceptRole)
+        send = mb.addButton("Send for approval", QMessageBox.ActionRole) if team.folder() \
+            else None
+        prev = mb.addButton("Show before → after…", QMessageBox.HelpRole)
+        mb.addButton(QMessageBox.Cancel)
+        mb.exec()
+        clicked = mb.clickedButton() or run
+        if clicked is not prev:
+            break
+        from ..change_preview_dialog import ChangePreviewDialog
+        ChangePreviewDialog(page, [a for _l, a in steps], title).exec()
     if send is not None and clicked == send:
         team.new_request([a for _l, a in steps], reason, title=title)
         if hasattr(page.app, "update_approvals_badge"):
