@@ -96,7 +96,9 @@ def test_table_states_empty_filter_and_loading(qapp, monkeypatch):
     t.set_empty_text("No suspended accounts", "Good news.")
     assert t.states.title.text() == "No suspended accounts"
     t.set_loading(True)
-    pump(0.4)
+    assert t.states.delay.isActive()
+    t.states.delay.stop()
+    t.states._show_loading()                 # what the short delay does
     assert t.states.mode == "loading"
     t.set_rows(["primaryEmail"], [["a@x"]])
     assert t.states.mode != "loading"

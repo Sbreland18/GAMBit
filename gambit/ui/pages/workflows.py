@@ -203,11 +203,14 @@ class WorkflowsPage(Page):
 
     # ============================================================ new staff ===
     def _new_staff(self):
+        from ..stepper import Stepper
         w = QWidget()
         lay = QVBoxLayout(w)
-        top = QHBoxLayout()
 
-        box, form = self.group("1. About the person")
+        s1 = QWidget()
+        l1 = QVBoxLayout(s1)
+        l1.setContentsMargins(0, 0, 0, 0)
+        box, form = self.group("About the person")
         self.ns_first = QLineEdit()
         self.ns_last = QLineEdit()
         self.ns_email = QLineEdit()
@@ -224,9 +227,13 @@ class WorkflowsPage(Page):
         form.addRow("Job title", self.ns_title)
         form.addRow("Department / school", self.ns_dept)
         form.addRow("Org unit", self.ns_ou)
-        top.addWidget(box, 1)
+        l1.addWidget(box)
+        l1.addStretch(1)
 
-        box, form = self.group("2. What to set up")
+        s2 = QWidget()
+        l2 = QVBoxLayout(s2)
+        l2.setContentsMargins(0, 0, 0, 0)
+        box, form = self.group("Password, license, groups and signature")
         self.ns_pw = QLineEdit(random_password())
         form.addRow("Temporary password", self.row(
             self.ns_pw, button("New", slot=lambda: self.ns_pw.setText(random_password())),
@@ -246,16 +253,34 @@ class WorkflowsPage(Page):
         self.ns_groups = PeoplePicker(self.directory, include_groups=True)
         self.ns_groups.search.setPlaceholderText("Search groups (e.g. All Staff)…")
         form.addRow(self.ns_groups)
-        top.addWidget(box, 1)
-        lay.addLayout(top)
+        l2.addWidget(box)
+        l2.addStretch(1)
 
-        lay.addLayout(self.row(button("Create account and set everything up", "primary",
-                                      self.ns_run),
-                               button("Print welcome sheet again", slot=self._ns_sheet)))
+        sheet = button("Print welcome sheet again", slot=self._ns_sheet)
+        self.ns_stepper = Stepper(
+            [("About the person", s1), ("What to set up", s2)], self._ns_review,
+            "Create account and set everything up", lambda: self.ns_run(),
+            validate={0: self._ns_valid_person, 1: self._ns_valid_setup},
+            extra_buttons=(sheet,))
+        lay.addWidget(self.ns_stepper)
         self.ns_steps = StepList(self)
         lay.addWidget(self.ns_steps)
         self._ns_last = None
+        from ..unsaved import track
+        track(self, self.ns_stepper, "a new staff account", self.ns_stepper.finish_btn)
         return w
+
+    def _ns_valid_person(self) -> bool:
+        return self.need(("a first name", self.ns_first), ("a last name", self.ns_last),
+                         ("an email address", self.ns_email), emails=[self.ns_email])
+
+    def _ns_valid_setup(self) -> bool:
+        return self.need(("a temporary password", self.ns_pw))
+
+    def _ns_review(self):
+        from ...gam_runner import display_command
+        return [(st.label.split(" (")[0], display_command(st.args))
+                for st in self._ns_plan()]
 
     def _ns_suggest(self):
         if not self.ns_auto:
@@ -266,12 +291,9 @@ class WorkflowsPage(Page):
         if f and last and dom:
             self.ns_email.setText(f"{f}.{last}@{dom}")
 
-    def ns_run(self):
+    def _ns_plan(self) -> list:
         first, last = self.ns_first.text().strip(), self.ns_last.text().strip()
         email, pw = self.ns_email.text().strip(), self.ns_pw.text().strip()
-        if not (first and last and "@" in email and pw):
-            self.info("Fill in first name, last name, email and a temporary password.")
-            return
         create = ["create", "user", email, "firstname", first, "lastname", last,
                   "password", pw, "changepassword", "on" if self.ns_change.isChecked() else "off"]
         if self.ns_ou.path():
@@ -296,8 +318,17 @@ class WorkflowsPage(Page):
                               "try again from Email → Signatures in a few minutes)",
                               ["user", email, "signature", sig, *tag_replacements(sig),
                                "html", "true"]))
-        if not self.confirm(f"Create {email} and run {len(steps)} setup step(s)?"):
+        return steps
+
+    def ns_run(self):
+        """Runs the plan shown on the Review step."""
+        if not (self._ns_valid_person() and self._ns_valid_setup()):
+            self.ns_stepper.go(0 if not self.ns_email.text().strip() or
+                               not self.ns_first.text().strip() else 1)
             return
+        first, last = self.ns_first.text().strip(), self.ns_last.text().strip()
+        email, pw = self.ns_email.text().strip(), self.ns_pw.text().strip()
+        steps = self._ns_plan()
         self._ns_last = (f"{first} {last}", email, pw, self.ns_change.isChecked())
 
         def finished(_steps):
@@ -312,6 +343,7 @@ class WorkflowsPage(Page):
                 self.ns_auto = True
                 self.ns_pw.setText(random_password())
                 self.ns_groups.clear()
+                self.ns_stepper.reset()
         self.ns_steps.run(steps, finished)
 
     def _ns_sheet(self):

@@ -135,6 +135,9 @@ class AppActions:
         for btn in (self.dry_btn, self.practice_btn, self.helper_btn):
             btn.setText("")              # icon only until switched on (tooltip says what)
             btn.setAccessibleName(btn.toolTip().split(" –")[0].split(":")[0])
+        from .jobs_chip import JobsChip
+        self.jobs_chip = JobsChip(self)
+        h.addWidget(self.jobs_chip.btn)
         self.bell_btn = button("", slot=self.show_notifications)
         self.bell_btn.setObjectName("Chip")
         set_icon(self.bell_btn, "bell")

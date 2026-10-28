@@ -425,8 +425,11 @@ class GroupsPage(Page):
         bv.addLayout(r)
         lay.addWidget(box)
 
-        lay.addLayout(self.row(button("Create group", "primary", self.create_group)))
+        create = button("Create group", "primary", self.create_group)
+        lay.addLayout(self.row(create))
         lay.addStretch(1)
+        from ..unsaved import track
+        track(self, w, "a new group", create)
         return scroll
 
     def create_group(self):

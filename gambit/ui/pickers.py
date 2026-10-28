@@ -122,6 +122,150 @@ class OUDialog(QDialog):
         return out
 
 
+def ou_label(path: str, counts: dict | None = None) -> str:
+    """'7th Grade' + '· Hancock Middle School · 124 people' – what the org unit is."""
+    name = path.rsplit("/", 1)[-1] if path != "/" else "Whole domain"
+    bits = []
+    try:
+        from .. import ou_map
+        c = ou_map.classify(path) if path != "/" else {}
+        kind = {"students": "Students", "staff": "Staff", "devices": "Chromebooks"}.get(
+            c.get("type", ""), "")
+        if c.get("school") and c["school"].lower() != name.lower():
+            bits.append(c["school"])
+        if kind and kind.lower() not in name.lower():
+            bits.append(kind)
+    except Exception:  # noqa: BLE001
+        pass
+    if counts is not None and counts.get(path.lower()):
+        n = counts[path.lower()]
+        bits.append(f"{n:,} {'person' if n == 1 else 'people'}")
+    return name + ("   ·  " + " · ".join(bits) if bits else "")
+
+
+def ou_counts(directory) -> dict:
+    """People directly in each org unit (lower-case path → count)."""
+    out: dict = {}
+    for u in getattr(directory, "users", []) or []:
+        p = (u.get("ou") or "").lower()
+        if p:
+            out[p] = out.get(p, 0) + 1
+    return out
+
+
+class OUPopup(QWidget):
+    """The drop-down tree under an org unit box: search, schools and grades labelled,
+    how many people are in each, recently used ones on top."""
+
+    picked = Signal(str)
+    RECENT_KEY = "ou/recent"
+
+    def __init__(self, directory, current: str = "", parent=None):
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("OUPopup")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.d = directory
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(8)
+        self.search = QLineEdit(placeholderText="Search org units, schools or grades…")
+        self.search.textChanged.connect(self._filter)
+        lay.addWidget(self.search)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.itemClicked.connect(self._choose)
+        self.tree.itemActivated.connect(self._choose)
+        lay.addWidget(self.tree, 1)
+        self.info = QLabel("", objectName="Muted")
+        lay.addWidget(self.info)
+        self._build(current)
+        self.search.setFocus()
+
+    def recent(self) -> list[str]:
+        import json
+        from ..settings import settings
+        try:
+            r = json.loads(settings.get(self.RECENT_KEY, "[]") or "[]")
+        except ValueError:
+            r = []
+        have = set(self.d.ous or [])
+        return [p for p in r if isinstance(p, str) and (p in have or not have)][:5]
+
+    @classmethod
+    def remember(cls, path: str):
+        import json
+        from ..settings import settings
+        try:
+            r = json.loads(settings.get(cls.RECENT_KEY, "[]") or "[]")
+        except ValueError:
+            r = []
+        r = [path] + [p for p in r if p != path]
+        settings.set(cls.RECENT_KEY, json.dumps(r[:8]))
+
+    def _build(self, current: str):
+        from .icons import icon
+        self.tree.clear()
+        counts = ou_counts(self.d)
+        rec = self.recent()
+        if rec:
+            top = QTreeWidgetItem(self.tree, ["Recently used"])
+            top.setFlags(Qt.ItemIsEnabled)
+            top.setData(0, Qt.UserRole, None)
+            for p in rec:
+                it = QTreeWidgetItem(top, [ou_label(p, counts)])
+                it.setData(0, Qt.UserRole, p)
+                it.setToolTip(0, p)
+                it.setIcon(0, icon("history"))
+            top.setExpanded(True)
+        items: dict[str, QTreeWidgetItem] = {}
+        paths = self.d.ous or []
+        root = QTreeWidgetItem(self.tree, [ou_label("/", counts)])
+        root.setData(0, Qt.UserRole, "/")
+        root.setIcon(0, icon("globe"))
+        items["/"] = root
+        for path in sorted(set(paths), key=lambda p: (p.count("/"), p.lower())):
+            if path == "/":
+                continue
+            parent = items.get(path.rsplit("/", 1)[0] or "/") or root
+            it = QTreeWidgetItem(parent, [ou_label(path, counts)])
+            it.setData(0, Qt.UserRole, path)
+            it.setToolTip(0, path)
+            it.setIcon(0, icon("building" if path.count("/") <= 2 else "tree"))
+            items[path] = it
+        root.setExpanded(True)
+        for i in range(root.childCount()):
+            root.child(i).setExpanded(len(paths) < 60)
+        if current and current in items:
+            self.tree.setCurrentItem(items[current])
+            self.tree.scrollToItem(items[current])
+        self.info.setText(f"{len(paths):,} org units" if paths else
+                          "No org units loaded yet – Settings & Updates → Refresh lists.")
+
+    def _filter(self, text):
+        text = text.lower().strip()
+
+        def walk(item) -> bool:
+            path = (item.data(0, Qt.UserRole) or "")
+            hay = (path + " " + item.text(0)).lower()
+            kids = [walk(item.child(i)) for i in range(item.childCount())]
+            match = not text or text in hay or any(kids)
+            item.setHidden(not match)
+            if text and any(kids):
+                item.setExpanded(True)
+            return match
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+
+    def _choose(self, item, *_a):
+        path = item.data(0, Qt.UserRole)
+        if not path:
+            return
+        self.remember(path)
+        self.picked.emit(path)
+        self.close()
+
+
 class OUField(QWidget):
     """Single org unit: type with suggestions, or browse the tree."""
 
@@ -140,7 +284,11 @@ class OUField(QWidget):
         self.combo.setCompleter(_completer(self, self.model))
         self.combo.setCurrentIndex(-1)
         self.combo.currentTextChanged.connect(self.changed)
-        browse = button("Browse…", slot=self._browse)
+        browse = button("Choose…", slot=self._browse)
+        from .icons import set_icon
+        set_icon(browse, "tree")
+        browse.setToolTip("Pick from the list of org units, schools and grades")
+        self.browse_btn = browse
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.combo, 1)
@@ -154,15 +302,26 @@ class OUField(QWidget):
         self.combo.setEditText(cur)
 
     def _browse(self):
-        dlg = OUDialog(self.d, multi=False, selected=[self.path()], parent=self)
-        if dlg.exec() and dlg.paths():
-            self.set_path(dlg.paths()[0])
+        pop = OUPopup(self.d, self.path(), self)
+        pop.picked.connect(self.set_path)
+        w = max(self.width(), 460)
+        pop.resize(w, 420)
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        scr = self.screen().availableGeometry() if self.screen() else None
+        if scr is not None and pos.y() + 420 > scr.bottom():
+            pos = self.mapToGlobal(self.rect().topLeft())
+            pos.setY(pos.y() - 420)
+        pop.move(pos)
+        pop.show()
+        self._popup = pop
 
     def path(self) -> str:
         return self.combo.currentText().strip()
 
     def set_path(self, p: str):
         self.combo.setEditText(p)
+        if p:
+            self.combo.setToolTip(ou_label(p))
 
     def text(self) -> str:  # so Page.need() works like a QLineEdit
         return self.path()

@@ -40,6 +40,7 @@ def tokens(mode: str | None = None) -> dict:
                 "danger": "#FCA5A5", "danger_bg": "#3B1C1C", "danger_line": "#7F1D1D",
                 "banner": "#1B2330", "banner_line": "#2A3545", "banner_text": "#E6EAF0",
                 "field": "#0F141B", "line_strong": "#2A3545", "input_bg": "#0F141B",
+                "focus": "#93C5FD",
                 "tooltip": "#E6EAF0", "tooltip_text": "#111827",
                 "banner_warn": "#3A2A06", "banner_warn_line": "#A16207",
                 "banner_warn_text": "#FDE68A", "good_bg": "#0F2A1A", "good_line": "#166534",
@@ -53,6 +54,7 @@ def tokens(mode: str | None = None) -> dict:
             "on_accent": "#FFFFFF", "danger": "#B91C1C", "danger_bg": "#FEF2F2",
             "danger_line": "#FECACA", "banner": "#EFF4FF", "banner_line": "#D6E2FB",
             "banner_text": "#1E3A8A", "field": "#F8FAFC", "line_strong": "#D0D7E2", "input_bg": "#FFFFFF",
+            "focus": "#1D4ED8",
             "banner_warn": "#FFFBEB", "banner_warn_line": "#FCD34D",
             "banner_warn_text": "#78350F", "good_bg": "#ECFDF3", "good_line": "#86EFAC",
             "good_text": "#166534", "tooltip": "#111827", "tooltip_text": "#FFFFFF"}
@@ -142,6 +144,37 @@ QFrame#Card {{ background: {t['surface']}; border: 1px solid {t['border']}; bord
 QLabel#CardValue {{ font-size: 20pt; font-weight: 700; }}
 QLabel#Banner, QFrame#Banner {{ background: {t['banner']}; border: 1px solid {t['banner_line']};
                                color: {t['banner_text']}; border-radius: 12px; padding: 12px 16px; }}
+QLineEdit[invalid="true"], QComboBox[invalid="true"], QPlainTextEdit[invalid="true"] {{
+    border: 2px solid #DC2626; }}
+QLabel#FieldError {{ color: {t['danger']}; background: {t['surface']}; font-size: 9pt;
+                    font-weight: 600; padding: 0 4px; border-radius: 4px; }}
+QListWidget#SectionList {{ background: transparent; border: none; outline: 0; }}
+QListWidget#SectionList::item {{ padding: 7px 10px; border-radius: 8px; color: {t['muted']}; }}
+QListWidget#SectionList::item:hover {{ background: {t['hover']}; }}
+QListWidget#SectionList::item:selected {{ background: {t['selected']}; color: {t['text']};
+                                         font-weight: 600; }}
+QWidget#OUPopup {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                   border-radius: 12px; }}
+QToolButton#JobsChip {{ background: {t['selected']}; color: {t['accent_text']};
+                      border: 1px solid {t['accent']}; border-radius: 10px;
+                      padding: 8px 12px; font-weight: 600; }}
+QToolButton#JobsChip::menu-indicator {{ image: none; width: 0; }}
+QLabel#StepNum {{ border-radius: 14px; font-weight: 700; background: {t['surface2']};
+                 color: {t['muted']}; border: 1px solid {t['line_strong']}; }}
+QLabel#StepNum[state="current"] {{ background: {t['accent']}; color: {t['on_accent']};
+                                  border: 1px solid {t['accent']}; }}
+QLabel#StepNum[state="done"] {{ background: {t['good_bg']}; color: {t['good_text']};
+                               border: 1px solid {t['good_line']}; }}
+QLabel#StepTitle {{ color: {t['muted']}; font-weight: 600; background: transparent; }}
+QLabel#StepTitle[state="current"] {{ color: {t['text']}; }}
+QFrame#StepLine {{ background: {t['line_strong']}; }}
+QLabel#StepCmds {{ font-family: "Cascadia Mono", Consolas, monospace; font-size: 9pt;
+                  background: {t['surface2']}; border-radius: 8px; padding: 8px; }}
+QLabel#FieldErrorRow {{ color: {t['danger']}; font-size: 9pt; font-weight: 600;
+                       background: transparent; margin-top: -4px; }}
+QToolButton#CellCopy {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                       border-radius: 7px; padding: 2px; }}
+QToolButton#CellCopy:hover {{ background: {t['hover']}; }}
 QToolButton#ViewBtn {{ background: {t['surface']}; border: 1px solid {t['input']};
                       border-radius: 10px; padding: 7px 9px; }}
 QToolButton#ViewBtn::menu-indicator {{ image: none; width: 0; }}
@@ -307,6 +340,16 @@ QLineEdit#PaletteInput {{ border: none; border-bottom: 1px solid {t['row_line']}
 QListWidget#PaletteList {{ border: none; background: transparent; padding: 6px; }}
 QListWidget#PaletteList::item {{ padding: 9px 10px; border-radius: 9px; }}
 QListWidget#PaletteList::item:selected {{ background: {t['selected']}; }}
+
+/* ---------- keyboard focus (only when moving with Tab) – last so it wins ---------- */
+QPushButton[kbdfocus="true"], QToolButton[kbdfocus="true"], QLineEdit[kbdfocus="true"],
+QComboBox[kbdfocus="true"], QSpinBox[kbdfocus="true"], QDateEdit[kbdfocus="true"],
+QPlainTextEdit[kbdfocus="true"], QTextEdit[kbdfocus="true"], QListWidget[kbdfocus="true"],
+QTableView[kbdfocus="true"], QTreeWidget[kbdfocus="true"], QTabBar[kbdfocus="true"],
+QPushButton[kind="primary"][kbdfocus="true"], QPushButton[kind="danger"][kbdfocus="true"] {{
+    border: 2px solid {t['focus']}; }}
+QCheckBox[kbdfocus="true"], QRadioButton[kbdfocus="true"] {{
+    border: 2px solid {t['focus']}; border-radius: 6px; }}
 """
 
 

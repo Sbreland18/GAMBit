@@ -121,6 +121,8 @@ P = {
     "graduation": '<path d="m2 9 10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5"/>',
     "message": '<path d="M4 5h16v11H9l-5 4z"/>',
     "dot": '<circle cx="12" cy="12" r="4"/>',
+    "copy": '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 '
+            '2-2h9"/>',
     "dot-fill": '<circle cx="12" cy="12" r="2.6" stroke-width="5.2"/>',
     "star": '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
     "play": '<path d="M7 4.5v15l12-7.5z"/>',

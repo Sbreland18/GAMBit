@@ -438,6 +438,11 @@ Every district's custom schemas are different, so GAMbit reads yours from Google
 ## Making GAMbit yours
 
 - **Modern look:** light and dark themes built from one set of colours, an **accent colour** (Settings & Updates → Appearance), line icons, an **icon-only sidebar** (button at the bottom of the sidebar), coloured status pills in tables, a selection bar for two or more rows, a person header with status chips on Student lookup, and a Windows 11 title bar that matches the theme with rounded corners.
+- **Running-jobs chip** in the top bar (count or %); click for progress, time and Stop / Stop all.
+- **Friendly values** in tables (“Oct 12, 2026 (16 days ago)”, Yes/No; exact value on hover, in exports and actions), copy button on hover for emails/serials/asset tags, Enter opens a row.
+- **Forms:** org unit drop-down (search, schools/grades, people counts, recently used), errors shown on the field (red outline + note), step-by-step Create a user and New staff with a Review step (plan + GAM commands), and a “Leave without saving?” check.
+- **Settings & Updates:** section list on the left and *Find a setting…* search.
+- **Remember where I was:** last page, each page's tab and the last Users search come back. Keyboard-only focus outline and screen-reader names for icon buttons.
 - **Details side panel:** click a person, group or Chromebook in any table for their status, actions and fields without leaving the list (Esc closes; double-click opens the full page; Appearance → Details panel to turn off).
 - **Tables:** loading placeholder rows, empty states that say why (with *Clear filter*), compact/comfortable rows, and *Columns…* to hide/reorder columns (saved per page; headings can be dragged too).
 - **Navigation:** Back button (Alt+Left / mouse back), My pages not repeated in sections, other sections fold automatically (right-click the sidebar to change), **More ▾** for tab strips that overflow, ticket chip in the top bar.

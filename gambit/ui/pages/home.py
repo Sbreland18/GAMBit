@@ -22,6 +22,16 @@ SKU_NAMES = {"1010070001": "Education Fundamentals", "1010310005": "Education St
              "1010370001": "Teaching & Learning Upgrade"}
 
 
+def _grade(g: str) -> str:
+    """'7' → '7th Grade', 'K' → 'Kindergarten', '7th Grade' stays."""
+    g = str(g).strip()
+    if not g.isdigit():
+        return {"k": "Kindergarten", "pk": "Pre-K"}.get(g.lower(), g)
+    n = int(g)
+    suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf} Grade"
+
+
 def _sku_name(k: str) -> str:
     return SKU_NAMES.get(str(k), str(k))
 
@@ -408,11 +418,11 @@ class HomePage(Page):
                 bits = []
                 try:
                     from ... import ou_map
-                    school = ou_map.classify(u.get("ou", ""))
-                    if isinstance(school, (list, tuple)):
-                        school = school[-1] if school else ""
-                    if school and isinstance(school, str):
-                        bits.append(school)
+                    c = ou_map.classify(u.get("ou", "")) if u.get("ou") else {}
+                    if c.get("grade"):
+                        bits.append(_grade(c["grade"]))
+                    if c.get("school"):
+                        bits.append(c["school"])
                 except Exception:  # noqa: BLE001
                     pass
                 if not bits and u.get("ou"):

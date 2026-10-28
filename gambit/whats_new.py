@@ -14,6 +14,20 @@ SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
     # ----- this round
+    {"id": "jobs-chip", "title": "See what's running",
+     "text": "While GAM commands work, the top bar shows “2 running” (or a percentage). Click "
+             "it for each job's progress, how long it's taken and a Stop button.", "page": ""},
+    {"id": "friendly-values", "title": "Dates you can read",
+     "text": "Tables show “Oct 12, 2026 (16 days ago)” and Yes/No instead of raw timestamps "
+             "and True/False. Hover for the exact value; exports keep it. Hover an email or "
+             "serial for a copy button.", "page": "Users"},
+    {"id": "steps", "title": "Create a user, step by step",
+     "text": "Users → Create a user and Workflows → New staff are now Details → extras → "
+             "Review, and Review lists exactly what will happen before anything runs. "
+             "Missing or wrong fields are marked right on the form.", "page": "Users"},
+    {"id": "find-setting", "title": "Find any setting",
+     "text": "Settings & Updates has a list of sections and a search box – type “tray”, "
+             "“accent” or “backup”.", "page": "Settings & Updates"},
     {"id": "details-panel", "title": "Details without leaving your list",
      "text": "Click a person, group or Chromebook in any table and their details and actions "
              "slide in from the right. Double-click still opens the full page; Esc closes "

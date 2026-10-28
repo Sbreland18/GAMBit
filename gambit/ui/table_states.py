@@ -26,19 +26,12 @@ class _Hub(QObject):
     def __init__(self):
         super().__init__()
         self.tables: "weakref.WeakSet" = weakref.WeakSet()
-        self.last_input = 0.0
         self.active = 0
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
-
-    def eventFilter(self, _o, e):
-        if e.type() in (QEvent.MouseButtonRelease, QEvent.KeyPress):
-            self.last_input = time.time()
-        return False
+        from .a11y import input_watch
+        self.watch = input_watch() if QApplication.instance() is not None else None
 
     def user_started(self) -> bool:
-        return time.time() - self.last_input < 1.2
+        return self.watch is not None and time.time() - self.watch.last_input < 1.2
 
     def begin(self, cmd: str | None = None):
         if cmd is not None and not any(w in f" {cmd} " for w in READ_WORDS):

@@ -225,6 +225,9 @@ class Worker:
         Worker._alive.discard(self)
 
 
+from .friendly import friendly  # noqa: E402
+
+
 # ------------------------------------------------------ results table -----
 class _RowsModel(QAbstractTableModel):
     """Plain list-of-lists model – fast with 100,000+ rows."""
@@ -234,13 +237,22 @@ class _RowsModel(QAbstractTableModel):
         self.headers: list[str] = []
         self.rows: list[list[str]] = []
         self.lower: list[str] = []          # one lowercase string per row, for filtering
+        from .friendly import enabled
+        self.friendly = enabled()
 
     def reset(self, headers, rows):
         self.beginResetModel()
         self.headers = list(headers)
         n = len(self.headers)
         self.rows = [list(r[:n]) + [""] * (n - len(r)) for r in rows]
-        self.lower = ["\x1f".join(r).lower() for r in self.rows]
+        from .friendly import enabled, friendly as _f
+        self.friendly = enabled()
+        if self.friendly:   # the filter matches what you see too ("Oct", "Yes", "days ago")
+            self.lower = ["\x1f".join(r + [_f(v) for v in r if v and (
+                v[:1].isdigit() or v.lower() in ("true", "false"))]).lower()
+                for r in self.rows]
+        else:
+            self.lower = ["\x1f".join(r).lower() for r in self.rows]
         # columns where every non-empty value is a number sort numerically
         self.numeric = []
         for c in range(n):
@@ -267,11 +279,14 @@ class _RowsModel(QAbstractTableModel):
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
-        if role in (Qt.DisplayRole, Qt.ToolTipRole, Qt.EditRole):
+        if role in (Qt.DisplayRole, Qt.ToolTipRole, Qt.EditRole, Qt.UserRole):
             v = self.rows[index.row()][index.column()]
-            if role == Qt.ToolTipRole and len(v) < 40:
-                return None
-            return v
+            if role in (Qt.EditRole, Qt.UserRole):
+                return v                                  # the exact value
+            shown = friendly(v) if self.friendly else v
+            if role == Qt.ToolTipRole:
+                return v if (shown != v or len(v) >= 40) else None
+            return shown
         return None
 
     def sort(self, column, order=Qt.AscendingOrder):
@@ -370,7 +385,7 @@ class StatusDelegate(QStyledItemDelegate):
         self.column = column_name
 
     def paint(self, painter, option, index):
-        value = index.data() or ""
+        value = index.data(Qt.UserRole) or ""
         kind = pill_kind(self.column, value)
         if not kind:
             return super().paint(painter, option, index)
@@ -504,6 +519,9 @@ class ResultsTable(QWidget):
         self._delegates: list = []
         self.selbar = None
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self._copy_btn = None
+        self.table.viewport().installEventFilter(self)
+        self.table.installEventFilter(self)
         self.empty_text = None
         self.start_text = ("Nothing here yet", "Results show up here after you search.")
         from .table_states import TableStates, hub
@@ -716,6 +734,80 @@ class ResultsTable(QWidget):
             self.table.setColumnHidden(c, h in hidden)
         self._apply_columns()
 
+    # ---- copy on hover, Enter opens details ----
+    COPY_COLS = ("email", "primaryemail", "serialnumber", "serial", "annotatedassetid",
+                 "assetid", "asset", "deviceid", "id", "macaddress", "ethernetmacaddress",
+                 "owner", "user", "annotateduser", "member", "group", "orgunitpath")
+
+    def _copyable(self, idx) -> str:
+        if not idx.isValid():
+            return ""
+        v = (idx.data(Qt.UserRole) or "").strip()
+        if not v or len(v) > 120:
+            return ""
+        src = self.proxy.mapToSource(idx).column()
+        col = (self._headers[src] if src < len(self._headers) else "").split(".")[-1].lower()
+        if "@" in v or col in self.COPY_COLS:
+            return v
+        return ""
+
+    def eventFilter(self, obj, e):
+        from PySide6.QtCore import QEvent
+        t = e.type()
+        if obj is self.table.viewport():
+            if t == QEvent.MouseMove:
+                self._hover_copy(e.position().toPoint())
+            elif t == QEvent.Leave and self._copy_btn is not None:
+                if not self._copy_btn.underMouse():
+                    self._copy_btn.hide()
+        elif obj is self.table and t == QEvent.KeyPress and \
+                e.key() in (Qt.Key_Return, Qt.Key_Enter) and e.modifiers() == Qt.NoModifier:
+            idx = self.table.currentIndex()
+            if idx.isValid():
+                win = self.window()
+                row = self.row_dict(idx.row())
+                mo = self.metaObject()
+                handled = self.isSignalConnected(mo.method(mo.indexOfSignal(
+                    "row_clicked(QVariantMap)")))
+                self.row_clicked.emit(row)
+                if not handled and hasattr(win, "show_details") and not self.no_drawer:
+                    win.show_details(row)
+                return True
+        return False
+
+    def _hover_copy(self, pos):
+        idx = self.table.indexAt(pos)
+        val = self._copyable(idx)
+        if not val:
+            if self._copy_btn is not None:
+                self._copy_btn.hide()
+            return
+        if self._copy_btn is None:
+            from PySide6.QtWidgets import QToolButton
+            from .icons import set_icon
+            self._copy_btn = QToolButton(self.table.viewport(), objectName="CellCopy")
+            set_icon(self._copy_btn, "copy", None, 16)
+            self._copy_btn.setCursor(Qt.PointingHandCursor)
+            self._copy_btn.setAccessibleName("Copy")
+            self._copy_btn.clicked.connect(self._do_copy)
+        r = self.table.visualRect(idx)
+        b = self._copy_btn
+        b.setProperty("value", val)
+        b.setToolTip(f"Copy {val}")
+        size = min(26, r.height() - 4)
+        b.setFixedSize(size, size)
+        b.move(r.right() - size - 4, r.top() + (r.height() - size) // 2)
+        b.show()
+        b.raise_()
+
+    def _do_copy(self):
+        from PySide6.QtWidgets import QApplication
+        val = self._copy_btn.property("value") or ""
+        QApplication.clipboard().setText(val)
+        win = self.window()
+        if hasattr(win, "toasts"):
+            win.toasts.show(f"Copied {val}", "ok", ms=2500, remember=False)
+
     def _maybe_drawer(self, idx):
         """A plain click on a person, group or Chromebook row opens the details panel –
         unless this table's page already does something with row clicks."""
@@ -902,7 +994,7 @@ class ResultsTable(QWidget):
                 menu.addAction(act)
             if not menu.isEmpty():
                 menu.addSeparator()
-        cell = idx.data() or ""
+        cell = idx.data(Qt.UserRole) or ""
         menu.addAction("Copy this cell", lambda: QApplication.clipboard().setText(cell))
         menu.addAction("Copy selected rows", lambda: QApplication.clipboard().setText(
             "\n".join("\t".join(r) for r in [self._headers] +
@@ -1028,9 +1120,12 @@ class Page(QWidget):
         except Exception as exc:  # noqa: BLE001 – one broken page mustn't stop GAMbit
             build_failed(self.body, self, exc)
         try:
-            from . import forms, tabs
+            from . import a11y, forms, tabs, unsaved
             tabs.enhance(self)
             forms.cap_fields(self)
+            a11y.name_buttons(self)
+            if self.title:
+                unsaved.remember_tabs(self, self.title)
         except Exception:  # noqa: BLE001 – looks only
             pass
 
@@ -1130,14 +1225,10 @@ class Page(QWidget):
                                     QMessageBox.Yes | QMessageBox.No,
                                     QMessageBox.No) == QMessageBox.Yes
 
-    def need(self, *fields: tuple[str, QLineEdit]) -> bool:
-        for label, edit in fields:
-            if not edit.text().strip():
-                QMessageBox.information(self, "Missing information",
-                                        f"Please enter {label}.")
-                edit.setFocus()
-                return False
-        return True
+    def need(self, *fields: tuple[str, QLineEdit], emails=()) -> bool:
+        """Required fields: each missing one gets a red outline and a note under it."""
+        from .field_errors import check_fields
+        return check_fields(fields, emails)
 
     def info(self, text: str, title="GAMbit"):
         QMessageBox.information(self, title, text)

@@ -50,6 +50,40 @@ opens the full page. Turn it off in Settings & Updates → Appearance → *Detai
 - The **ticket** icon in the top bar (when a help desk is connected): click it to paste
   the ticket you're working on; it then shows “#1234”.
 
+## Running jobs
+While GAM commands are working, the top bar shows **“2 running”** (or “45% · 1,200 of
+4,640” for one big job). Click it to see each job's progress and time, **Stop** one, **Stop
+all**, or open the output.
+
+## Easier forms
+- Org unit boxes: **Choose…** opens a searchable list with schools, grades and how many
+  people are in each – your recently used org units are at the top.
+- If something's missing or wrong (a bad email address), the box turns red with a short
+  note under it – fix it and the note goes away.
+- **Create a user** and **New staff** go step by step (details → groups, license and
+  extras → **Review**). Review lists exactly what will happen; *Show the GAM commands* shows
+  the commands too. Nothing runs until you click the button on Review.
+- If you've typed into one of these forms and click another page (or close GAMbit),
+  GAMbit asks before you lose it.
+
+## Tables, dates and copying
+Dates show as “Oct 12, 2026 (16 days ago)” and True/False as Yes/No. Hover a cell for the
+exact value; exports, copying and actions use the exact value. Turn it off in Appearance →
+*Friendly values*. Hover an email, serial or asset tag for a small **copy** button (the
+details panel has them too). In a table, **Enter** opens the selected row.
+
+## Remembering where you were
+GAMbit reopens on the page you used last, each page on its last tab, with your last Users
+search filled in (Appearance → *Remember where I was*).
+
+## Settings & Updates
+The list on the left jumps to a section; **Find a setting…** shows only the sections that
+mention what you type.
+
+## Keyboard
+Tab and the arrow keys show a clear outline on what you're on (clicking doesn't).
+Icon-only buttons have names for screen readers.
+
 ## Customize Home
 **Customize** on Home puts a small bar on each box: drag by ⠿ to move it, ↑ ↓ to nudge
 it, ✕ to remove it. *Add a box* brings one back, *More options…* picks quick actions,

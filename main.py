@@ -56,6 +56,7 @@ def main():
     win = MainWindow()
     step("Opening…", 95)
     win.show()
+    win.restore_last_page()
     if splash is not None:
         splash.finish(win)
     sys.exit(app.exec())

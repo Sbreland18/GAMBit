@@ -190,6 +190,16 @@ class SettingsPage(Page):
         self.density_box.currentIndexChanged.connect(
             lambda i: _RT.set_density("compact" if i else "comfortable"))
         form.addRow("Table rows", self.density_box)
+        self.friendly_cb = QCheckBox("Show dates as “Oct 12, 2026 (16 days ago)” and True/False "
+                                     "as Yes/No (exports keep the exact values)")
+        self.friendly_cb.setChecked(bool(settings.get("ui/friendly", True)))
+        self.friendly_cb.toggled.connect(lambda on: settings.set("ui/friendly", on))
+        form.addRow("Friendly values", self.friendly_cb)
+        self.restore_cb = QCheckBox("Reopen on the page and tabs I used last, with my last "
+                                    "Users search filled in")
+        self.restore_cb.setChecked(bool(settings.get("ui/restore", True)))
+        self.restore_cb.toggled.connect(lambda on: settings.set("ui/restore", on))
+        form.addRow("Remember where I was", self.restore_cb)
         form.addRow("", self.row(button("Keyboard shortcuts (Shift+F1)", slot=self.app.show_help),
                                  button("Take the tour", slot=self.app.start_tour),
                                  button("Report a problem…", slot=self._report_problem)))
@@ -449,6 +459,8 @@ class SettingsPage(Page):
                                "update misbehaves, go back with one click."))
         lay.addWidget(box)
         lay.addStretch(1)
+        from ..section_nav import install
+        self.section_nav = install(self, scroll, inner)
 
     def on_show(self):
         self.refresh_installed()

@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QTextCharFormat, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
-    QPlainTextEdit, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
+    QPlainTextEdit, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout, QWidget, QMessageBox,
 )
 
 from .. import gam_setup
@@ -395,7 +395,11 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                                                   self.directory.domain else
                                                   "Google Workspace admin"))
         self.nav.setCurrentRow(0)
+        self._nav_ready = True           # from now on page changes are remembered
         self.statusBar().showMessage("Ready  ·  Press F1 for help")
+        from .a11y import install_focus_ring, name_buttons
+        self._focus_ring = install_focus_ring()
+        QTimer.singleShot(0, lambda: name_buttons(self))
         from .table_states import hub as _hub
         self._loading_cmds: set = set()
 
@@ -460,6 +464,16 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         tray = getattr(self, "tray", None)
         if tray is not None and tray.closing(event):
             return
+        left = self.all_unsaved() if not getattr(self, "_closing_ok", False) else []
+        if left:
+            page, form = left[0]
+            if QMessageBox.question(
+                    self, "Close GAMbit?",
+                    f"<b>{form}</b> on {page} isn't finished. Close GAMbit and lose it?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                event.ignore()
+                return
+            self._closing_ok = True
         from PySide6.QtWidgets import QApplication
         app = QApplication.instance()
         if app is not None and not app.quitOnLastWindowClosed():
@@ -911,6 +925,16 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                 self.nav.setCurrentRow(home)
             return
         prev = self.page_name_at(self.stack.currentIndex())
+        if prev and prev != name and not self._ok_to_leave(prev):
+            back = next((r for r, i in self._row_page.items()
+                         if self.page_name_at(i) == prev), None)
+            if back is not None:
+                self.nav.blockSignals(True)
+                self.nav.setCurrentRow(back)
+                self.nav.blockSignals(False)
+            return
+        if name and getattr(self, "_nav_ready", False):
+            settings.set("ui/last_page", name)
         self.close_details()
         self.stack.setCurrentIndex(self._row_page[row])
         self._remember_back(prev, name)
@@ -921,6 +945,51 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             user_prefs.bump(name)
         except Exception:  # noqa: BLE001
             pass
+
+    def restore_last_page(self):
+        """Start where you left off (Settings → Appearance → Remember where I was)."""
+        from . import unsaved
+        from .app_actions import HELPDESK_HIDDEN
+        name = settings.get(unsaved.LAST_PAGE_KEY, "") or ""
+        if not unsaved.restore_on() or not name or name == "Home" or \
+                name not in [n for n, _c in PAGES]:
+            return
+        from .. import team
+        from ..gam_runner import helpdesk_on
+        if not team.page_allowed(name) or (helpdesk_on() and name in HELPDESK_HIDDEN):
+            return
+        self._going_back = True          # don't put Home in the back history
+        self.go(name)
+        self._going_back = False
+        self._back = []
+        self._refresh_back()
+
+    # ---------------------------------------------------------- unsaved ---
+    def _ok_to_leave(self, page_name: str) -> bool:
+        from . import unsaved
+        if not self.pages.built(page_name):
+            return True
+        page = self.pages[page_name]
+        forms = unsaved.unsaved(page)
+        if not forms:
+            return True
+        what = forms[0]
+        ok = QMessageBox.question(
+            self, "Leave without saving?",
+            f"You've started filling in <b>{what}</b> on {page_name}. Leave anyway? What "
+            "you typed stays there until you close GAMbit, but nothing is created or saved.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+        if ok:
+            unsaved.discard(page)
+        return ok
+
+    def all_unsaved(self) -> list[tuple[str, str]]:
+        from . import unsaved
+        out = []
+        for n, _c in PAGES:
+            if self.pages.built(n):
+                out += [(n, f) for f in unsaved.unsaved(self.pages[n])]
+        return out
 
     # --------------------------------------------------------- details ---
     def show_details(self, row: dict) -> bool:

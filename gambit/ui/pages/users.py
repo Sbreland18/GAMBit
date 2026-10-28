@@ -298,8 +298,14 @@ class UsersPage(Page):
 
     # --------------------------------------------------------- create ---
     def _create_tab(self):
-        w = QWidget()
-        lay = QVBoxLayout(w)
+        from PySide6.QtWidgets import QComboBox as _CB
+        from ..pickers import PeoplePicker
+        from ..stepper import Stepper, scroll
+        from .licenses import SKUS
+        # step 1 – details
+        d = QWidget()
+        dl = QVBoxLayout(d)
+        dl.setContentsMargins(0, 0, 0, 0)
         box, form = self.group("New account")
         self.c_first = QLineEdit()
         self.c_last = QLineEdit()
@@ -316,17 +322,37 @@ class UsersPage(Page):
             stretch=False))
         form.addRow("Org unit", self.c_ou)
         form.addRow("", self.c_change)
-        form.addRow("", self.row(button("Create user", "primary", self.create_user)))
-        lay.addWidget(box)
-        lay.addStretch(1)
-        return w
+        dl.addWidget(box)
+        dl.addStretch(1)
+        # step 2 – groups & license (optional)
+        g = QWidget()
+        gl = QVBoxLayout(g)
+        gl.setContentsMargins(0, 0, 0, 0)
+        box, form = self.group("Groups and license (optional)")
+        self.c_license = _CB()
+        self.c_license.addItem("Don't assign a license", "")
+        for name, sku in SKUS:
+            self.c_license.addItem(name, sku)
+        form.addRow("License", self.c_license)
+        form.addRow(QLabel("Add to groups:"))
+        self.c_groups = PeoplePicker(self.directory, include_groups=True)
+        self.c_groups.search.setPlaceholderText("Search groups (e.g. All Staff)…")
+        form.addRow(self.c_groups)
+        gl.addWidget(box)
+        gl.addStretch(1)
+        self.c_stepper = Stepper(
+            [("Details", d), ("Groups & license", g)], self._c_review, "Create user",
+            self.create_user, validate={0: self._c_valid})
+        from ..unsaved import track
+        track(self, self.c_stepper, "a new user account", self.c_stepper.finish_btn)
+        return scroll(self.c_stepper)
 
-    def create_user(self):
-        if not self.need(("a first name", self.c_first), ("a last name", self.c_last),
-                         ("an email address", self.c_email)):
-            return
-        pw = self.c_pw.text().strip() or random_password()
-        self.c_pw.setText(pw)
+    def _c_valid(self) -> bool:
+        return self.need(("a first name", self.c_first), ("a last name", self.c_last),
+                         ("an email address", self.c_email), emails=[self.c_email])
+
+    def _c_plan(self, pw: str):
+        from ...gam_runner import display_command
         email = self.c_email.text().strip()
         args = ["create", "user", email,
                 "firstname", self.c_first.text().strip(),
@@ -336,11 +362,54 @@ class UsersPage(Page):
             args += ["changepassword", "on"]
         if self.c_ou.path():
             args += ["ou", self.c_ou.path()]
+        where = self.c_ou.path() or "/"
+        plan = [(f"Create {email} in {where}" + (" – they choose a new password at first "
+                                                 "sign-in" if self.c_change.isChecked()
+                                                 else ""), args)]
+        if self.c_license.currentData():
+            plan.append((f"Assign {self.c_license.currentText()}",
+                         ["user", email, "add", "license", self.c_license.currentData()]))
+        for grp in self.c_groups.emails():
+            plan.append((f"Add to {grp}", ["update", "group", grp, "add", "member", "user",
+                                           email]))
+        return [(what, a, display_command(a)) for what, a in plan]
+
+    def _c_review(self):
+        pw = self.c_pw.text().strip() or "(a generated password)"
+        return [(what, cmd) for what, _a, cmd in self._c_plan(pw)]
+
+    def create_user(self):
+        if not self._c_valid():
+            self.c_stepper.go(0)
+            return
+        pw = self.c_pw.text().strip() or random_password()
+        self.c_pw.setText(pw)
+        email = self.c_email.text().strip()
+        plan = self._c_plan(pw)
+        first, rest = plan[0], plan[1:]
+
+        def extras_done(codes, _outs):
+            bad = [plan[1 + n][0] for n, c in enumerate(codes) if c != 0]
+            note = ("\n\nThese didn't work: " + "; ".join(bad)) if bad else ""
+            self.info(f"Created {email}.\n\nTemporary password: {pw}{note}", "User created")
+            self._c_reset()
 
         def done(code, _o, _e):
-            if code == 0:
+            if code != 0:
+                return
+            if rest:
+                self.run_many([a for _w, a, _c in rest], extras_done, with_codes=True)
+            else:
                 self.info(f"Created {email}.\n\nTemporary password: {pw}", "User created")
-        self.run(args, done)
+                self._c_reset()
+        self.run(first[1], done)
+
+    def _c_reset(self):
+        for w in (self.c_first, self.c_last, self.c_email, self.c_pw):
+            w.clear()
+        self.c_groups.clear()
+        self.c_license.setCurrentIndex(0)
+        self.c_stepper.reset()
 
     # ----------------------------------------------------------- list ---
     def _list_tab(self):
@@ -393,6 +462,9 @@ class UsersPage(Page):
         lay.addWidget(self.results, 1)
         self._mode_changed(0)
         self.refresh_saved()
+        from ..unsaved import remember_field
+        remember_field(self.l_mode, "users/mode")     # last search comes back next time
+        remember_field(self.l_value, "users/value")
         return w
 
     # ------------------------------------------------------ saved searches ---

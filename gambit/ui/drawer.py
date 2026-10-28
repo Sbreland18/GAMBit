@@ -170,6 +170,21 @@ class DetailDrawer(QFrame):
                           "font-size:8.5pt;font-weight:600;")
         self.chips.addWidget(lab)
 
+    def _copy_button(self, value: str):
+        from PySide6.QtWidgets import QApplication, QToolButton
+        from .icons import set_icon
+        b = QToolButton(objectName="CellCopy")
+        set_icon(b, "copy", None, 16)
+        b.setToolTip(f"Copy {value}")
+        b.setAccessibleName("Copy")
+
+        def go():
+            QApplication.clipboard().setText(value)
+            if hasattr(self.win, "toasts"):
+                self.win.toasts.show(f"Copied {value}", "ok", ms=2500, remember=False)
+        b.clicked.connect(go)
+        return b
+
     def _section(self, title):
         lab = QLabel(title.upper(), objectName="DrawerSection")
         self.body.addWidget(lab)
@@ -192,11 +207,12 @@ class DetailDrawer(QFrame):
             ou = u.get("ou") or row.get("orgUnitPath", "")
             try:
                 from .. import ou_map
-                school = ou_map.classify(ou) if ou else ""
-                if isinstance(school, (list, tuple)):
-                    school = school[-1] if school else ""
-                if school and isinstance(school, str):
-                    self._chip(school)
+                c = ou_map.classify(ou) if ou else {}
+                if c.get("grade"):
+                    from .pages.home import _grade
+                    self._chip(_grade(c["grade"]))
+                if c.get("school"):
+                    self._chip(c["school"])
             except Exception:  # noqa: BLE001
                 pass
             if u.get("last_login"):
@@ -258,11 +274,25 @@ class DetailDrawer(QFrame):
             form.setContentsMargins(0, 0, 0, 0)
             form.setHorizontalSpacing(14)
             form.setVerticalSpacing(6)
+            from .friendly import friendly
+            from .widgets import ResultsTable as _RT
             for k, v in fields[:24]:
                 lab = QLabel(nice_header(k).title(), objectName="Muted")
-                val = QLabel(str(v))
+                shown = friendly(str(v))
+                val = QLabel(shown)
                 val.setWordWrap(True)
                 val.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                form.addRow(lab, val)
+                if shown != str(v):
+                    val.setToolTip(str(v))
+                if "@" in str(v) or k.split(".")[-1].lower() in _RT.COPY_COLS:
+                    holder = QWidget()
+                    hl = QHBoxLayout(holder)
+                    hl.setContentsMargins(0, 0, 0, 0)
+                    hl.setSpacing(6)
+                    hl.addWidget(val, 1)
+                    hl.addWidget(self._copy_button(str(v)))
+                    form.addRow(lab, holder)
+                else:
+                    form.addRow(lab, val)
             self.body.addWidget(box)
         self.body.addStretch(1)
