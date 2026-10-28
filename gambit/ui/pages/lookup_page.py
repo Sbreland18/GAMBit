@@ -56,9 +56,8 @@ class LookupPage(Page):
             self.body.addLayout(self.row(QLabel("Students are in"), self.ous,
                                          button("Save", slot=self._save_ous),
                                          stretch=False))
-        self.card = QLabel("")
-        self.card.setWordWrap(True)
-        self.card.setStyleSheet("font-size:11pt;")
+        from ..person_header import PersonHeader
+        self.card = PersonHeader()
         self.body.addWidget(self.card)
         acts = QHBoxLayout()
         self.reset_btn = button("Reset password", "primary", self.reset)
@@ -141,18 +140,28 @@ class LookupPage(Page):
                 self.classes.set_rows([], [])
                 return
             susp = (r.get("suspended", "") or "").lower() == "true"
-            state = ("<span style='color:#b42318'>✖ Suspended</span>" +
-                     (f" ({r.get('suspensionreason')})" if r.get("suspensionreason") else "")
-                     if susp else "<span style='color:#137333'>✔ Active</span>")
             tsv = "on" if (r.get("isenrolledin2sv", "") or "").lower() == "true" else "off"
             last = (r.get("lastlogintime") or "never")[:16].replace("T", " ")
             if last.startswith("1970"):
                 last = "never"
-            self.card.setText(
-                f"<b style='font-size:13pt'>{r.get('name.fullname', '')}</b> &lt;{e}&gt;<br>"
-                f"{state} · org unit <b>{r.get('orgunitpath', '/')}</b> · last sign-in {last} · "
-                f"2-step {tsv} · created {(r.get('creationtime') or '')[:10]}" +
-                _custom_line(rows[0]))
+            c = ou_map.classify(r.get("orgunitpath", "/"))
+            chips = [("Suspended" + (f" · {r.get('suspensionreason')}"
+                                     if r.get("suspensionreason") else ""), "bad") if susp
+                     else ("Active", "good")]
+            if c.get("grade"):
+                g = c["grade"]
+                chips.append((f"{g}th Grade" if g.isdigit() and g not in ("1", "2", "3")
+                              else {"1": "1st Grade", "2": "2nd Grade", "3": "3rd Grade"}
+                              .get(g, g), "info"))
+            if c.get("school"):
+                chips.append((c["school"], "info"))
+            chips.append((f"Last sign-in {last}", "warn" if last == "never" else "info"))
+            chips.append((f"2-Step {tsv}", "info"))
+            for k, v in _custom_values(rows[0]):
+                chips.append((f"{k} {v}", "info"))
+            self.card.set_person(r.get("name.fullname", ""), e, chips,
+                                 f"Org unit {r.get('orgunitpath', '/')} · created "
+                                 f"{(r.get('creationtime') or '')[:10]}")
             self.runner.run(["print", "cros", "query", f"user:{e}", "fields",
                              "serialnumber,annotatedassetid,annotatedlocation,status,lastsync,"
                              "model"], lambda c, o, _e: self.cros.load_csv(o if c == 0 else ""),
@@ -229,6 +238,15 @@ class LookupPage(Page):
         if e and self.confirm(f"Unsuspend {e}?"):
             self.runner.run(["update", "user", e, "suspended", "off"],
                             lambda *_: self.lookup())
+
+
+def _custom_values(row: dict) -> list[tuple[str, str]]:
+    try:
+        from ... import custom_fields
+        vals = custom_fields.tidy_dict(row) if custom_fields.active() else []
+    except Exception:  # noqa: BLE001
+        vals = []
+    return [(k, str(v)) for k, v in vals if str(v).strip()][:4]
 
 
 def _custom_line(row: dict) -> str:

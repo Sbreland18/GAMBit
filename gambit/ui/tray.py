@@ -113,6 +113,9 @@ class Tray(QObject):
 
     # ---------------------------------------------------------------- alerts ---
     def notify(self, title: str, text: str, warn: bool = False):
+        notices = getattr(self.win, "notices", None)
+        if notices is not None:
+            notices.add(title, text, "warn" if warn else "info")
         if self.icon is None or not self.icon.isVisible() or not alerts_wanted():
             return
         self.icon.showMessage(title, text, QSystemTrayIcon.Warning if warn else

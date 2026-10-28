@@ -3,7 +3,24 @@
 
 ARTICLES = [
     ("everyday", "Making GAMbit yours", "my pages pin sidebar fold tray alerts recent "
-     "practice mode contrast shortcuts feedback customize home", """
+     "practice mode contrast shortcuts feedback customize home accent colour color icons "
+     "palette ctrl+k toast undo bell notifications output panel dark", """
+## The look
+- **Accent colour:** Settings & Updates → Appearance → *Accent color* (blue, teal, purple,
+  red, green, orange, navy or your own). Light and dark both follow it.
+- **Icon sidebar:** the button at the bottom of the sidebar (or right-click a page →
+  *Shrink the sidebar to icons*) shrinks it to icons; hover an icon for its name.
+- **Ctrl+K** opens the command palette: type a name, email, Chromebook serial, group, org
+  unit, page or a task ("reset password") and press Enter. With a person, the actions for
+  them are listed right under their name.
+- **Pop-ups with Undo:** after a change a small message appears in the bottom-right corner
+  ("3 changes done · Undo"). Turn them off in Appearance.
+- **The bell** in the top bar keeps every pop-up and alert, so nothing is lost when one
+  closes. *Clear all* empties it.
+- **Output** in the status bar shows or hides the output panel (Ctrl+L / Ctrl+J show it).
+- Status columns (Active, Suspended, In sync…) show as coloured pills, and selecting two or
+  more rows shows a bar with the actions for them.
+
 ## My pages and the sidebar
 - Right-click any page → **📌 Pin to My pages**. Pinned pages sit at the top of the sidebar,
   with the pages you use most underneath (right-click → *Hide my most-used pages* to turn

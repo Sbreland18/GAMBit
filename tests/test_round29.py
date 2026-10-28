@@ -167,7 +167,8 @@ def test_digest_low_licenses_and_sections():
 def test_home_layout_defaults_and_save():
     admin = [x["id"] for x in hl.layout(True) if x["on"]]
     tech = [x["id"] for x in hl.layout(False) if x["on"]]
-    assert admin[0] == "status" and tech[0] == "lookup" and "glance" not in tech
+    assert admin[0] == "lookup" and "attention" in admin and tech[0] == "lookup" and \
+        "glance" not in tech
     hl.save_layout([{"id": "notes", "on": True}, {"id": "recent", "on": False}])
     lay = hl.layout(True)
     assert lay[0] == {"id": "notes", "on": True} and len(lay) == len(hl.SECTIONS)
@@ -188,18 +189,18 @@ def test_window_sidebar_home_and_tray(qapp, fake_gam):
     from gambit.ui.main_window import MainWindow
     w = MainWindow()
     texts = [w.nav.item(i).text() for i in range(w.nav.count())]
-    assert "▾ My pages" in texts
-    i = texts.index("▾ My pages")
+    assert "▾  MY PAGES" in texts
+    i = texts.index("▾  MY PAGES")
     assert texts[i + 1] == "Device history"
     # folding PEOPLE hides its pages but not the heading
-    row = texts.index("▾ People")
+    row = texts.index("▾  PEOPLE")
     w._nav_clicked(w.nav.item(row))
     users_row = next(r for r, s in w._row_section.items() if s == "PEOPLE")
     assert w.nav.item(users_row).isHidden() and not w.nav.item(row).isHidden()
     w._nav_clicked(w.nav.item(row))
     assert not w.nav.item(users_row).isHidden()
     w.toggle_pin("Device history")
-    assert "▾ My pages" not in [w.nav.item(i).text() for i in range(w.nav.count())]
+    assert "▾  MY PAGES" not in [w.nav.item(i).text() for i in range(w.nav.count())]
     # go() still works after rebuilding
     w.go("Device history")
     assert w.current_page() is w.pages["Device history"]

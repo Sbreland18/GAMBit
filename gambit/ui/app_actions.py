@@ -35,11 +35,15 @@ class AppActions:
     def build_topbar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("TopBar")
-        bar.setStyleSheet("QWidget#TopBar{background:white;border-bottom:1px solid #dfe3e8;}")
+        bar.setAttribute(Qt.WA_StyledBackground, True)
         h = QHBoxLayout(bar)
-        h.setContentsMargins(24, 8, 24, 8)
-        self.gsearch = QLineEdit(placeholderText="🔍  What do you want to do? Or jump to a "
-                                                 "person, group, org unit or Chromebook…")
+        h.setContentsMargins(24, 10, 24, 10)
+        h.setSpacing(8)
+        from .icons import icon
+        self.gsearch = QLineEdit(placeholderText="Search people, Chromebooks, pages or "
+                                                 "actions…    Ctrl+K")
+        self.gsearch.setObjectName("GlobalSearch")
+        self.gsearch.addAction(icon("search"), QLineEdit.LeadingPosition)
         self.gsearch.setMinimumWidth(260)
         self.gmodel = QStringListModel(self)
         comp = QCompleter(self.gmodel, self)
@@ -65,14 +69,14 @@ class AppActions:
         self.ticket_box.editingFinished.connect(self._ticket_changed)
         h.addWidget(self.ticket_box)
         self.refresh_ticket_box()
-        self.dry_btn = button("🧪 Dry run", slot=lambda: self.set_dry_run(
+        self.dry_btn = button("Dry run", slot=lambda: self.set_dry_run(
             self.dry_btn.isChecked()))
         self.dry_btn.setCheckable(True)
         self.dry_btn.setProperty("helpdesk_ok", True)
         self.dry_btn.setToolTip("When on, changes aren't made – GAMbit lists the exact GAM "
                                 "commands instead (look-ups still run).")
         h.addWidget(self.dry_btn)
-        self.practice_btn = button("🎓 Practice", slot=lambda: self.set_practice(
+        self.practice_btn = button("Practice", slot=lambda: self.set_practice(
             self.practice_btn.isChecked()))
         self.practice_btn.setCheckable(True)
         self.practice_btn.setProperty("helpdesk_ok", True)
@@ -80,7 +84,7 @@ class AppActions:
                                      "and test org unit run for real, everything else is a "
                                      "dry run (Settings → Testing).")
         h.addWidget(self.practice_btn)
-        self.helper_btn = button("💬 Helper", slot=lambda: self.helper.toggle())
+        self.helper_btn = button("Helper", slot=lambda: self.helper.toggle())
         self.helper_btn.setProperty("helpdesk_ok", True)
         self.helper_btn.setToolTip("Ask GAMbit's offline Helper – plain English is fine "
                                    "(F2)")
@@ -89,6 +93,17 @@ class AppActions:
         self.hd_btn.setToolTip("Destructive actions are hidden. Click to unlock with the PIN.")
         self.hd_btn.setStyleSheet("background:#fff4ce;border-color:#f2d675;")
         h.addWidget(self.hd_btn)
+        from .icons import set_icon
+        for btn, ic in ((self.dry_btn, "flask"), (self.practice_btn, "graduation"),
+                        (self.helper_btn, "chat"), (self.hd_btn, "lock")):
+            set_icon(btn, ic)
+            btn.setObjectName("Chip")
+        self.bell_btn = button("", slot=self.show_notifications)
+        self.bell_btn.setObjectName("Chip")
+        set_icon(self.bell_btn, "bell")
+        self.bell_btn.setToolTip("Notifications – alerts, finished jobs and pop-ups you missed")
+        self.bell_btn.setProperty("helpdesk_ok", True)
+        h.addWidget(self.bell_btn)
         self.install_session(h)
         self.refresh_profiles()
         for sig in (self.directory.users_changed, self.directory.groups_changed,
@@ -145,7 +160,7 @@ class AppActions:
         self.practice_btn.setChecked(bool(on))
         self.practice_btn.setStyleSheet("background:#e7f5e9;border-color:#2da44e;"
                                         "font-weight:600;" if on else "")
-        self.practice_btn.setText("🎓 Practice is ON" if on else "🎓 Practice")
+        self.practice_btn.setText("Practice is ON" if on else "Practice")
         self.set_dry_run(True if on else bool(settings.get("practice/prev_dry", False)))
         if on:
             self.statusBar().showMessage(
@@ -174,7 +189,7 @@ class AppActions:
         self.dry_btn.setChecked(bool(on))
         self.dry_btn.setStyleSheet("background:#fff4ce;border-color:#d4a72c;font-weight:600;"
                                    if on else "")
-        self.dry_btn.setText("🧪 Dry run is ON" if on else "🧪 Dry run")
+        self.dry_btn.setText("Dry run is ON" if on else "Dry run")
         for p in self.pages.values():
             if hasattr(p, "refresh_help"):
                 p.refresh_help()
@@ -646,12 +661,14 @@ class AppActions:
         for row, hidden in base.items():
             sec = sections.get(row, "")
             seen_under[sec] = seen_under.get(sec, False) or not hidden
+        rail = getattr(self, "rail", False)
         for row in range(self.nav.count()):
             it = self.nav.item(row)
             if row in headers:
-                it.setHidden(not seen_under.get(headers[row], False))
+                it.setHidden(rail or not seen_under.get(headers[row], False))
             elif row in base:
-                it.setHidden(base[row] or sections.get(row, "") in folded)
+                it.setHidden(base[row] or (not rail and sections.get(row, "") in folded) or
+                             (rail and sections.get(row, "") == "MY PAGES"))
         for p in self.pages.values():
             if hasattr(p, "set_helpdesk"):
                 p.set_helpdesk(on)
@@ -720,9 +737,15 @@ class MoreActions:
     def _on_record(self, job):
         from .. import activity
         undo_of = job.meta.get("undo_of", "")
-        activity.record(job.args, job.code if job.code is not None else -1, job.status,
-                        job.meta.get("undo"), profiles.current_name(), undo_of=undo_of,
-                        note=job.meta.get("note", ""))
+        entry = activity.record(job.args, job.code if job.code is not None else -1,
+                                job.status, job.meta.get("undo"), profiles.current_name(),
+                                undo_of=undo_of, note=job.meta.get("note", ""))
+        try:
+            if activity.is_change(job.args) and hasattr(self, "toasts") and not undo_of:
+                self.toasts.change_done(entry, job.code if job.code is not None else -1,
+                                        job.display)
+        except Exception:  # noqa: BLE001 – a pop-up must never break recording
+            pass
         if undo_of and job.code == 0:
             activity.mark_undone(undo_of, job.display)
         if job.code == 0:
@@ -930,7 +953,11 @@ class MoreActions:
             return
         n = team.pending_count() if team.is_admin() else 0
         for row in rows:
-            self.nav.item(row).setText(f"Approvals ({n})" if n else "Approvals")
+            label = f"Approvals ({n})" if n else "Approvals"
+            if getattr(self, "rail", False):
+                self.nav.item(row).setToolTip(label)
+            else:
+                self.nav.item(row).setText(label)
         if hasattr(self, "tray_notify_approvals"):
             self.tray_notify_approvals(n)
 
@@ -1042,7 +1069,7 @@ class MoreActions:
 
         def sc(keys, fn):
             QShortcut(QKeySequence(keys), self, activated=fn)
-        sc("Ctrl+K", lambda: (self.gsearch.setFocus(), self.gsearch.selectAll()))
+        sc("Ctrl+K", self.open_palette)
         order = ["Home", "Workflows", "Users", "Groups", "Classroom", "Email", "Google Drive",
                  "Chromebooks", "Command Builder"]
         for i, name in enumerate(order, start=1):
@@ -1050,8 +1077,8 @@ class MoreActions:
         sc("Ctrl+B", lambda: self._go_safe("Command Builder"))
         sc("Ctrl+E", lambda: self.explain_command())
         sc("Ctrl+H", lambda: self._go_safe("Activity log"))
-        sc("Ctrl+J", lambda: self.bottom_tabs.setCurrentIndex(1))
-        sc("Ctrl+L", lambda: self.bottom_tabs.setCurrentIndex(0))
+        sc("Ctrl+J", lambda: (self.toggle_output(True), self.bottom_tabs.setCurrentIndex(1)))
+        sc("Ctrl+L", lambda: (self.toggle_output(True), self.bottom_tabs.setCurrentIndex(0)))
         sc("Ctrl+.", self.runner.stop)
         sc("F5", self.refresh_everything)
         sc("F1", self.open_guide)
@@ -1110,6 +1137,40 @@ class MoreActions:
     def send_feedback(self):
         from .. import support
         support.send_feedback(self, output_text=self.log.toPlainText())
+
+    def open_palette(self):
+        from .palette import CommandPalette
+        CommandPalette(self).exec()
+
+    def refresh_bell(self):
+        n = self.notices.unread if hasattr(self, "notices") else 0
+        self.bell_btn.setText(f" {n}" if n else "")
+        self.bell_btn.setStyleSheet("QPushButton{color:#ffffff;background:#DC2626;"
+                                    "border-color:#DC2626;font-weight:700;}" if n else "")
+
+    def show_notifications(self):
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        from .icons import icon
+        m = QMenu(self)
+        items = self.notices.items[:25]
+        if not items:
+            a = m.addAction("No notifications yet")
+            a.setEnabled(False)
+        icons = {"ok": "check-circle", "bad": "x-circle", "warn": "alert", "info": "bell"}
+        for it in items:
+            when = it["t"][11:16] if it["t"][:10] == __import__("datetime").date.today(
+            ).isoformat() else it["t"][5:10]
+            a = m.addAction(icon(icons.get(it.get("level"), "bell")),
+                            f"{when}  {it['title']}" + (f" – {it['text']}" if it.get("text")
+                                                       else ""))
+            if it.get("page"):
+                a.triggered.connect(lambda _=False, p=it["page"]: self._go_safe(p))
+        if items:
+            m.addSeparator()
+            m.addAction("Clear all", self.notices.clear)
+        self.notices.read_all()
+        m.exec(QCursor.pos())
 
     def _go_safe(self, name):
         from .app_actions import HELPDESK_HIDDEN
@@ -1171,6 +1232,14 @@ class MoreActions:
                 QWidget.update(w)          # some widgets have their own update(…)
             except Exception:  # noqa: BLE001
                 continue
+        try:
+            from . import icons, winstyle
+            icons.refresh_icons()
+            if hasattr(self, "build_nav"):
+                self.build_nav()
+            winstyle.apply(self)
+        except Exception:  # noqa: BLE001
+            pass
         if hasattr(self, "pages") and "Home" in self.pages and \
                 hasattr(self.pages["Home"], "on_show"):
             try:
@@ -1184,7 +1253,7 @@ class MoreActions:
         settings.set("ui/text_scale", scale)
         apply_theme(QApplication.instance(), scale)
         if hasattr(self, "side"):
-            self.side.setFixedWidth(int(220 * max(1.0, scale)))
+            self.side.setFixedWidth(self._side_width())
         # make every page re-measure its text at the new size
         for w in QApplication.allWidgets():
             w.style().unpolish(w)

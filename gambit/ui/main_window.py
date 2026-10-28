@@ -235,20 +235,47 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             lambda m: self.statusBar().showMessage(m or "Ready"))
 
         # sidebar
-        side = QWidget()
+        side = QWidget(objectName="Side")
+        side.setAttribute(Qt.WA_StyledBackground, True)
         self.side = side
-        side.setFixedWidth(int(220 * max(1.0, float(settings.get('ui/text_scale', 1.0) or 1.0))))
+        self.rail = bool(settings.get("ui/rail", False))
+        side.setFixedWidth(self._side_width())
         sv = QVBoxLayout(side)
-        sv.setContentsMargins(0, 0, 0, 0)
+        sv.setContentsMargins(0, 14, 0, 10)
         sv.setSpacing(0)
-        sv.addWidget(QLabel(APP_NAME, objectName="Brand"))
-        sv.addWidget(QLabel("GAM made friendly", objectName="BrandSub"))
+        brand = QHBoxLayout()
+        brand.setContentsMargins(18, 0, 12, 12)
+        brand.setSpacing(10)
+        self.logo = QLabel("Gb", objectName="Logo")
+        self.logo.setFixedSize(34, 34)
+        self.logo.setAlignment(Qt.AlignCenter)
+        brand.addWidget(self.logo)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        self.brand_name = QLabel(APP_NAME, objectName="Brand")
+        self.brand_sub = QLabel("GAM made friendly", objectName="BrandSub")
+        names.addWidget(self.brand_name)
+        names.addWidget(self.brand_sub)
+        brand.addLayout(names, 1)
+        sv.addLayout(brand)
         self.nav = QListWidget(objectName="Nav")
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        from PySide6.QtCore import QSize
+        self.nav.setIconSize(QSize(18, 18))
         sv.addWidget(self.nav, 1)
+        foot = QHBoxLayout()
+        foot.setContentsMargins(18, 6, 10, 0)
         self.side_footer = QLabel(f"v{__version__}", objectName="BrandSub")
         self.side_footer.setWordWrap(True)
-        sv.addWidget(self.side_footer)
+        foot.addWidget(self.side_footer, 1)
+        from PySide6.QtWidgets import QPushButton
+        self.rail_btn = QPushButton(objectName="RailToggle")
+        self.rail_btn.setFixedSize(34, 34)
+        self.rail_btn.setToolTip("Shrink the sidebar to icons (or show it in full)")
+        self.rail_btn.clicked.connect(self.toggle_rail)
+        foot.addWidget(self.rail_btn)
+        sv.addLayout(foot)
+        self._apply_rail_chrome()
 
         # pages
         self.stack = QStackedWidget()
@@ -319,9 +346,25 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         split = QSplitter(Qt.Vertical)
         split.addWidget(main_col)
         split.addWidget(log_box)
-        split.setStretchFactor(0, 3)
+        split.setStretchFactor(0, 5)
         split.setStretchFactor(1, 1)
-        split.setSizes([560, 220])
+        split.setSizes([720, 150])
+        split.setCollapsible(1, True)
+        self.split = split
+        try:
+            st = settings.get("ui/split", None)
+            if st:
+                from PySide6.QtCore import QByteArray
+                split.restoreState(QByteArray.fromBase64(str(st).encode()))
+        except Exception:  # noqa: BLE001
+            pass
+        split.splitterMoved.connect(lambda *_: settings.set(
+            "ui/split", bytes(self.split.saveState().toBase64()).decode()))
+        from .widgets import button as _b
+        self.out_toggle = _b("Output", slot=lambda: self.toggle_output())
+        self.out_toggle.setObjectName("Chip")
+        self.out_toggle.setToolTip("Show or hide the Output panel (Ctrl+L)")
+        self.statusBar().addPermanentWidget(self.out_toggle)
 
         root = QWidget()
         h = QHBoxLayout(root)
@@ -347,12 +390,38 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             lambda ok, _t: ok and (self.pages["Home"].auto_refresh(), self.daily_tasks()))
         self.nav.setCurrentRow(0)
         self.statusBar().showMessage("Ready  ·  Press F1 for help")
+        from .toast import NotifyCenter, ToastHost
+        self.notices = NotifyCenter(self)
+        self.toasts = ToastHost(self, self.notices)
+        self.notices.changed.connect(self.refresh_bell)
+        self.refresh_bell()
         from .tray import Tray
         self.tray = Tray(self)
         if self.tray.active:
             from PySide6.QtWidgets import QApplication
             QApplication.instance().setQuitOnLastWindowClosed(False)
         QTimer.singleShot(300, self._startup)
+
+    def toggle_output(self, show=None):
+        sizes = self.split.sizes()
+        hidden = sizes[1] == 0
+        if show is None:
+            show = hidden
+        total = sum(sizes) or 870
+        self.split.setSizes([total - 180, 180] if show else [total, 0])
+        settings.set("ui/split", bytes(self.split.saveState().toBase64()).decode())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if hasattr(self, "toasts"):
+            self.toasts.place()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not getattr(self, "_chrome_done", False):
+            self._chrome_done = True
+            from . import winstyle
+            winstyle.apply(self)
 
     def closeEvent(self, event):
         """With the tray on, closing only hides GAMbit (quit from the tray menu)."""
@@ -539,26 +608,33 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         folded = up.collapsed()
 
         def header(key):
-            it = QListWidgetItem(("▸ " if key in folded else "▾ ") + key.title()
-                                 if key != self.MY else ("▸ " if key in folded else "▾ ") +
-                                 "My pages", self.nav)
+            it = QListWidgetItem(("▸  " if key in folded else "▾  ") + key, self.nav)
             it.setFlags(Qt.ItemIsEnabled)
             it.setData(Qt.UserRole, "header")
             it.setData(Qt.UserRole + 1, key)
             it.setToolTip("Click to fold or unfold this section")
             f = it.font()
-            f.setPointSizeF(f.pointSizeF() * 0.8)
+            f.setPointSizeF(f.pointSizeF() * 0.78)
             f.setBold(True)
+            f.setLetterSpacing(f.SpacingType.PercentageSpacing, 108)
             it.setFont(f)
-            it.setForeground(QColor("#6f87a3"))
+            from .theme import tokens
+            it.setForeground(QColor(tokens()["muted"]))
+            if self.rail:
+                it.setText("")
             self._header_row[self.nav.count() - 1] = key
+
+        from .icons import page_icon
 
         def item(name, section, tip=""):
             self._row_page[self.nav.count()] = names.index(name)
             self._row_section[self.nav.count()] = section
-            it = QListWidgetItem(name, self.nav)
-            if tip:
-                it.setToolTip(tip)
+            it = QListWidgetItem("" if self.rail else name, self.nav)
+            it.setData(Qt.UserRole + 2, name)
+            it.setIcon(page_icon(name))
+            it.setToolTip(name if self.rail else tip)
+            if self.rail:
+                it.setTextAlignment(Qt.AlignCenter)
         section = ""
         for entry in NAV:
             if isinstance(entry, str):
@@ -585,14 +661,31 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                 self.nav.setCurrentRow(row)
                 self.nav.blockSignals(False)
 
+    # ------------------------------------------------------ icon rail ---
+    def _side_width(self) -> int:
+        scale = max(1.0, float(settings.get("ui/text_scale", 1.0) or 1.0))
+        return 76 if getattr(self, "rail", False) else int(248 * scale)
+
+    def _apply_rail_chrome(self):
+        from .icons import set_icon
+        set_icon(self.rail_btn, "chevron-right" if self.rail else "chevron-left")
+        for w in (self.brand_name, self.brand_sub, self.side_footer):
+            w.setVisible(not self.rail)
+
+    def toggle_rail(self):
+        self.rail = not self.rail
+        settings.set("ui/rail", self.rail)
+        self.side.setFixedWidth(self._side_width())
+        self._apply_rail_chrome()
+        self.build_nav()
+
     def _nav_clicked(self, it):
-        if it is None or it.data(Qt.UserRole) != "header":
+        if it is None or it.data(Qt.UserRole) != "header" or self.rail:
             return
         from .. import user_prefs as up
         key = it.data(Qt.UserRole + 1)
         folded = up.toggle_section(key)
-        label = "My pages" if key == self.MY else key.title()
-        it.setText(("▸ " if folded else "▾ ") + label)
+        it.setText(("▸  " if folded else "▾  ") + key)
         self.apply_helpdesk_mode()
 
     def fold_all(self, fold: bool):
@@ -613,7 +706,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         it = self.nav.itemAt(pos)
         if not it or it.data(Qt.UserRole) == "header":
             return
-        name = it.text().split(" (")[0]
+        name = it.data(Qt.UserRole + 2) or it.text().split(" (")[0]
         menu = QMenu(self)
         from .. import user_prefs as up
         if name != "Home":
@@ -627,6 +720,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         menu.addAction("Unfold all sections", lambda: self.fold_all(False))
         menu.addAction("Hide my most-used pages" if up.show_frequent() else
                        "Show my most-used pages", self._toggle_frequent)
+        menu.addAction("Show the full sidebar" if self.rail else "Shrink the sidebar to icons",
+                       self.toggle_rail)
         menu.exec(self.nav.viewport().mapToGlobal(pos))
 
     def _toggle_frequent(self):

@@ -11,6 +11,7 @@ LAYOUT_KEY, QUICK_KEY, TILES_KEY = "home/layout", "home/quick", "home/tiles"
 LINKS_KEY, NOTES_KEY = "home/links", "home/notes"
 
 SECTIONS = {
+    "attention": "Needs your attention",
     "status": "GAM, GAMbit and connection",
     "lookup": "Quick look-up (person or Chromebook)",
     "jobs": "Background jobs",
@@ -26,10 +27,21 @@ SECTIONS = {
     "scorecard": "District scorecard",
     "started": "Getting started",
 }
-ADMIN_DEFAULT = ["status", "lookup", "jobs", "approvals", "glance", "favorites", "recent",
-                 "quick", "scorecard", "started"]
-TECH_DEFAULT = ["lookup", "recent", "favorites", "quick", "approvals", "tickets", "notes",
+ADMIN_DEFAULT = ["lookup", "attention", "glance", "recent", "jobs", "quick", "favorites",
+                 "status", "scorecard", "started"]
+TECH_DEFAULT = ["lookup", "attention", "recent", "favorites", "quick", "tickets", "notes",
                 "status"]
+QUICK_ICONS = {"Find a user": "users", "Student lookup": "user-check",
+               "New staff / staff leaving": "flow", "Roster sync": "sync",
+               "Group members": "group", "Out-of-office reply": "mail",
+               "Look up a Chromebook": "laptop", "Chromebook fleet": "laptop",
+               "Approvals": "check-circle", "Ticket queue": "ticket",
+               "Activity log": "activity", "Schedules": "calendar-clock",
+               "Clean-up by school": "broom", "Senior checkout": "graduation",
+               "Chromebook sharing": "share", "Device history": "history",
+               "Custom field check": "fields", "Reports": "chart",
+               "Command Builder": "code", "Ask the Helper": "chat",
+               "Test connection": "globe", "Refresh lists": "sync"}
 
 TILES = {"accounts": "Active accounts", "suspended": "Suspended",
          "inactive": "No sign-in for 90+ days", "never": "Never signed in",

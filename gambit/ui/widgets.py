@@ -13,8 +13,8 @@ from PySide6.QtCore import (
     Signal, Slot,
 )
 from PySide6.QtWidgets import (
-    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QTableView, QVBoxLayout,
+    QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QPushButton, QStyledItemDelegate, QTableView, QVBoxLayout,
     QWidget, QAbstractItemView, QHeaderView,
 )
 
@@ -71,7 +71,16 @@ def wrap_log(edit):
 
 
 def button(text: str, kind: str = "", slot: Callable = None) -> QPushButton:
+    ic = None
+    try:
+        from .icons import split_emoji
+        ic, text = split_emoji(text)
+    except Exception:  # noqa: BLE001
+        pass
     b = QPushButton(text)
+    if ic:
+        from .icons import set_icon
+        set_icon(b, ic, "#FFFFFF" if kind == "primary" else None)
     if kind:
         b.setProperty("kind", kind)
     b.setCursor(Qt.PointingHandCursor)
@@ -270,12 +279,111 @@ class _RowsModel(QAbstractTableModel):
         self.layoutChanged.emit()
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role == Qt.ToolTipRole and orientation == Qt.Horizontal and \
+                section < len(self.headers):
+            return self.headers[section]
         if role == Qt.DisplayRole:
             if orientation == Qt.Horizontal and section < len(self.headers):
-                return self.headers[section]
+                return nice_header(self.headers[section])
             if orientation == Qt.Vertical:
                 return str(section + 1)
         return None
+
+
+def nice_header(h: str) -> str:
+    """orgUnitPath → ORG UNIT PATH, name.fullName → NAME · FULL NAME (display only)."""
+    import re as _re
+    t = _re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", h or "")
+    return t.replace(".", " · ").replace("_", " ").upper()
+
+
+# ---------------------------------------------------- status pills in tables ---
+STATUS_COLS = {"suspended", "status", "state", "archived", "issuspended", "isenrolledin2sv",
+               "isenforcedin2sv", "enabled", "result", "outcome", "ok", "is admin",
+               "isadmin", "compromisedstate", "managementstate", "encryptionstate"}
+_GOOD = {"active", "done", "ok", "success", "succeeded", "approved", "provisioned",
+         "compliant", "encrypted", "managed", "enabled", "on", "yes", "passed", "fixed"}
+_BAD = {"failed", "fail", "error", "disabled", "rejected", "compromised", "blocked",
+        "deprovisioned", "wiped", "lost", "stolen"}
+_WARN = {"pending", "waiting", "queued", "warning", "never", "never signed in",
+         "not_compliant", "noncompliant", "unencrypted", "unmanaged", "approval needed"}
+
+
+def pill_kind(column: str, value: str) -> str:
+    """'good' | 'bad' | 'warn' | 'info' | '' for a status-like cell."""
+    c, v = (column or "").replace(".", "").lower(), (value or "").strip().lower()
+    if not v:
+        return ""
+    if c in ("suspended", "issuspended", "archived"):
+        return "bad" if v == "true" else "good" if v == "false" else ""
+    if c in ("isenrolledin2sv", "isenforcedin2sv", "enabled", "ok"):
+        return "good" if v == "true" else "warn" if v == "false" else ""
+    if c in ("isadmin", "is admin"):
+        return "info" if v == "true" else ""
+    if v in _GOOD:
+        return "good"
+    if v in _BAD or v.startswith("fail"):
+        return "bad"
+    if v in _WARN:
+        return "warn"
+    return "info"
+
+
+def pill_text(column: str, value: str) -> str:
+    c, v = (column or "").replace(".", "").lower(), (value or "").strip()
+    if c in ("suspended", "issuspended"):
+        return {"true": "Suspended", "false": "Active"}.get(v.lower(), v)
+    if c == "archived":
+        return {"true": "Archived", "false": "No"}.get(v.lower(), v)
+    if c in ("isenrolledin2sv", "isenforcedin2sv", "enabled", "ok", "isadmin"):
+        return {"true": "Yes", "false": "No"}.get(v.lower(), v)
+    return v[:1].upper() + v[1:].lower() if v.isupper() and len(v) > 2 else v
+
+
+class StatusDelegate(QStyledItemDelegate):
+    """Draws status-like cells (Suspended, ACTIVE, Failed…) as soft coloured pills."""
+
+    COLORS = {"light": {"good": ("#DCFCE7", "#166534"), "bad": ("#FEE2E2", "#991B1B"),
+                        "warn": ("#FEF3C7", "#92400E"), "info": ("#EEF2F7", "#334155")},
+              "dark": {"good": ("#14351F", "#86EFAC"), "bad": ("#3B1C1C", "#FCA5A5"),
+                       "warn": ("#3A2A06", "#FDE68A"), "info": ("#1F2937", "#CBD5E1")}}
+
+    def __init__(self, column_name: str, parent=None):
+        super().__init__(parent)
+        self.column = column_name
+
+    def paint(self, painter, option, index):
+        value = index.data() or ""
+        kind = pill_kind(self.column, value)
+        if not kind:
+            return super().paint(painter, option, index)
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QColor, QFontMetrics
+        from PySide6.QtWidgets import QStyle
+        from .theme import is_dark
+        style = option.widget.style() if option.widget else None
+        if style is not None:      # selection / hover background, no text
+            opt = type(option)(option)
+            opt.text = ""
+            style.drawControl(QStyle.CE_ItemViewItem, opt, painter, option.widget)
+        bg, fg = self.COLORS["dark" if is_dark() else "light"][kind]
+        text = pill_text(self.column, value)
+        f = option.font
+        f.setPointSizeF(max(7.5, f.pointSizeF() * 0.88))
+        f.setBold(True)
+        fm = QFontMetrics(f)
+        w = min(option.rect.width() - 12, fm.horizontalAdvance(text) + 20)
+        h = min(option.rect.height() - 8, fm.height() + 6)
+        r = QRectF(option.rect.x() + 8, option.rect.center().y() - h / 2 + 0.5, w, h)
+        painter.save()
+        painter.setRenderHint(painter.RenderHint.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(bg))
+        painter.drawRoundedRect(r, h / 2, h / 2)
+        painter.setPen(QColor(fg))
+        painter.setFont(f)
+        painter.drawText(r, Qt.AlignCenter, fm.elidedText(text, Qt.ElideRight, int(w - 10)))
+        painter.restore()
 
 
 class _RowsProxy(QSortFilterProxyModel):
@@ -346,14 +454,16 @@ class ResultsTable(QWidget):
         hdr.setSortIndicator(-1, Qt.AscendingOrder)
         hdr.sectionClicked.connect(self._sort_clicked)
         self._sort = (-1, Qt.AscendingOrder)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
+        self.table.setShowGrid(False)
+        self.table.setMouseTracking(True)
         self.table.setWordWrap(False)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.Interactive)
         hh.setStretchLastSection(True)
         hh.setResizeContentsPrecision(200)     # size columns from the first 200 rows only
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(26)
+        self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.clicked.connect(lambda idx: self.row_clicked.emit(self.row_dict(idx.row())))
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
@@ -362,6 +472,9 @@ class ResultsTable(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(top)
         lay.addWidget(self.table)
+        self._delegates: list = []
+        self.selbar = None
+        self.table.selectionModel().selectionChanged.connect(self._selection_changed)
 
     # ---- data ----
     def load_csv_many(self, texts: list[str], keep=None):
@@ -400,6 +513,17 @@ class ResultsTable(QWidget):
         except Exception:  # noqa: BLE001 – never lose results over a label
             pass
         self._headers = list(headers)
+        for c in range(len(self._delegates)):     # status pills per column
+            self.table.setItemDelegateForColumn(c, None)
+        self._delegates = []
+        for c, h in enumerate(headers):
+            key = (h or "").split(".")[-1].lower()
+            if key in STATUS_COLS or (h or "").lower() in STATUS_COLS:
+                d = StatusDelegate(key, self.table)
+                self._delegates.append(d)
+                self.table.setItemDelegateForColumn(c, d)
+            else:
+                self._delegates.append(None)
         self.table.setUpdatesEnabled(False)
         try:
             self.model.reset(headers, [[str(v) if v is not None else "" for v in r]
@@ -471,6 +595,65 @@ class ResultsTable(QWidget):
         self.count.setText(f"{shown:,} of {total:,} rows" if text.strip() else f"{total:,} rows")
 
     # ---- context menu ----
+    # ---- floating selection bar ----
+    SEL_PICK = ("Reset password", "Require password", "Sign out", "Unsuspend", "Suspend",
+                "Re-enable", "Disable", "Add to favorites")
+
+    def _selection_changed(self, *_):
+        rows = self._selected_rows()
+        app = self.window()
+        if len(rows) < 2 or not hasattr(app, "context_actions"):
+            if self.selbar is not None:
+                self.selbar.hide()
+            return
+        try:
+            acts = [a for a in app.context_actions(self.selected_dicts())
+                    if a[0] != "-" and a[1] is not None]
+        except Exception:  # noqa: BLE001
+            acts = []
+        acts = [a for a in acts if any(a[0].startswith(p) or p in a[0] for p in self.SEL_PICK)]
+        if not acts:
+            if self.selbar is not None:
+                self.selbar.hide()
+            return
+        if self.selbar is None:
+            self.selbar = QFrame(self, objectName="SelBar")
+            self.selbar.setAttribute(Qt.WA_StyledBackground, True)
+            QHBoxLayout(self.selbar).setContentsMargins(16, 8, 8, 8)
+        lay = self.selbar.layout()
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        lay.addWidget(QLabel(f"{len(rows)} selected"))
+        for label, fn, risky in acts[:6]:
+            b = QPushButton(label.rstrip("…").replace(f" for {len(rows)} person(s)", ""))
+            if risky:
+                b.setProperty("kind", "danger")
+            b.clicked.connect(fn)
+            lay.addWidget(b)
+        x = QPushButton("✕")
+        x.setToolTip("Clear the selection")
+        x.clicked.connect(self.table.clearSelection)
+        lay.addWidget(x)
+        self.selbar.adjustSize()
+        self._place_selbar()
+        self.selbar.show()
+        self.selbar.raise_()
+
+    def _place_selbar(self):
+        if self.selbar is None:
+            return
+        w = min(self.selbar.sizeHint().width(), self.width() - 24)
+        self.selbar.resize(w, self.selbar.sizeHint().height())
+        self.selbar.move(max(8, (self.width() - w) // 2),
+                         self.height() - self.selbar.height() - 14)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.selbar is not None and self.selbar.isVisible():
+            self._place_selbar()
+
     def _menu(self, pos):
         from PySide6.QtGui import QAction
         from PySide6.QtWidgets import QApplication, QMenu
@@ -572,7 +755,8 @@ class Page(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 18, 24, 12)
         outer.setSpacing(8)
-        outer.addWidget(QLabel(self.title, objectName="PageTitle"))
+        if self.title:
+            outer.addWidget(QLabel(self.title, objectName="PageTitle"))
         if self.subtitle:
             sub = QLabel(self.subtitle, objectName="PageSub")
             sub.setWordWrap(True)

@@ -14,6 +14,17 @@ SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
     # ----- this round
+    {"id": "modern-look", "title": "A fresh, modern look",
+     "text": "New colours, icons and an icon-only sidebar option, an accent colour of your "
+             "choice (Settings & Updates → Appearance), and a Needs your attention box on "
+             "Home.", "page": "Settings & Updates"},
+    {"id": "palette", "title": "Ctrl+K finds anything",
+     "text": "Press Ctrl+K and type a person, Chromebook, group, page or task. The actions "
+             "for the person you found are right there.", "page": ""},
+    {"id": "toasts", "title": "Undo from the pop-up",
+     "text": "After a change a small pop-up says what was done, with Undo. The bell in the "
+             "top bar keeps every pop-up and alert.", "page": ""},
+    # ----- earlier
     {"id": "home-custom", "title": "Make Home yours",
      "text": "Choose what Home shows and in what order – recent items, quick look-up, your "
              "approvals, notes, links and more. Home → Customize.", "page": "Home"},

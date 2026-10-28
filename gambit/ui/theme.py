@@ -1,92 +1,244 @@
 """App-wide look and feel."""
 import re
 
-ACCENT = "#1a73e8"
+ACCENT = "#2563EB"
+DEFAULT_ACCENT = ACCENT
+ACCENTS = {"Blue": "#2563EB", "Teal": "#0F766E", "Purple": "#7C3AED", "Red": "#B91C1C",
+           "Green": "#15803D", "Orange": "#C2410C", "Navy": "#1E3A8A"}
 
-STYLESHEET = f"""
-QWidget {{ font-family: "Segoe UI", "Inter", sans-serif; font-size: 10pt; color: #1f2328; }}
-QMainWindow, QWidget#Page {{ background: #f6f8fb; }}
 
-QListWidget#Nav {{
-    background: #0f2741; border: none; padding-top: 8px; outline: 0;
-}}
-QListWidget#Nav::item {{
-    color: #c9d6e6; padding: 5px 16px; margin: 0px 8px; border-radius: 7px;
-}}
-QListWidget#Nav::item:disabled {{ color: #6f87a3; padding: 9px 16px 1px 16px; background: transparent; }}
-QListWidget#Nav::item:hover {{ background: #183a5e; color: white; }}
-QListWidget#Nav::item:selected {{ background: {ACCENT}; color: white; }}
-QListWidget#Nav::item:disabled:hover {{ background: transparent; color: #6f87a3; }}
-QLabel#Brand {{ background: #0f2741; color: white; font-size: 16pt; font-weight: 600;
-               padding: 18px 16px 6px 16px; }}
-QLabel#BrandSub {{ background: #0f2741; color: #8fa6bf; padding: 0 16px 12px 16px; font-size: 9pt; }}
+def accent() -> str:
+    try:
+        from ..settings import settings
+        a = (settings.get("ui/accent", "") or "").strip()
+    except Exception:  # noqa: BLE001
+        a = ""
+    return a if re.fullmatch(r"#[0-9a-fA-F]{6}", a or "") else DEFAULT_ACCENT
 
-QLabel#PageTitle {{ font-size: 17pt; font-weight: 600; }}
-QLabel#PageSub {{ color: #57606a; }}
-QLabel#Muted {{ color: #57606a; }}
-QLabel#Small {{ color: #57606a; font-size: 9pt; }}
 
-QGroupBox {{
-    background: white; border: 1px solid #dfe3e8; border-radius: 10px;
-    margin-top: 14px; padding: 14px 12px 12px 12px; font-weight: 600;
-}}
-QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 4px; }}
-QGroupBox QLabel, QGroupBox QCheckBox {{ font-weight: normal; }}
+def _shade(c: str, f: float) -> str:
+    r, g, b = (int(c[i:i + 2], 16) for i in (1, 3, 5))
+    if f < 0:
+        r, g, b = (round(x * (1 + f)) for x in (r, g, b))
+    else:
+        r, g, b = (round(x + (255 - x) * f) for x in (r, g, b))
+    return "#%02x%02x%02x" % (r, g, b)
 
-QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QSpinBox {{
-    background: white; border: 1px solid #c9d1d9; border-radius: 6px; padding: 5px 7px;
-}}
-QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {{ border: 1px solid {ACCENT}; }}
 
-QPushButton {{
-    background: white; border: 1px solid #c9d1d9; border-radius: 6px; padding: 6px 14px;
-}}
-QPushButton:hover {{ background: #eef3fb; border-color: {ACCENT}; }}
-QPushButton:disabled {{ color: #9aa4ae; background: #f2f4f7; }}
-QPushButton[kind="primary"] {{ background: {ACCENT}; color: white; border: 1px solid {ACCENT}; }}
-QPushButton[kind="primary"]:hover {{ background: #1765cc; }}
-QPushButton[kind="danger"] {{ color: #b42318; border-color: #f0b4ae; }}
-QPushButton[kind="danger"]:hover {{ background: #fdecea; }}
+def tokens(mode: str | None = None) -> dict:
+    """The design tokens for light or dark (the Windows 11 look from the mock-up)."""
+    m = mode or _MODE
+    a = accent()
+    if m == "dark":
+        return {"window": "#0F141B", "sidebar": "#121821", "topbar": "#121821",
+                "surface": "#161C25", "surface2": "#1B2330", "border": "#253041",
+                "input": "#2E3A4B", "text": "#E6EAF0", "muted": "#A3ADBB",
+                "faint": "#8B95A3", "icon": "#C5CCD6", "hover": "#1E2733",
+                "selected": "#1D2C44", "row_line": "#1F2835", "header": "#1A212B",
+                "scroll": "#334155", "accent": a, "accent_hover": _shade(a, 0.12),
+                "accent_text": _shade(a, 0.45), "on_accent": "#FFFFFF",
+                "danger": "#FCA5A5", "danger_bg": "#3B1C1C", "danger_line": "#7F1D1D",
+                "banner": "#3A2A06", "banner_line": "#A16207", "banner_text": "#FDE68A",
+                "tooltip": "#E6EAF0", "tooltip_text": "#111827"}
+    return {"window": "#EEF2F7", "sidebar": "#F5F7FA", "topbar": "#F8FAFC",
+            "surface": "#FFFFFF", "surface2": "#F4F6FA", "border": "#DCE2EA",
+            "input": "#D0D7E2", "text": "#111827", "muted": "#4B5563", "faint": "#6B7280",
+            "icon": "#374151", "hover": "#EEF2F8", "selected": "#E8F0FE",
+            "row_line": "#EEF1F5", "header": "#F8FAFC", "scroll": "#C7CED9",
+            "accent": a, "accent_hover": _shade(a, -0.12), "accent_text": a,
+            "on_accent": "#FFFFFF", "danger": "#B91C1C", "danger_bg": "#FEF2F2",
+            "danger_line": "#FECACA", "banner": "#FFFBEB", "banner_line": "#FDE68A",
+            "banner_text": "#78350F", "tooltip": "#111827", "tooltip_text": "#FFFFFF"}
+
+
+def build_css(mode: str = "light") -> str:
+    t = tokens(mode)
+    try:
+        from ..resources import resource_path
+        check = resource_path("assets/check_dark.svg").replace("\\", "/")
+    except Exception:  # noqa: BLE001
+        check = ""
+    return f"""
+QWidget {{ font-family: "Segoe UI Variable Text", "Segoe UI", "Inter", sans-serif;
+          font-size: 10pt; color: {t['text']}; }}
+QMainWindow, QWidget#Page, QScrollArea > QWidget > QWidget#Page {{ background: {t['window']}; }}
+QStackedWidget, QSplitter {{ background: {t['window']}; }}
+
+/* ---------- sidebar ---------- */
+QWidget#Side {{ background: {t['sidebar']}; border-right: 1px solid {t['border']}; }}
+QListWidget#Nav {{ background: {t['sidebar']}; border: none; padding: 4px 0; outline: 0; }}
+QListWidget#Nav::item {{ color: {t['text']}; padding: 7px 10px; margin: 1px 10px;
+                        border-radius: 8px; border-left: 3px solid transparent; }}
+QListWidget#Nav::item:hover {{ background: {t['hover']}; }}
+QListWidget#Nav::item:selected {{ background: {t['surface']}; color: {t['text']};
+                                 border-left: 3px solid {t['accent']}; font-weight: 600; }}
+QLabel#Brand {{ background: transparent; color: {t['text']}; font-size: 13pt; font-weight: 700; }}
+QLabel#BrandSub {{ background: transparent; color: {t['muted']}; font-size: 8.5pt; }}
+QLabel#Logo {{ background: {t['accent']}; color: {t['on_accent']}; border-radius: 10px;
+              font-weight: 700; font-size: 11pt; }}
+QPushButton#RailToggle {{ background: transparent; border: none; border-radius: 8px;
+                         padding: 6px; }}
+QPushButton#RailToggle:hover {{ background: {t['hover']}; }}
+
+/* ---------- top bar ---------- */
+QWidget#TopBar {{ background: {t['topbar']}; border-bottom: 1px solid {t['border']}; }}
+QLineEdit#GlobalSearch {{ background: {t['surface']}; border: 1px solid {t['input']};
+                         border-radius: 10px; padding: 7px 12px; min-height: 20px; }}
+QLineEdit#GlobalSearch:focus {{ border: 1px solid {t['accent']}; }}
+QPushButton#Chip {{ border-radius: 10px; padding: 7px 12px; }}
+QLabel#Badge {{ background: #DC2626; color: white; border-radius: 8px; font-size: 7.5pt;
+               font-weight: 700; padding: 0 5px; }}
+
+/* ---------- text ---------- */
+QLabel#PageTitle {{ font-size: 18pt; font-weight: 700; color: {t['text']}; }}
+QLabel#PageSub {{ color: {t['muted']}; }}
+QLabel#Muted {{ color: {t['muted']}; }}
+QLabel#Small {{ color: {t['muted']}; font-size: 8.5pt; }}
+QLabel#Greeting {{ font-size: 18pt; font-weight: 700; }}
+QLabel#SectionTitle {{ font-size: 11pt; font-weight: 600; }}
+
+/* ---------- cards ---------- */
+QGroupBox {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 14px;
+            margin-top: 0px; padding: 40px 16px 16px 16px; font-weight: 600;
+            font-size: 10.5pt; }}
+QGroupBox::title {{ subcontrol-origin: padding; subcontrol-position: top left;
+                   left: 16px; top: 13px; padding: 0; color: {t['text']}; }}
+QGroupBox QLabel, QGroupBox QCheckBox, QGroupBox QRadioButton {{ font-weight: normal;
+                                                               font-size: 10pt; }}
+QFrame#Card {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 14px; }}
+QLabel#CardValue {{ font-size: 20pt; font-weight: 700; }}
+QLabel#Banner, QFrame#Banner {{ background: {t['banner']}; border: 1px solid {t['banner_line']};
+                               color: {t['banner_text']}; border-radius: 10px; padding: 10px 14px; }}
+QLabel#HelpStrip {{ border-radius: 10px; }}
+
+/* ---------- inputs ---------- */
+QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit,
+QTimeEdit, QDateTimeEdit {{
+    background: {t['surface']}; color: {t['text']}; border: 1px solid {t['input']};
+    border-radius: 9px; padding: 6px 10px; selection-background-color: {t['selected']};
+    selection-color: {t['text']}; }}
+QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus,
+QDateEdit:focus, QTimeEdit:focus {{ border: 1px solid {t['accent']}; }}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ background: {t['surface2']};
+                                                            color: {t['faint']}; }}
+QComboBox::drop-down {{ border: none; width: 24px; }}
+QComboBox QAbstractItemView {{ background: {t['surface']}; color: {t['text']};
+    border: 1px solid {t['border']}; outline: 0; padding: 4px;
+    selection-background-color: {t['selected']}; selection-color: {t['text']}; }}
+QComboBox QAbstractItemView::item {{ min-height: 26px; padding: 2px 8px; border-radius: 6px; }}
+QCheckBox, QRadioButton {{ color: {t['text']}; spacing: 8px; }}
+QCheckBox::indicator, QRadioButton::indicator {{ width: 16px; height: 16px;
+    border: 1px solid {t['input']}; background: {t['surface']}; }}
+QCheckBox::indicator {{ border-radius: 5px; }}
+QRadioButton::indicator {{ border-radius: 9px; }}
+QCheckBox::indicator:checked {{ background: {t['accent']}; border-color: {t['accent']};
+                               image: url("{check}"); }}
+QRadioButton::indicator:checked {{ border: 1px solid {t['accent']};
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 {t['accent']}, stop:0.55 {t['accent']}, stop:0.62 {t['surface']},
+        stop:1 {t['surface']}); }}
+
+/* ---------- buttons ---------- */
+QPushButton {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['input']};
+              border-radius: 9px; padding: 7px 14px; min-height: 20px; }}
+QPushButton:hover {{ background: {t['hover']}; }}
+QPushButton:pressed {{ background: {t['selected']}; }}
+QPushButton:checked {{ background: {t['selected']}; border-color: {t['accent']}; }}
+QPushButton:disabled {{ color: {t['faint']}; background: {t['surface2']}; }}
+QPushButton[kind="primary"] {{ background: {t['accent']}; color: {t['on_accent']};
+                              border: 1px solid {t['accent']}; font-weight: 600; }}
+QPushButton[kind="primary"]:hover {{ background: {t['accent_hover']};
+                                    border-color: {t['accent_hover']}; }}
+QPushButton[kind="danger"] {{ color: {t['danger']}; border-color: {t['danger_line']}; }}
+QPushButton[kind="danger"]:hover {{ background: {t['danger_bg']}; }}
 QPushButton[kind="primary"]:disabled, QPushButton[kind="danger"]:disabled {{
-    background: #eef1f4; color: #9aa4ae; border: 1px solid #d5dbe1; }}
+    background: {t['surface2']}; color: {t['faint']}; border: 1px solid {t['border']}; }}
+QToolButton {{ border: none; border-radius: 8px; padding: 4px; background: transparent; }}
+QToolButton:hover {{ background: {t['hover']}; }}
 
-QTabWidget::pane {{ border: none; }}
-QTabBar::tab {{ padding: 7px 16px; border: none; color: #57606a; }}
-QTabBar::tab:selected {{ color: {ACCENT}; border-bottom: 2px solid {ACCENT}; }}
+/* ---------- tabs ---------- */
+QTabWidget::pane {{ border: none; background: transparent; }}
+QTabBar {{ background: transparent; }}
+QTabBar::tab {{ padding: 7px 14px; margin: 0 4px 8px 0; border-radius: 9px;
+               color: {t['muted']}; background: transparent; border: 1px solid transparent; }}
+QTabBar::tab:hover {{ background: {t['hover']}; color: {t['text']}; }}
+QTabBar::tab:selected {{ background: {t['surface']}; color: {t['text']}; font-weight: 600;
+                        border: 1px solid {t['border']}; }}
 
-QTableWidget {{ background: white; border: 1px solid #dfe3e8; border-radius: 8px;
-               gridline-color: #eef0f3; }}
-QHeaderView::section {{ background: #f1f4f8; border: none; padding: 6px; font-weight: 600; }}
+/* ---------- tables and lists ---------- */
+QTableView, QTableWidget, QTreeView, QTreeWidget, QListView, QListWidget {{
+    background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']};
+    border-radius: 12px; gridline-color: {t['row_line']}; outline: 0;
+    alternate-background-color: {t['surface']};
+    selection-background-color: {t['selected']}; selection-color: {t['text']}; }}
+QTableView::item, QTableWidget::item {{ padding: 4px 8px; border-bottom: 1px solid {t['row_line']}; }}
+QTableView::item:hover, QTableWidget::item:hover, QTreeView::item:hover,
+QListView::item:hover {{ background: {t['hover']}; }}
+QTableView::item:selected, QTableWidget::item:selected, QTreeView::item:selected,
+QListView::item:selected {{ background: {t['selected']}; color: {t['text']}; }}
+QHeaderView {{ background: transparent; }}
+QHeaderView::section {{ background: {t['header']}; color: {t['muted']}; border: none;
+    border-bottom: 1px solid {t['border']}; padding: 8px 10px; font-weight: 600;
+    font-size: 8.5pt; }}
+QTableCornerButton::section {{ background: {t['header']}; border: none; }}
 
-QPlainTextEdit#Log {{ background: #0d1117; color: #d1d9e0; border-radius: 8px;
-                     font-family: "Cascadia Mono", "Consolas", monospace; font-size: 9.5pt; }}
-QFrame#Card {{ background: white; border: 1px solid #dfe3e8; border-radius: 12px; }}
-QLabel#CardValue {{ font-size: 15pt; font-weight: 600; }}
-QLabel#Banner, QFrame#Banner {{ background: #fff4ce; border: 1px solid #f2d675; border-radius: 8px; padding: 8px 12px; }}
+/* ---------- scroll bars ---------- */
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle {{ background: {t['scroll']}; border-radius: 4px; min-height: 28px;
+                     min-width: 28px; }}
+QScrollBar::handle:hover {{ background: {t['faint']}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+QScrollArea {{ background: transparent; border: none; }}
 
-/* Popups, menus and dialogs: always light with dark text, even when Windows is in dark mode */
-QComboBox QAbstractItemView {{
-    background: white; color: #1f2328; border: 1px solid #c9d1d9; outline: 0;
-    selection-background-color: #dbe9fd; selection-color: #0b3d91; padding: 2px;
-}}
-QComboBox QAbstractItemView::item {{ min-height: 24px; padding: 2px 8px; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
-QMenu {{ background: white; color: #1f2328; border: 1px solid #c9d1d9; padding: 4px; }}
-QMenu::item {{ padding: 6px 18px; border-radius: 4px; }}
-QMenu::item:selected {{ background: #dbe9fd; color: #0b3d91; }}
-QToolTip {{ background: #1f2328; color: white; border: none; padding: 5px 8px; }}
-QDialog, QMessageBox, QInputDialog, QFileDialog {{ background: #f6f8fb; }}
-QMessageBox QLabel, QDialog QLabel {{ color: #1f2328; }}
-QCheckBox, QRadioButton {{ color: #1f2328; spacing: 6px; }}
-QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {{ color: #1f2328; selection-background-color: #b6d4fb; selection-color: #1f2328; }}
-QLineEdit:disabled, QComboBox:disabled {{ background: #f2f4f7; color: #8b949e; }}
-QTableWidget {{ color: #1f2328; alternate-background-color: #f8fafc;
-               selection-background-color: #dbe9fd; selection-color: #0b3d91; }}
-QScrollArea {{ background: transparent; }}
+/* ---------- menus, tips, dialogs ---------- */
+QMenu {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']};
+        border-radius: 10px; padding: 6px; }}
+QMenu::item {{ padding: 7px 18px; border-radius: 6px; }}
+QMenu::item:selected {{ background: {t['selected']}; color: {t['text']}; }}
+QMenu::separator {{ height: 1px; background: {t['border']}; margin: 4px 8px; }}
+QToolTip {{ background: {t['tooltip']}; color: {t['tooltip_text']}; border: none;
+           border-radius: 6px; padding: 6px 9px; }}
+QDialog, QMessageBox, QInputDialog, QFileDialog {{ background: {t['window']}; }}
+QMessageBox QLabel, QDialog QLabel {{ color: {t['text']}; }}
+QStatusBar {{ background: {t['topbar']}; color: {t['muted']}; border-top: 1px solid {t['border']}; }}
+QSplitter::handle {{ background: {t['border']}; }}
+QSplitter::handle:vertical {{ height: 1px; }}
+QDockWidget {{ color: {t['text']}; }}
+QDockWidget::title {{ background: {t['surface2']}; padding: 6px; }}
+QProgressBar {{ border: none; border-radius: 4px; text-align: center; background: {t['surface2']};
+               max-height: 8px; }}
+QProgressBar::chunk {{ background: {t['accent']}; border-radius: 4px; }}
+QPlainTextEdit#Log {{ background: #0D1117; color: #D1D9E0; border: 1px solid {t['border']};
+    border-radius: 12px; font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 9.5pt; padding: 8px; }}
 
-QProgressBar {{ border: 1px solid #c9d1d9; border-radius: 6px; text-align: center; background: white; }}
-QProgressBar::chunk {{ background: {ACCENT}; border-radius: 6px; }}
+/* ---------- toasts, palette, selection bar ---------- */
+QFrame#Toast {{ background: #111827; border-radius: 12px; }}
+QFrame#Toast QLabel {{ color: #F9FAFB; }}
+QFrame#Toast QPushButton {{ background: #1F2937; color: #F9FAFB; border: 1px solid #374151;
+                          border-radius: 8px; padding: 5px 12px; font-weight: 600; }}
+QFrame#Toast QPushButton:hover {{ background: #374151; }}
+QFrame#SelBar {{ background: #111827; border-radius: 14px; }}
+QFrame#SelBar QLabel {{ color: #F9FAFB; font-weight: 600; }}
+QFrame#SelBar QPushButton {{ background: #1F2937; color: #F9FAFB; border: 1px solid #374151;
+                           border-radius: 9px; padding: 6px 12px; }}
+QFrame#SelBar QPushButton:hover {{ background: #374151; }}
+QFrame#SelBar QPushButton[kind="danger"] {{ background: #DC2626; border-color: #DC2626;
+                                          color: white; font-weight: 600; }}
+QDialog#Palette {{ background: transparent; }}
+QFrame#PaletteBox {{ background: {t['surface']}; border: 1px solid {t['border']};
+                    border-radius: 14px; }}
+QLineEdit#PaletteInput {{ border: none; border-bottom: 1px solid {t['row_line']};
+    border-radius: 0; padding: 14px 16px; font-size: 12.5pt; background: transparent; }}
+QListWidget#PaletteList {{ border: none; background: transparent; padding: 6px; }}
+QListWidget#PaletteList::item {{ padding: 9px 10px; border-radius: 9px; }}
+QListWidget#PaletteList::item:selected {{ background: {t['selected']}; }}
 """
+
+
+STYLESHEET = ""     # built on demand (build_css) – kept for older imports
 
 
 def light_palette():
@@ -94,7 +246,7 @@ def light_palette():
     from PySide6.QtGui import QColor, QPalette
 
     p = QPalette()
-    text, base, window = QColor("#1f2328"), QColor("#ffffff"), QColor("#f6f8fb")
+    text, base, window = QColor("#111827"), QColor("#ffffff"), QColor("#EEF2F7")
     for group in (QPalette.Active, QPalette.Inactive):
         p.setColor(group, QPalette.Window, window)
         p.setColor(group, QPalette.WindowText, text)
@@ -108,7 +260,7 @@ def light_palette():
         p.setColor(group, QPalette.PlaceholderText, QColor("#8b949e"))
         p.setColor(group, QPalette.Highlight, QColor("#dbe9fd"))
         p.setColor(group, QPalette.HighlightedText, QColor("#0b3d91"))
-        p.setColor(group, QPalette.Link, QColor(ACCENT))
+        p.setColor(group, QPalette.Link, QColor(accent()))
     for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
         p.setColor(QPalette.Disabled, role, QColor("#9aa4ae"))
     p.setColor(QPalette.Disabled, QPalette.Base, QColor("#f2f4f7"))
@@ -117,13 +269,13 @@ def light_palette():
     return p
 
 
-def scaled_stylesheet(scale: float) -> str:
+def scaled_stylesheet(scale: float, mode: str = "light") -> str:
     """The stylesheet with every font size multiplied by `scale`."""
-    import re
+    css = build_css(mode)
     if abs(scale - 1.0) < 0.01:
-        return STYLESHEET
+        return css
     return re.sub(r"(\d+(?:\.\d+)?)pt",
-                  lambda m: f"{float(m.group(1)) * scale:.1f}pt", STYLESHEET)
+                  lambda m: f"{float(m.group(1)) * scale:.1f}pt", css)
 
 
 def apply_theme(app, scale: float | None = None, mode: str | None = None):
@@ -150,7 +302,7 @@ def apply_theme(app, scale: float | None = None, mode: str | None = None):
     font = app.font()
     font.setPointSizeF(10 * scale)
     app.setFont(font)
-    css = _dark_stylesheet(scale) if m == "dark" else scaled_stylesheet(scale)
+    css = _dark_stylesheet(scale) if m == "dark" else scaled_stylesheet(scale, "light")
     try:
         from ..settings import settings as _s
         if _s.get("ui/contrast", False):
@@ -248,7 +400,8 @@ def fit_to_screen(w, move: bool = True):
 # Hand-picked dark equivalents for the colours GAMbit uses most; anything else is
 # converted by lightness (light backgrounds → dark, dark text → light, same hue).
 DARK_BG = {
-    "#ffffff": "#1c2330", "white": "#1c2330", "#f6f8fb": "#0f141b", "#f6f8fa": "#1c2330",
+    "#ffffff": "#161c25", "white": "#161c25", "#f6f8fb": "#0f141b", "#eef2f7": "#0f141b",
+    "#f4f6fa": "#1b2330", "#fef2f2": "#3b1c1c", "#fffbeb": "#3a2a06", "#e8f0fe": "#1d2c44", "#f6f8fa": "#1c2330",
     "#f8fafc": "#1a212b", "#f1f4f8": "#232b38", "#f2f4f7": "#1f2630", "#eef1f4": "#232a35",
     "#eef1f6": "#232a35", "#eef3fb": "#263247", "#eef5ff": "#1d2c44", "#e8f1fb": "#1d2c44",
     "#dbe9fd": "#1f3a63", "#cfe0f7": "#233c62", "#eef0f3": "#2a3240", "#b6d4fb": "#2b4a7a",
@@ -344,38 +497,7 @@ def map_css(text: str) -> str:
 
 def _dark_stylesheet(scale: float) -> str:
     _set_mode("dark")
-    css = map_css(scaled_stylesheet(scale))
-    css += """
-QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QSpinBox, QDateEdit, QTimeEdit {
-    background: #1c2330; color: #e6edf3; }
-QTextBrowser { background: #161b22; color: #e6edf3; }
-QCheckBox::indicator, QRadioButton::indicator { background: #1c2330;
-    border: 1px solid #6e7b8c; width: 14px; height: 14px; }
-QCheckBox::indicator { border-radius: 3px; }
-QRadioButton::indicator { border-radius: 8px; }
-QCheckBox::indicator:checked, QRadioButton::indicator:checked { background: #1a73e8;
-    border-color: #79b8ff; }
-QCheckBox::indicator:checked { image: url("@CHECK@"); }
-QTreeWidget, QTreeView, QListWidget, QListView, QTableView {
-    background: #161b22; color: #e6edf3; alternate-background-color: #1a212b;
-    selection-background-color: #1f3a63; selection-color: #ffffff; }
-QListWidget#Nav { background: #0b1d31; }
-QLabel#Brand, QLabel#BrandSub { background: #0b1d31; }
-QHeaderView::section { color: #e6edf3; }
-QScrollBar:vertical, QScrollBar:horizontal { background: #161b22; }
-QScrollBar::handle { background: #3a4352; border-radius: 4px; }
-QMenuBar, QStatusBar { background: #0f141b; color: #c9d1d9; }
-QDockWidget { color: #e6edf3; }
-QDockWidget::title { background: #161b22; padding: 4px; }
-QSplitter::handle { background: #232b38; }
-a { color: #79b8ff; }
-"""
-    try:
-        from ..resources import resource_path
-        check = resource_path("assets/check_dark.svg").replace("\\", "/")
-    except Exception:  # noqa: BLE001
-        check = ""
-    return css.replace("@CHECK@", check)
+    return scaled_stylesheet(scale, "dark")
 
 
 def _set_mode(m: str):

@@ -111,6 +111,21 @@ class SettingsPage(Page):
             (settings.get("ui/theme", "light") or "light").lower())))
         self.theme_box.currentIndexChanged.connect(
             lambda _i: self.app.set_theme(self.theme_box.currentData()))
+        from ..theme import ACCENTS, accent as _accent
+        self.accent_box = QComboBox()
+        for name, hx in ACCENTS.items():
+            from ..icons import icon as _ic
+            self.accent_box.addItem(_ic("dot", hx), name, hx)
+        self.accent_box.addItem("Custom…", "custom")
+        i = self.accent_box.findData(_accent())
+        if i < 0:
+            self.accent_box.insertItem(0, f"Custom {_accent()}", _accent())
+            i = 0
+        self.accent_box.setCurrentIndex(i)
+        self.accent_box.currentIndexChanged.connect(self._accent_changed)
+        form.addRow("Accent color", self.row(self.accent_box, QLabel(
+            "Buttons, the selected page and highlights – e.g. your district's color.",
+            objectName="Muted")))
         form.addRow("Colors", self.row(self.theme_box, QLabel(
             "Dark mode changes right away; a few lists pick it up the next time they load.",
             objectName="Muted")))
@@ -628,6 +643,19 @@ class SettingsPage(Page):
         if d:
             self.team_dir.setText(os.path.normpath(d))
             self._save_team()
+
+    def _accent_changed(self, _i):
+        val = self.accent_box.currentData()
+        if val == "custom":
+            from PySide6.QtGui import QColor
+            from PySide6.QtWidgets import QColorDialog
+            from ..theme import accent
+            c = QColorDialog.getColor(QColor(accent()), self, "Accent color")
+            if not c.isValid():
+                return
+            val = c.name()
+        settings.set("ui/accent", val)
+        self.app.set_theme(settings.get("ui/theme", "light") or "light")
 
     def _digest_seats(self):
         from PySide6.QtWidgets import QInputDialog

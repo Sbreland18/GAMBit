@@ -47,8 +47,8 @@ class StatTile(QFrame):
 
 
 class HomePage(Page):
-    title = f"Welcome to {APP_NAME}"
-    subtitle = "A friendly front end for GAM, the Google Workspace admin tool."
+    title = ""          # Home has its own greeting
+    subtitle = ""
 
     def build(self):
         scroll = QScrollArea()
@@ -59,8 +59,18 @@ class HomePage(Page):
         self.lay.setContentsMargins(0, 0, 8, 0)
         scroll.setWidget(inner)
         head = QHBoxLayout()
-        head.addStretch(1)
-        head.addWidget(button("⚙ Customize Home…", slot=self.customize))
+        greet = QVBoxLayout()
+        greet.setSpacing(2)
+        self.greeting = QLabel(self._greeting(), objectName="Greeting")
+        self.summary = QLabel("", objectName="Muted")
+        greet.addWidget(self.greeting)
+        greet.addWidget(self.summary)
+        head.addLayout(greet, 1)
+        cust = button("Customize", slot=self.customize)
+        from ..icons import set_icon
+        set_icon(cust, "grid")
+        cust.setToolTip("Choose what Home shows and in what order")
+        head.addWidget(cust, 0, Qt.AlignBottom)
         self.body.addLayout(head)
         self.body.addWidget(scroll)
 
@@ -70,6 +80,7 @@ class HomePage(Page):
         self.lay.addWidget(self.banner)
         self.sections: dict[str, QWidget] = {}
         self._builders = {
+            "attention": self._w_attention,
             "status": self._w_status, "lookup": self._w_lookup, "jobs": self._w_jobs,
             "approvals": self._w_approvals, "glance": self._w_glance,
             "favorites": self._w_favorites, "recent": self._w_recent, "quick": self._w_quick,
@@ -86,6 +97,41 @@ class HomePage(Page):
         self.app.directory.users_changed.connect(self._account_tiles)
         self._busy = False
         self.show_dashboard(dashboard.load_cached())
+
+    # ------------------------------------------------------- greeting ---
+    def _greeting(self) -> str:
+        import datetime as _dt
+        h = _dt.datetime.now().hour
+        part = "morning" if h < 12 else "afternoon" if h < 17 else "evening"
+        name = ""
+        try:
+            from ...auth import session
+            if session.active():
+                name = (session.current().get("name") or session.email() or "")
+            if not name:
+                from ... import team
+                name = team.me()
+        except Exception:  # noqa: BLE001
+            name = ""
+        name = (name.split("@")[0].replace(".", " ").split() or [""])[0].title() \
+            if name else ""
+        return f"Good {part}" + (f", {name}" if name else "")
+
+    def _shadow(self, w):
+        """A soft card shadow (Home only – few cards, so it stays fast)."""
+        try:
+            from PySide6.QtGui import QColor
+            from PySide6.QtWidgets import QGraphicsDropShadowEffect
+            from ..theme import is_dark
+            if is_dark():
+                return
+            fx = QGraphicsDropShadowEffect(w)
+            fx.setBlurRadius(22)
+            fx.setOffset(0, 3)
+            fx.setColor(QColor(16, 24, 40, 22))
+            w.setGraphicsEffect(fx)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------- layout ---
     def _admin(self) -> bool:
@@ -111,6 +157,9 @@ class HomePage(Page):
             if k not in self.sections:
                 self.sections[k] = self._builders[k]()
             w = self.sections[k]
+            if not w.property("_shadowed") and k not in ("status", "glance"):
+                w.setProperty("_shadowed", True)
+                self._shadow(w)
             self.lay.addWidget(w)
             w.show()
             if k == "favorites":
@@ -208,7 +257,7 @@ class HomePage(Page):
         return self.score_box
 
     def _w_favorites(self):
-        self.fav_box, fform = self.group("★ Favorites")
+        self.fav_box, fform = self.group("Favorites")
         self.fav_row = QHBoxLayout()
         self.fav_row.setSpacing(8)
         fw = QWidget()
@@ -221,11 +270,22 @@ class HomePage(Page):
         from ... import home_layout as hl
         box, form = self.group("Quick actions")
         names = hl.quick()
-        rows = [names[i:i + 6] for i in range(0, len(names), 6)]
-        for chunk in rows:
-            form.addRow(self.row(*[button(n, "primary" if i == 0 and chunk is rows[0] else "",
-                                          lambda _=False, n=n: self._quick(n))
-                                   for i, n in enumerate(chunk)]))
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        for i, n in enumerate(names):
+            b = button(n, slot=lambda _=False, n=n: self._quick(n))
+            b.setObjectName("QuickTile")
+            from ..icons import set_icon
+            set_icon(b, hl.QUICK_ICONS.get(n, "sparkle"), None, 22)
+            from PySide6.QtCore import QSize
+            b.setIconSize(QSize(22, 22))
+            b.setMinimumHeight(56)
+            b.setStyleSheet("QPushButton#QuickTile{text-align:left;padding:10px 14px;"
+                            "border-radius:12px;font-weight:600;}")
+            grid.addWidget(b, i // 4, i % 4)
+        w = QWidget()
+        w.setLayout(grid)
+        form.addRow(w)
         return box
 
     def _quick(self, name: str):
@@ -282,7 +342,7 @@ class HomePage(Page):
             self.app.open_device(t.upper())
 
     def _w_recent(self):
-        box, form = self.group("🕘 Recently viewed")
+        box, form = self.group("Recently viewed")
         self.recent_wrap = QWidget()
         self.recent_grid = QGridLayout(self.recent_wrap)
         self.recent_grid.setContentsMargins(0, 0, 0, 0)
@@ -306,6 +366,96 @@ class HomePage(Page):
                        slot=lambda _=False, r=r: self.app.open_recent(r))
             b.setToolTip(f"{r['value']} – opened {r.get('when', '').replace('T', ' ')}")
             self.recent_grid.addWidget(b, i // 4, i % 4)
+
+    def _w_attention(self):
+        box, form = self.group("Needs your attention")
+        self.att_wrap = QWidget()
+        self.att_lay = QVBoxLayout(self.att_wrap)
+        self.att_lay.setContentsMargins(0, 0, 0, 0)
+        self.att_lay.setSpacing(8)
+        form.addRow(self.att_wrap)
+        self._fill_attention()
+        return box
+
+    def _attention_items(self) -> list[tuple[str, str, str, object]]:
+        """(level, text, button, action) – failed jobs, approvals, unseen Chromebooks,
+        alerts, licenses running low."""
+        out = []
+        try:
+            import datetime as _dt
+            from ... import tasks_health
+            since = _dt.datetime.now() - _dt.timedelta(hours=24)
+            bad = [r for r in tasks_health.runs_since(since)
+                   if not r.get("ok") and not r.get("skipped")]
+            for r in bad[:3]:
+                out.append(("bad", f"<b>{tasks_health.label_for(r['key'])}</b> failed "
+                            f"({r.get('ended', '')[11:16]})", "View log",
+                            lambda: self.app._go_safe("Schedules")))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from ... import team
+            if team.folder() and team.is_admin():
+                n = team.pending_count()
+                if n:
+                    out.append(("info", f"<b>{n} approval request(s)</b> waiting for you",
+                                "Review", lambda: self.app._go_safe("Approvals")))
+        except Exception:  # noqa: BLE001
+            pass
+        d = dashboard.load_cached() or {}
+        if d.get("alerts"):
+            out.append(("warn", f"<b>{d['alerts']} security alert(s)</b> in the last 7 days",
+                        "Open", self._alerts))
+        try:
+            from ... import digest
+            for name, used, total in digest.low_licenses(d.get("license_breakdown") or {}):
+                out.append(("warn", f"<b>Licenses at {round(100 * used / total)}%</b> – "
+                            f"{name}", "Open", lambda: self.app._go_safe("Licenses")))
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def _fill_attention(self):
+        if not hasattr(self, "att_lay"):
+            return
+        while self.att_lay.count():
+            it = self.att_lay.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        from ..icons import icon
+        from ..theme import is_dark
+        items = self._attention_items()
+        tint = {"bad": ("#FEF2F2", "#B91C1C", "x-circle"),
+                "warn": ("#FFFBEB", "#B45309", "alert"),
+                "info": ("#F4F6FA", "#1D4ED8", "shield")}
+        if is_dark():
+            tint = {"bad": ("#3B1C1C", "#FCA5A5", "x-circle"),
+                    "warn": ("#3A2A06", "#FDE68A", "alert"),
+                    "info": ("#1B2330", "#93C5FD", "shield")}
+        for level, text, btn, fn in items:
+            row = QFrame(objectName="AttRow")
+            bg, fg, ic = tint[level]
+            row.setAttribute(Qt.WA_StyledBackground, True)
+            row.setStyleSheet(f"QFrame#AttRow{{background:{bg};border-radius:10px;}}")
+            h = QHBoxLayout(row)
+            h.setContentsMargins(12, 8, 8, 8)
+            mark = QLabel()
+            mark.setPixmap(icon(ic, fg).pixmap(20, 20))
+            h.addWidget(mark)
+            lab = QLabel(text)
+            lab.setWordWrap(True)
+            lab.setStyleSheet("background:transparent;")
+            mark.setStyleSheet("background:transparent;")
+            h.addWidget(lab, 1)
+            h.addWidget(button(btn, slot=fn))
+            self.att_lay.addWidget(row)
+        if not items:
+            ok = QLabel("Nothing needs you right now – background jobs ran and nothing is "
+                        "waiting.", objectName="Muted")
+            ok.setWordWrap(True)
+            self.att_lay.addWidget(ok)
+        self.summary.setText(f"{len(items)} thing(s) need your attention." if items else
+                             "Everything is running smoothly.")
 
     def _w_approvals(self):
         box, form = self.group("Waiting for approval")
@@ -375,7 +525,7 @@ class HomePage(Page):
         from PySide6.QtWidgets import QPlainTextEdit
         from ... import home_layout as hl
         from ...settings import settings
-        box, form = self.group("📝 My notes")
+        box, form = self.group("My notes")
         self.notes = QPlainTextEdit(settings.get(hl.NOTES_KEY, "") or "")
         self.notes.setPlaceholderText("Anything you want to remember – saved as you type, "
                                       "only on this PC.")
@@ -389,7 +539,7 @@ class HomePage(Page):
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
         from ... import home_layout as hl
-        box, form = self.group("🔗 My links")
+        box, form = self.group("My links")
         links = hl.links()
         if not links:
             form.addRow(QLabel("Add links in Customize Home → Links (Admin console, your "
@@ -560,6 +710,8 @@ class HomePage(Page):
         self.domain_card[1].setStyleSheet(f"color:{color};")
 
     def on_show(self):
+        self.greeting.setText(self._greeting())
+        self._fill_attention()
         if hasattr(self, "recent_grid") and "recent" in self.sections:
             self._fill_recent()
         self._fill_approvals()

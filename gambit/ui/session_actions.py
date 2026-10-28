@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QObject, QProcess, QTimer
+from PySide6.QtCore import QEvent, QObject, QProcess, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QToolButton
 
 from ..auth import access, session
@@ -41,7 +41,10 @@ class SessionActions:
         cur = session.current()
         self.user_btn.setVisible(True)
         label = cur.get("email", "")
-        self.user_btn.setText(f"👤 {label}  ({cur.get('role_name', '')})")
+        self.user_btn.setText(f"{label}  ·  {cur.get('role_name', '')}")
+        from .icons import icon
+        self.user_btn.setIcon(icon("user"))
+        self.user_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         m = QMenu(self.user_btn)
         m.addAction("Lock GAMbit now", self.lock_now)
         m.addAction("Sign out", self.sign_out)

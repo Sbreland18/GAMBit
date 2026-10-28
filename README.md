@@ -437,6 +437,10 @@ Every district's custom schemas are different, so GAMbit reads yours from Google
 
 ## Making GAMbit yours
 
+- **Modern look:** light and dark themes built from one set of colours, an **accent colour** (Settings & Updates → Appearance), line icons, an **icon-only sidebar** (button at the bottom of the sidebar), coloured status pills in tables, a selection bar for two or more rows, a person header with status chips on Student lookup, and a Windows 11 title bar that matches the theme with rounded corners.
+- **Ctrl+K command palette:** people, Chromebooks, groups, org units, pages and tasks in one box, with the actions for the person you found.
+- **Pop-ups with Undo** in the bottom-right corner after changes, and a **bell** in the top bar that keeps every pop-up and alert. **Output** in the status bar shows or hides the output panel.
+- **Home** greets you and has a *Needs your attention* box (failed background jobs, waiting approvals, security alerts, licenses running low).
 - **My pages:** right-click a page → *Pin to My pages* (Ctrl+Shift+P); your most-used pages show there too. Click a section heading to fold it.
 - **Customize Home** (⚙ on Home): choose and order the boxes – quick look-up, recently viewed, favorites, quick actions, waiting for approval, my open tickets, notes, links, background jobs, numbers, scorecard, what's new – and pick quick actions, number tiles and links. Techs (non-admins) start with a people-focused layout.
 - **Tray and alerts:** closing the window keeps GAMbit in the tray; Windows alerts for long jobs finishing, background jobs failing and new approvals.
