@@ -173,6 +173,23 @@ class SettingsPage(Page):
         self.tips.toggled.connect(lambda on: (settings.set("ui/page_help", on), [
             p.refresh_help() for p in self.app.pages.values()]))
         form.addRow("Page tips", self.tips)
+        self.drawer_cb = QCheckBox("Clicking a person, group or Chromebook in a table shows "
+                                   "their details in a side panel")
+        self.drawer_cb.setChecked(bool(settings.get("ui/drawer", True)))
+        self.drawer_cb.toggled.connect(lambda on: (settings.set("ui/drawer", on),
+                                                   self.app.close_details()))
+        form.addRow("Details panel", self.drawer_cb)
+        self.toasts_cb = QCheckBox("Show pop-up messages (with Undo) after changes")
+        self.toasts_cb.setChecked(bool(settings.get("ui/toasts", True)))
+        self.toasts_cb.toggled.connect(lambda on: settings.set("ui/toasts", on))
+        form.addRow("Pop-ups", self.toasts_cb)
+        from ..widgets import ResultsTable as _RT
+        self.density_box = QComboBox()
+        self.density_box.addItems(["Comfortable", "Compact"])
+        self.density_box.setCurrentIndex(1 if _RT.density() == "compact" else 0)
+        self.density_box.currentIndexChanged.connect(
+            lambda i: _RT.set_density("compact" if i else "comfortable"))
+        form.addRow("Table rows", self.density_box)
         form.addRow("", self.row(button("Keyboard shortcuts (Shift+F1)", slot=self.app.show_help),
                                  button("Take the tour", slot=self.app.start_tour),
                                  button("Report a problem…", slot=self._report_problem)))
@@ -184,7 +201,7 @@ class SettingsPage(Page):
         form.addRow(_muted("Try new workflows and roster sync safely: a test org unit and one "
                            "test account. Roster sync's Test mode only touches the test org "
                            "unit, and Workflows can fill in the test account for you. "
-                           "🧪 Dry run (top bar) shows the GAM commands without running "
+                           "Dry run (top bar) shows the GAM commands without running "
                            "them."))
         from ..pickers import OUField
         self.test_ou = OUField(self.app.directory, "/GAMbit Test")

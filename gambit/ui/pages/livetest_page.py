@@ -66,7 +66,7 @@ class LiveTestPage(Page):
             self.table.insertRow(r)
             x = res.get(it.key, {})
             label, color = LOOK.get(x.get("status", ""), LOOK[""])
-            vals = [it.area, ("✋ " if it.manual else "") + it.title, label,
+            vals = [it.area, ("Manual – " if it.manual else "") + it.title, label,
                     x.get("detail", "") + (f"  ({x['when'].replace('T', ' ')})"
                                            if x.get("when") else "")]
             for c, v in enumerate(vals):
@@ -99,7 +99,7 @@ class LiveTestPage(Page):
     def run_selected(self):
         its = [it for it in self._items(True) if not it.manual]
         if not its:
-            self.info("Select automatic checks (manual ones are marked ✋).")
+            self.info("Select automatic checks (manual ones are marked “Manual”).")
             return
         self._start(its)
 

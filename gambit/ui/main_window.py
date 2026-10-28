@@ -396,6 +396,19 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                                                   "Google Workspace admin"))
         self.nav.setCurrentRow(0)
         self.statusBar().showMessage("Ready  ·  Press F1 for help")
+        from .table_states import hub as _hub
+        self._loading_cmds: set = set()
+
+        def _started(cmd):
+            if _hub().begin(cmd):
+                self._loading_cmds.add(cmd)
+
+        def _finished(_code, cmd):
+            if cmd in self._loading_cmds:
+                self._loading_cmds.discard(cmd)
+                _hub().end()
+        self.runner.started.connect(_started)
+        self.runner.finished.connect(_finished)
         from .toast import NotifyCenter, ToastHost
         self.notices = NotifyCenter(self)
         self.toasts = ToastHost(self, self.notices)
@@ -432,6 +445,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         super().resizeEvent(e)
         if hasattr(self, "toasts"):
             self.toasts.place()
+        if getattr(self, "drawer", None) is not None:
+            self.drawer.place()
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -494,7 +509,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
     def _startup(self):
         from .. import deploy
         for line in deploy.apply_on_start():
-            self.log_line("📦 " + line, "#7cc4ff")
+            self.log_line(line, "#7cc4ff")
         try:
             from .. import updaters
             unfinished = updaters.unfinished_update()
@@ -551,7 +566,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             settings.set("oumap/reminded", True)
             self.pages["Home"].show_banner(
                 "Tip: tell GAMbit which org units are students, staff, schools and "
-                "Chromebooks – Settings & Updates → Org units & schools (✨ Find them for me "
+                "Chromebooks – Settings & Updates → Org units & schools (Find them for me "
                 "does most of it).")
         if gam_setup.is_fully_set_up() and not settings.get("tour/seen", False) \
                 and not settings.get("helpdesk/on", False):
@@ -567,7 +582,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         from .widgets import Worker
         if not release_check.pending_for(__version__) or not gam_setup.is_fully_set_up():
             return
-        self.log_line("🔎 Checking this new version against your domain…", "#7cc4ff")
+        self.log_line("Checking this new version against your domain…", "#7cc4ff")
 
         def done(res):
             _after, bad = res
@@ -609,6 +624,38 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
     # -------------------------------------------------------------- nav ---
     # ------------------------------------------------------------ sidebar ---
     MY = "MY PAGES"
+    DEDUPE_KEY, AUTOFOLD_KEY = "nav/dedupe", "nav/autofold"
+
+    @staticmethod
+    def section_of(name: str) -> str:
+        sec = ""
+        for entry in NAV:
+            if isinstance(entry, str):
+                sec = entry
+            elif entry[0] == name:
+                return sec
+        return ""
+
+    def _autofold(self, name: str):
+        """Keep only the section of the page you're on open (My pages always stays)."""
+        if not settings.get(self.AUTOFOLD_KEY, True) or self.rail:
+            return
+        from .. import user_prefs as up
+        mine = next((r for r, i in self._row_page.items()
+                     if self.page_name_at(i) == name and self.nav.currentRow() == r), None)
+        if mine is not None and self._row_section.get(mine) == self.MY:
+            return                           # opened from My pages: leave the rest as is
+        sec = self.section_of(name)
+        if not sec:
+            return
+        want = {k for k in self._header_row.values() if k not in (sec, self.MY)}
+        if want == up.collapsed():
+            return
+        up.set_collapsed(want)
+        for row, key in self._header_row.items():
+            self.nav.item(row).setText("" if self.rail else
+                                       self._header_text(key, key in want))
+        self._apply_nav_visibility()
 
     @staticmethod
     def _header_text(key: str, folded: bool) -> str:
@@ -627,6 +674,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         avail = [n for n in names if team.page_allowed(n) and not self._user_hidden(n)
                  and n not in ("Home",)]
         pins, freq = up.my_pages(avail)
+        mine = set(pins) | set(freq)
+        dedupe = bool(settings.get(self.DEDUPE_KEY, True)) and not self.rail
         folded = up.collapsed()
 
         def header(key):
@@ -671,6 +720,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                 section = entry
                 header(entry)
                 continue
+            if dedupe and entry[0] in mine:
+                continue                     # already at the top under My pages
             item(entry[0], section)
         self.nav.blockSignals(False)
         self._nav_built = True
@@ -710,7 +761,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         key = it.data(Qt.UserRole + 1)
         folded = up.toggle_section(key)
         it.setText(self._header_text(key, folded))
-        self.apply_helpdesk_mode()
+        self._apply_nav_visibility()
 
     def fold_all(self, fold: bool):
         from .. import user_prefs as up
@@ -734,8 +785,9 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         menu = QMenu(self)
         from .. import user_prefs as up
         if name != "Home":
-            menu.addAction("Unpin from My pages" if name in up.pinned() else
-                           "📌 Pin to My pages", lambda: self.toggle_pin(name))
+            from .icons import icon as _ic
+            menu.addAction(_ic("pin"), "Unpin from My pages" if name in up.pinned() else
+                           "Pin to My pages", lambda: self.toggle_pin(name))
         if name not in ("Home", "Settings & Updates"):
             menu.addAction(f"Hide “{name}” from my sidebar", lambda: self.hide_page(name))
         menu.addAction("Show all hidden pages", self.show_all_pages)
@@ -744,9 +796,19 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         menu.addAction("Unfold all sections", lambda: self.fold_all(False))
         menu.addAction("Hide my most-used pages" if up.show_frequent() else
                        "Show my most-used pages", self._toggle_frequent)
+        menu.addAction("Also list My pages in their sections" if settings.get(
+            self.DEDUPE_KEY, True) else "Don't repeat My pages in their sections",
+            lambda: self._toggle_setting(self.DEDUPE_KEY))
+        menu.addAction("Stop folding other sections automatically" if settings.get(
+            self.AUTOFOLD_KEY, True) else "Fold other sections automatically",
+            lambda: self._toggle_setting(self.AUTOFOLD_KEY))
         menu.addAction("Show the full sidebar" if self.rail else "Shrink the sidebar to icons",
                        self.toggle_rail)
         menu.exec(self.nav.viewport().mapToGlobal(pos))
+
+    def _toggle_setting(self, key: str):
+        settings.set(key, not settings.get(key, True))
+        self.build_nav()
 
     def _toggle_frequent(self):
         from .. import user_prefs as up
@@ -848,13 +910,66 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             if row != home:
                 self.nav.setCurrentRow(home)
             return
+        prev = self.page_name_at(self.stack.currentIndex())
+        self.close_details()
         self.stack.setCurrentIndex(self._row_page[row])
+        self._remember_back(prev, name)
         self.current_page().on_show()
+        QTimer.singleShot(0, lambda n=name: self._autofold(n))
         try:
             from .. import user_prefs
             user_prefs.bump(name)
         except Exception:  # noqa: BLE001
             pass
+
+    # --------------------------------------------------------- details ---
+    def show_details(self, row: dict) -> bool:
+        from . import drawer
+        if not drawer.enabled():
+            return False
+        if getattr(self, "drawer", None) is None:
+            self.drawer = drawer.DetailDrawer(self)
+        return self.drawer.show_row(row)
+
+    def close_details(self):
+        if getattr(self, "drawer", None) is not None:
+            self.drawer.close_drawer()
+
+    # ------------------------------------------------------------ back ---
+    def _remember_back(self, prev: str, name: str):
+        if getattr(self, "_going_back", False):
+            self._going_back = False
+        elif prev and prev != name:
+            self._back = (getattr(self, "_back", []) + [prev])[-20:]
+        self._refresh_back()
+
+    def _refresh_back(self):
+        btn = getattr(self, "back_btn", None)
+        if btn is None:
+            return
+        back = getattr(self, "_back", [])
+        btn.setVisible(bool(back))
+        if back:
+            btn.setText(f" {back[-1]}")
+            btn.setToolTip(f"Back to {back[-1]} (Alt+Left)")
+
+    def go_back(self):
+        back = getattr(self, "_back", [])
+        while back:
+            name = back.pop()
+            from .. import team
+            if team.page_allowed(name):
+                self._going_back = True
+                self.go(name)
+                self._going_back = False
+                break
+        self._refresh_back()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.BackButton:
+            self.go_back()
+            return
+        super().mousePressEvent(e)
 
     # ---------------------------------------------------- shared hooks ---
     def set_gam_version(self, ver):

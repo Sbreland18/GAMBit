@@ -340,7 +340,7 @@ class BuilderPage(Page):
     def refresh_templates(self):
         self.tpls.clear()
         for t in builder_store.templates():
-            tag = "👥 " if t.get("shared") else ""
+            tag = "Shared · " if t.get("shared") else ""
             it = QListWidgetItem(f"{tag}{t['name']}\n{t.get('description', '')}")
             if t.get("shared"):
                 it.setToolTip("Shared with the team" + (f" – saved by {t['by']}"

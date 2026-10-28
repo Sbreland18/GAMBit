@@ -113,6 +113,6 @@ class PersonCheckDialog(QDialog):
             return
         text = pc.summary(self.email, self.findings, self.fixed)
         Worker(tk.note, self.ticket_id, text,
-               on_done=lambda _r: self.head.setText(self.head.text() + "  📝 Added to the "
+               on_done=lambda _r: self.head.setText(self.head.text() + "  ✓ Added to the "
                                                     "ticket."),
                on_error=lambda e: self.page.info(f"Couldn't add the note: {e}"))

@@ -238,7 +238,7 @@ class AssignedUsersTab(ToolTab):
             ou_map.reload()
             if not ou_map.configured():
                 self.m_example.setText("⚠ The org unit map isn't set up yet – click "
-                                       "<b>Org units & schools…</b> (✨ Find them for me does "
+                                       "<b>Org units & schools…</b> (Find them for me does "
                                        "most of it), or switch to a pattern.")
                 return
             rows = [r for r in ou_map.summary() if r["Students"]]

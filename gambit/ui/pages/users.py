@@ -436,7 +436,8 @@ class UsersPage(Page):
         self.saved.clear()
         self.saved.addItem("Saved searches…", "")
         for f in self._searches():
-            self.saved.addItem("🔎 " + f["label"], f["value"])
+            from ..icons import icon as _ic
+            self.saved.addItem(_ic("search"), f["label"], f["value"])
             self.saved.setItemData(self.saved.count() - 1, ss.tooltip(f), 3)  # tooltip
         i = self.saved.findData(cur) if cur else 0
         self.saved.setCurrentIndex(max(0, i))
@@ -463,7 +464,7 @@ class UsersPage(Page):
             sheet = (f.get("sheet") or {})
             extra = ""
             if sheet.get("url"):
-                extra = (" · 📄 keeps a Google Sheet up to date" +
+                extra = (" · keeps a Google Sheet up to date" +
                          (f" (last {sheet['last'].replace('T', ' ')})" if sheet.get("last")
                           else "") + (" – last refresh FAILED" if sheet.get("error") else ""))
             self.saved_note.setText(ss.describe(ss.spec_of(f)) + extra + " – change the "

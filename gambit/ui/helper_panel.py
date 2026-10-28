@@ -51,7 +51,7 @@ def _clean(t: str) -> str:
 
 class HelperDock(QDockWidget):
     def __init__(self, app):
-        super().__init__("💬 Helper", app)
+        super().__init__("Helper", app)
         self.app = app
         self.setObjectName("HelperDock")
         self.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
@@ -69,7 +69,11 @@ class HelperDock(QDockWidget):
         top.addWidget(QLabel("Ask me anything about GAMbit or GAM.", objectName="Muted"), 1)
         self.ai_lbl = QLabel("", objectName="Muted")
         top.addWidget(self.ai_lbl)
-        top.addWidget(button("⚙", slot=self.open_ai_settings))
+        _gear = button("", slot=self.open_ai_settings)
+        from .icons import set_icon as _si
+        _si(_gear, "settings")
+        _gear.setToolTip("Helper settings (local AI)")
+        top.addWidget(_gear)
         top.addWidget(button("Clear", slot=self.clear))
         v.addLayout(top)
 
@@ -203,12 +207,12 @@ class HelperDock(QDockWidget):
                 i = len(self.docs)
                 self.docs.append(d)
                 name = f"{d.page} → {d.tab}" if d.kind == "tab" else (d.page or d.title)
-                ls.append(f"<a href='open:{i}'>📂 Open {html.escape(name)}</a>")
+                ls.append(f"<a href='open:{i}'>Open {html.escape(name)}</a>")
             parts.append(" &nbsp; ".join(ls))
         if a.walkthrough is not None and a.walkthrough.steps and self._allowed(a.walkthrough):
             i = len(self.docs)
             self.docs.append(a.walkthrough)
-            parts.append(f"<a href='walk:{i}'>👣 Walk me through "
+            parts.append(f"<a href='walk:{i}'>Walk me through "
                          f"{html.escape(a.walkthrough.page)}</a>")
         if a.chips:
             parts.append("<span class='muted'>Try: </span>" + " · ".join(
@@ -245,7 +249,7 @@ class HelperDock(QDockWidget):
         if note:
             rows.append(f"<span class='muted'>{html.escape(note)}</span>")
         rows.append(f"{badge} · {kind}")
-        rows.append(f"<a href='run:{i}'>▶ Run</a> &nbsp; <a href='copy:{i}'>📋 Copy</a> &nbsp; "
+        rows.append(f"<a href='run:{i}'>▶ Run</a> &nbsp; <a href='copy:{i}'>Copy</a> &nbsp; "
                     f"<a href='console:{i}'>✎ Edit in Console</a>")
         return ("<table class='card' width='100%' cellpadding='6'><tr><td>" +
                 "<br>".join(rows) + "</td></tr></table>")
@@ -330,7 +334,7 @@ class HelperDock(QDockWidget):
         from ..gam_runner import dry_run_on
         from ..activity import is_change
         if dry_run_on() and is_change(args):
-            self._add("<div class='bot'>🧪 Dry run is on, so nothing changed – the command "
+            self._add("<div class='bot'>Dry run is on, so nothing changed – the command "
                       "is listed in the <b>Dry run</b> tab.</div>")
             return
         text = (out or "").strip()
@@ -376,7 +380,7 @@ class HelperDock(QDockWidget):
 
     def _show_step(self):
         d, i = self.walk
-        self.walk_title.setText(f"👣 {d.page} – step {i + 1} of {len(d.steps)}")
+        self.walk_title.setText(f"{d.page} – step {i + 1} of {len(d.steps)}")
         self.walk_text.setText(to_html(d.steps[i]))
         self.walk_back.setEnabled(i > 0)
         self.walk_next.setText("Finish ✔" if i == len(d.steps) - 1 else "Next ▶")
@@ -448,14 +452,14 @@ class HelperDock(QDockWidget):
     # --------------------------------------------------------------- AI ---
     def _refresh_ai_label(self):
         on = local_ai.enabled() and local_ai.installed()
-        self.ai_lbl.setText("🧠 local AI on" if on else "")
+        self.ai_lbl.setText("Local AI on" if on else "")
 
     def _ask_ai(self, question: str, ans: Answer):
         if self._ai_busy:
             self._bot(Answer("I'm still thinking about your last question – one moment."))
             return
         self._ai_busy = True
-        self._add("<div class='bot muted' id='thinking'>🧠 Thinking (on this PC)… this can "
+        self._add("<div class='bot muted' id='thinking'>Thinking (on this PC)… this can "
                   "take up to a minute the first time.</div>")
         links = ans.links
         hist = list(self.brain.history)

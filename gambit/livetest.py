@@ -115,7 +115,7 @@ ITEMS = [
          None, None, needs_user=False, extra={"special": "sheet",
                                               "confirm": "Did the sheet open?"}),
     Item("m_dry", "Safety", "Dry run lists commands",
-         "Turn on 🧪 Dry run, open Workflows → New staff, click Fill in the test account, run "
+         "Turn on Dry run, open Workflows → New staff, click Fill in the test account, run "
          "it, and check the Dry run tab lists the commands. Turn dry run off.", manual=True),
     Item("m_roster", "Roster sync", "Roster sync in Test mode",
          "Open Roster sync, load your real export, tick Test mode and Build preview. Check "

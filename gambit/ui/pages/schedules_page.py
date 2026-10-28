@@ -257,6 +257,10 @@ class SchedulesPage(Page):
                     lab.hide()        # this page already says it at the top
             if getattr(sub, "help_strip", None) is not None:
                 sub.help_strip.hide()
+                if getattr(sub, "help_bar", None) is not None:
+                    sub.help_bar.hide()
+                if getattr(sub, "tips_link", None) is not None:
+                    sub.tips_link.hide()
                 sub.help_strip = None  # so “page tips” never shows it inside a tab
         self.tabs = QTabWidget()
         self.tabs.addTab(allw, "All schedules")

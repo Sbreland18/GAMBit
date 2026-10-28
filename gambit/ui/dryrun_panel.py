@@ -16,7 +16,7 @@ class DryRunPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 4, 0, 0)
         head = QHBoxLayout()
-        self.count = QLabel("Turn on 🧪 Dry run at the top to see exactly which GAM commands "
+        self.count = QLabel("Turn on Dry run at the top to see exactly which GAM commands "
                             "a workflow or roster sync would run, without running them.",
                             objectName="Muted")
         self.count.setWordWrap(True)

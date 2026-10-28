@@ -23,7 +23,7 @@ from ..pickers import OUField
 from ..steps import Step, StepList
 from ..widgets import Page, ResultsTable, Worker, button
 
-ACTION_LABEL = {"create": "➕ New account", "reactivate": "♻ Returning",
+ACTION_LABEL = {"create": "New account", "reactivate": "Returning",
                 "update": "✎ Update", "withdraw": "⛔ Leaving", "info": "ℹ Note"}
 FIELD_LABEL = {"sis_id": "Student ID", "first": "First name", "last": "Last name",
                "email": "Email (optional)", "grade": "Grade", "school": "School",

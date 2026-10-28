@@ -140,13 +140,19 @@ class _Relay(QObject):
 
     @Slot(object)
     def done(self, result):
-        if self.w.on_done:
-            self.w.on_done(result)
+        try:
+            if self.w.on_done:
+                self.w.on_done(result)
+        finally:
+            self.w._end_busy()
 
     @Slot(str)
     def failed(self, err):
-        if self.w.on_error:
-            self.w.on_error(err)
+        try:
+            if self.w.on_error:
+                self.w.on_error(err)
+        finally:
+            self.w._end_busy()
 
     @Slot(int, int)
     def progress(self, d, t):
@@ -202,7 +208,18 @@ class Worker:
         self.job.failed.connect(self.thread.quit)
         self.thread.finished.connect(self._cleanup)
         Worker._alive.add(self)
+        try:
+            from .table_states import hub
+            self._busy = hub().begin()
+        except Exception:  # noqa: BLE001
+            self._busy = False
         self.thread.start()
+
+    def _end_busy(self):
+        if getattr(self, "_busy", False):
+            self._busy = False
+            from .table_states import hub
+            hub().end()
 
     def _cleanup(self):
         Worker._alive.discard(self)
@@ -434,11 +451,21 @@ class ResultsTable(QWidget):
         self.sheet_btn.setToolTip("Open these results as a new Google Sheet")
         self.sheet_btn.setProperty("helpdesk_ok", True)
 
+        from PySide6.QtWidgets import QMenu, QToolButton
+        self.view_btn = QToolButton(objectName="ViewBtn")
+        self.view_btn.setToolTip("Table view: compact or comfortable rows, choose columns")
+        self.view_btn.setPopupMode(QToolButton.InstantPopup)
+        from .icons import set_icon
+        set_icon(self.view_btn, "list")
+        self.view_menu = QMenu(self.view_btn)
+        self.view_menu.aboutToShow.connect(self._fill_view_menu)
+        self.view_btn.setMenu(self.view_menu)
         top = QHBoxLayout()
         top.addWidget(self.filter, 1)
         top.addWidget(self.count)
         top.addWidget(export)
         top.addWidget(self.sheet_btn)
+        top.addWidget(self.view_btn)
 
         self.model = _RowsModel(self)
         self.proxy = _RowsProxy(self)
@@ -465,6 +492,8 @@ class ResultsTable(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.clicked.connect(lambda idx: self.row_clicked.emit(self.row_dict(idx.row())))
+        self.table.clicked.connect(self._maybe_drawer)
+        self.no_drawer = False
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
 
@@ -475,6 +504,13 @@ class ResultsTable(QWidget):
         self._delegates: list = []
         self.selbar = None
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.empty_text = None
+        self.start_text = ("Nothing here yet", "Results show up here after you search.")
+        from .table_states import TableStates, hub
+        self.states = TableStates(self)
+        hub().tables.add(self)
+        QTimer.singleShot(0, self.states.refresh)
+        self._apply_density()
 
     # ---- data ----
     def load_csv_many(self, texts: list[str], keep=None):
@@ -538,7 +574,161 @@ class ResultsTable(QWidget):
                 self.table.setColumnHidden(c, headers[c].lower() in {h.lower() for h in self.hidden_columns})
         finally:
             self.table.setUpdatesEnabled(True)
+        self._apply_columns()
+        if headers or rows:
+            self.states.loaded_once = True
+        self.states.loading(False)
         self._apply_filter(self.filter.text())
+
+    # ---- density and columns ----
+    DENSITY_KEY = "ui/density"
+    ROW_H = {"comfortable": 34, "compact": 26}
+
+    @classmethod
+    def density(cls) -> str:
+        from ..settings import settings
+        d = settings.get(cls.DENSITY_KEY, "comfortable") or "comfortable"
+        return d if d in cls.ROW_H else "comfortable"
+
+    def _apply_density(self):
+        self.table.verticalHeader().setDefaultSectionSize(self.ROW_H[self.density()])
+
+    @classmethod
+    def set_density(cls, d: str):
+        from ..settings import settings
+        from .table_states import hub
+        settings.set(cls.DENSITY_KEY, d)
+        for t in list(hub().tables):
+            try:
+                t._apply_density()
+            except RuntimeError:
+                continue
+
+    def _cols_key(self) -> str:
+        import hashlib
+        sig = "|".join(sorted(h.lower() for h in self._headers))
+        return f"cols/{self._title()}/{hashlib.md5(sig.encode()).hexdigest()[:10]}"
+
+    def _cols_pref(self) -> dict:
+        import json
+        from ..settings import settings
+        try:
+            d = json.loads(settings.get(self._cols_key(), "") or "{}")
+        except ValueError:
+            d = {}
+        return d if isinstance(d, dict) else {}
+
+    def _save_cols(self, order: list[str], hidden: list[str]):
+        import json
+        from ..settings import settings
+        settings.set(self._cols_key(), json.dumps({"order": order, "hidden": hidden}))
+
+    def _apply_columns(self):
+        if not self._headers:
+            return
+        pref = self._cols_pref()
+        hh = self.table.horizontalHeader()
+        hh.setSectionsMovable(True)
+        hidden = {h.lower() for h in pref.get("hidden", [])}
+        for c, h in enumerate(self._headers):
+            if h.lower() in hidden:
+                self.table.setColumnHidden(c, True)
+        order = [o.lower() for o in pref.get("order", [])]
+        if order:
+            low = [h.lower() for h in self._headers]
+            hh.blockSignals(True)
+            for target, name in enumerate(o for o in order if o in low):
+                logical = low.index(name)
+                hh.moveSection(hh.visualIndex(logical), target)
+            hh.blockSignals(False)
+        if not getattr(self, "_moved_hooked", False):
+            self._moved_hooked = True
+            hh.sectionMoved.connect(lambda *_: self._remember_order())
+
+    def _remember_order(self):
+        hh = self.table.horizontalHeader()
+        order = [self._headers[hh.logicalIndex(v)] for v in range(hh.count())
+                 if hh.logicalIndex(v) < len(self._headers)]
+        hidden = [h for c, h in enumerate(self._headers) if self.table.isColumnHidden(c)]
+        self._save_cols(order, hidden)
+
+    def _fill_view_menu(self):
+        m = self.view_menu
+        m.clear()
+        d = self.density()
+        for key, label in (("comfortable", "Comfortable rows"), ("compact", "Compact rows")):
+            a = m.addAction(label)
+            a.setCheckable(True)
+            a.setChecked(d == key)
+            a.triggered.connect(lambda _=False, k=key: self.set_density(k))
+        m.addSeparator()
+        a = m.addAction("Columns…", self.choose_columns)
+        a.setEnabled(bool(self._headers))
+        a = m.addAction("Reset columns", self.reset_columns)
+        a.setEnabled(bool(self._cols_pref()))
+
+    def reset_columns(self):
+        from ..settings import settings
+        settings.set(self._cols_key(), "")
+        hh = self.table.horizontalHeader()
+        hh.blockSignals(True)
+        for logical in range(hh.count()):
+            hh.moveSection(hh.visualIndex(logical), logical)
+        hh.blockSignals(False)
+        low_hidden = {h.lower() for h in self.hidden_columns}
+        for c, h in enumerate(self._headers):
+            self.table.setColumnHidden(c, h.lower() in low_hidden)
+
+    def choose_columns(self):
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QListWidget, QListWidgetItem
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Columns")
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel("Tick the columns to show. Drag to change the order.",
+                           objectName="Muted"))
+        lst = QListWidget()
+        lst.setDragDropMode(QListWidget.InternalMove)
+        hh = self.table.horizontalHeader()
+        for vis in range(hh.count()):
+            c = hh.logicalIndex(vis)
+            if c >= len(self._headers):
+                continue
+            it = QListWidgetItem(nice_header(self._headers[c]))
+            it.setData(Qt.UserRole, self._headers[c])
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+            it.setCheckState(Qt.Unchecked if self.table.isColumnHidden(c) else Qt.Checked)
+            lst.addItem(it)
+        v.addWidget(lst, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        dlg.resize(380, 480)
+        if not dlg.exec():
+            return
+        order = [lst.item(i).data(Qt.UserRole) for i in range(lst.count())]
+        hidden = [lst.item(i).data(Qt.UserRole) for i in range(lst.count())
+                  if lst.item(i).checkState() != Qt.Checked]
+        if len(hidden) == len(order):
+            hidden = hidden[1:]                  # always keep one column
+        self._save_cols(order, hidden)
+        for c, h in enumerate(self._headers):
+            self.table.setColumnHidden(c, h in hidden)
+        self._apply_columns()
+
+    def _maybe_drawer(self, idx):
+        """A plain click on a person, group or Chromebook row opens the details panel –
+        unless this table's page already does something with row clicks."""
+        from PySide6.QtWidgets import QApplication
+        if self.no_drawer or QApplication.keyboardModifiers() != Qt.NoModifier:
+            return
+        mo = self.metaObject()
+        sig = mo.method(mo.indexOfSignal("row_clicked(QVariantMap)"))
+        if self.isSignalConnected(sig) or len(self._selected_rows()) > 1:
+            return
+        win = self.window()
+        if hasattr(win, "show_details"):
+            win.show_details(self.row_dict(idx.row()))
 
     def _sort_clicked(self, col: int):
         order = Qt.DescendingOrder if self._sort == (col, Qt.AscendingOrder) \
@@ -593,6 +783,18 @@ class ResultsTable(QWidget):
         self.proxy.set_text(text)
         shown, total = self.proxy.rowCount(), self.model.rowCount()
         self.count.setText(f"{shown:,} of {total:,} rows" if text.strip() else f"{total:,} rows")
+        if hasattr(self, "states"):
+            self.states.refresh()
+
+    def set_empty_text(self, title: str, hint: str = "", before: tuple | None = None):
+        """What an empty table says after a search (and, optionally, before one)."""
+        self.empty_text = (title, hint)
+        if before:
+            self.start_text = before
+        self.states.refresh()
+
+    def set_loading(self, on: bool = True):
+        self.states.loading(on)
 
     # ---- context menu ----
     # ---- floating selection bar ----
@@ -655,9 +857,10 @@ class ResultsTable(QWidget):
     SHORT = {"Require password change at next sign-in": "Require new password",
              "Sign out of all sessions": "Sign out everywhere"}
 
-    def _short(self, label: str, n: int) -> str:
+    @classmethod
+    def _short(cls, label: str, n: int) -> str:
         t = label.rstrip("…").replace(f" for {n} person(s)", "").strip()
-        for long_, short in self.SHORT.items():
+        for long_, short in cls.SHORT.items():
             if t.startswith(long_):
                 return short
         return t if len(t) <= 24 else t[:22].rstrip() + "…"
@@ -778,8 +981,14 @@ class Page(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 18, 24, 12)
         outer.setSpacing(8)
+        self.tips_link = None
         if self.title:
-            outer.addWidget(QLabel(self.title, objectName="PageTitle"))
+            trow = QHBoxLayout()
+            trow.setSpacing(10)
+            trow.addWidget(QLabel(self.title, objectName="PageTitle"))
+            trow.addStretch(1)
+            self.title_row = trow
+            outer.addLayout(trow)
         if self.subtitle:
             sub = QLabel(self.subtitle, objectName="PageSub")
             sub.setWordWrap(True)
@@ -788,14 +997,28 @@ class Page(QWidget):
         from .page_help import for_page
         self._help = for_page(self.title)
         if self._help:
+            self.help_bar = QFrame(objectName="HelpBar")
+            self.help_bar.setAttribute(Qt.WA_StyledBackground, True)
+            hb = QHBoxLayout(self.help_bar)
+            hb.setContentsMargins(12, 8, 12, 8)
+            hb.setSpacing(10)
+            self.help_icon = QLabel()
+            self.help_icon.setStyleSheet("background:transparent;")
+            hb.addWidget(self.help_icon, 0, Qt.AlignTop)
             self.help_strip = QLabel(objectName="HelpStrip")
             self.help_strip.setWordWrap(True)
             self.help_strip.setTextFormat(Qt.RichText)
-            self.help_strip.setStyleSheet(
-                "QLabel#HelpStrip{background:#eef5ff;border:1px solid #cfe0f7;"
-                "border-radius:6px;padding:6px 10px;color:#1f3b5c;}")
             self.help_strip.linkActivated.connect(self._help_link)
-            outer.addWidget(self.help_strip)
+            hb.addWidget(self.help_strip, 1)
+            outer.addWidget(self.help_bar)
+            if self.title:
+                from .icons import set_icon
+                self.tips_link = QPushButton(" Tips", objectName="TipsLink")
+                self.tips_link.setCursor(Qt.PointingHandCursor)
+                self.tips_link.setToolTip("Show the tips for this page")
+                set_icon(self.tips_link, "help")
+                self.tips_link.clicked.connect(self._show_tips_once)
+                self.title_row.addWidget(self.tips_link, 0, Qt.AlignVCenter)
             self.refresh_help()
         self.body = QVBoxLayout()
         self.body.setSpacing(10)
@@ -804,6 +1027,12 @@ class Page(QWidget):
             self.build()
         except Exception as exc:  # noqa: BLE001 – one broken page mustn't stop GAMbit
             build_failed(self.body, self, exc)
+        try:
+            from . import forms, tabs
+            tabs.enhance(self)
+            forms.cap_fields(self)
+        except Exception:  # noqa: BLE001 – looks only
+            pass
 
     def build(self):  # override
         pass
@@ -813,21 +1042,30 @@ class Page(QWidget):
         if not self.help_strip:
             return
         from ..settings import settings
-        if not settings.get("ui/page_help", True):
+        from .icons import icon
+        from .theme import tokens
+        self.help_icon.setPixmap(icon("sparkle", tokens()["accent_text"], 18).pixmap(18, 18))
+        shown = settings.get("ui/page_help", True) or getattr(self, "_tips_once", False)
+        if self.tips_link is not None:
+            self.tips_link.setVisible(not shown)
+        if not shown:
             self.help_strip.hide()
+            self.help_bar.hide()
             return
+        self.help_bar.show()
         text, safe = self._help
         links = []
         if safe:
             if settings.get("safety/dry_run", False):
-                links.append("<b>🧪 Dry run is on</b> – nothing here will change in Google. "
+                links.append("<b>Dry run is on</b> – nothing here will change in Google. "
                              "<a href='real'>Turn it off</a>")
             else:
                 links.append("<a href='safe'>Try it safely</a> (turns on dry run)")
         if getattr(self, "title", "") != "Guide":
             links.append("<a href='guide'>How to use this page</a>")
-        links.append("<a href='hide'>Hide tips</a>")
-        self.help_strip.setText(f"💡 {text}&nbsp;&nbsp; " + " &nbsp;·&nbsp; ".join(links))
+        links.append("<a href='hide'>Hide tips</a>" if not getattr(self, "_tips_once", False)
+                     else "<a href='close'>Close</a>")
+        self.help_strip.setText(f"{text}&nbsp;&nbsp; " + " &nbsp;·&nbsp; ".join(links))
         self.help_strip.show()
 
     def _help_link(self, href: str):
@@ -839,12 +1077,19 @@ class Page(QWidget):
         elif href == "guide" and hasattr(self.app, "open_guide"):
             name = next((n for n, p in self.app.pages.items() if p is self), "")
             self.app.open_guide(name)
+        elif href == "close":
+            self._tips_once = False
+            self.refresh_help()
         elif href == "hide":
             settings.set("ui/page_help", False)
             for p in self.app.pages.values():
                 p.refresh_help()
             self.app.statusBar().showMessage(
                 "Tips hidden – turn them back on in Settings & Updates.", 6000)
+
+    def _show_tips_once(self):
+        self._tips_once = True
+        self.refresh_help()
 
     def on_show(self):  # override: called when the page becomes visible
         pass

@@ -438,6 +438,11 @@ Every district's custom schemas are different, so GAMbit reads yours from Google
 ## Making GAMbit yours
 
 - **Modern look:** light and dark themes built from one set of colours, an **accent colour** (Settings & Updates → Appearance), line icons, an **icon-only sidebar** (button at the bottom of the sidebar), coloured status pills in tables, a selection bar for two or more rows, a person header with status chips on Student lookup, and a Windows 11 title bar that matches the theme with rounded corners.
+- **Details side panel:** click a person, group or Chromebook in any table for their status, actions and fields without leaving the list (Esc closes; double-click opens the full page; Appearance → Details panel to turn off).
+- **Tables:** loading placeholder rows, empty states that say why (with *Clear filter*), compact/comfortable rows, and *Columns…* to hide/reorder columns (saved per page; headings can be dragged too).
+- **Navigation:** Back button (Alt+Left / mouse back), My pages not repeated in sections, other sections fold automatically (right-click the sidebar to change), **More ▾** for tab strips that overflow, ticket chip in the top bar.
+- **Customize Home in place:** drag boxes, ↑ ↓ ✕ on each, Add a box, More options…, Done.
+- **Messages:** confirmations and messages are rounded cards with a clear title and buttons (risky actions in red); page tips use line icons and can be reopened from the *Tips* link by the title; form fields stop at a readable width on wide screens.
 - **Ctrl+K command palette:** people, Chromebooks, groups, org units, pages and tasks in one box, with the actions for the person you found.
 - **Pop-ups with Undo** in the bottom-right corner after changes, and a **bell** in the top bar that keeps every pop-up and alert. **Output** in the status bar shows or hides the output panel.
 - **Home** (centred on wide screens): one big look-up box for people and Chromebooks (with Check everything and Reset password), number tiles with icons, 30-day trend lines and a license meter (when *Licenses you bought…* is filled in), and recently viewed people with avatars and their school. The **Output** panel starts hidden – *Show output* in the status bar or Ctrl+L.

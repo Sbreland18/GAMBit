@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-from PySide6.QtCore import QStringListModel, Qt
+from PySide6.QtCore import QObject, QStringListModel, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMessageBox, QTabWidget, QVBoxLayout, QWidget,
@@ -30,6 +30,29 @@ HELPDESK_HIDDEN = {"Diagnostics", "Live test", "Command Console", "Command Build
                    "Roster sync"}
 
 
+class _SearchLauncher(QObject):
+    """Clicking or typing in the top search box opens the Ctrl+K window (with what you
+    typed), which shows people, Chromebooks, pages and actions with icons."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+
+    def eventFilter(self, obj, e):
+        from PySide6.QtCore import QEvent
+        t = e.type()
+        if t == QEvent.MouseButtonPress:
+            QTimer.singleShot(0, lambda: self.win.open_palette(obj.text()))
+            return True
+        if t == QEvent.KeyPress and e.text() and e.text().isprintable() and \
+                not e.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
+            txt = obj.text() + e.text()
+            obj.clear()
+            QTimer.singleShot(0, lambda: self.win.open_palette(txt))
+            return True
+        return False
+
+
 class AppActions:
     # ============================================================ top bar ===
     def build_topbar(self) -> QWidget:
@@ -39,7 +62,13 @@ class AppActions:
         h = QHBoxLayout(bar)
         h.setContentsMargins(24, 10, 24, 10)
         h.setSpacing(8)
-        from .icons import icon
+        from .icons import icon, set_icon as _si
+        self.back_btn = button("", slot=lambda: self.go_back())
+        self.back_btn.setObjectName("Chip")
+        _si(self.back_btn, "chevron-left")
+        self.back_btn.setProperty("helpdesk_ok", True)
+        self.back_btn.hide()
+        h.addWidget(self.back_btn)
         self.gsearch = QLineEdit(placeholderText="Search people, Chromebooks, pages or "
                                                  "actions…    Ctrl+K")
         self.gsearch.setObjectName("GlobalSearch")
@@ -53,6 +82,8 @@ class AppActions:
         comp.activated[str].connect(self.global_go)
         self.gsearch.setCompleter(comp)
         self.gsearch.returnPressed.connect(lambda: self.global_go(self.gsearch.text()))
+        self._launcher = _SearchLauncher(self)
+        self.gsearch.installEventFilter(self._launcher)
         h.addWidget(self.gsearch, 1)
         h.addSpacing(12)
         self.profile_box = QComboBox(objectName="DomainChip")
@@ -67,9 +98,10 @@ class AppActions:
         self.ticket_box.setPlaceholderText("Ticket (paste a link or number)")
         self.ticket_box.setToolTip("Link the help-desk ticket you're working on – GAMbit adds a "
                                    "note to it listing what it did.")
-        self.ticket_box.setMaximumWidth(210)
+        self.ticket_box.setMinimumWidth(260)
         self.ticket_box.editingFinished.connect(self._ticket_changed)
-        h.addWidget(self.ticket_box)
+        self.ticket_box.textChanged.connect(lambda _t: self._ticket_chip())
+        h.addWidget(self._build_ticket_chip())
         self.refresh_ticket_box()
         self.dry_btn = button("Dry run", slot=lambda: self.set_dry_run(
             self.dry_btn.isChecked()))
@@ -91,7 +123,7 @@ class AppActions:
         self.helper_btn.setToolTip("Ask GAMbit's offline Helper – plain English is fine "
                                    "(F2)")
         h.addWidget(self.helper_btn)
-        self.hd_btn = button("🔒 Help-desk mode", slot=self.leave_helpdesk)
+        self.hd_btn = button("Help-desk mode", slot=self.leave_helpdesk)
         self.hd_btn.setToolTip("Destructive actions are hidden. Click to unlock with the PIN.")
         self.hd_btn.setStyleSheet("background:#fff4ce;border-color:#f2d675;")
         h.addWidget(self.hd_btn)
@@ -118,10 +150,57 @@ class AppActions:
         self._refresh_search()
         return bar
 
+    def _build_ticket_chip(self):
+        """A ticket icon in the top bar; click it to paste a ticket link or number. Shows
+        “#1234” once a ticket is linked."""
+        from PySide6.QtWidgets import QMenu, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+        from .icons import set_icon
+        self.ticket_btn = QToolButton(objectName="Chip")
+        self.ticket_btn.setPopupMode(QToolButton.InstantPopup)
+        self.ticket_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.ticket_btn.setProperty("helpdesk_ok", True)
+        set_icon(self.ticket_btn, "ticket")
+        menu = QMenu(self.ticket_btn)
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(12, 10, 12, 10)
+        v.setSpacing(8)
+        self.ticket_lbl = QLabel("Link the ticket you're working on – GAMbit adds a note to "
+                                 "it listing what it did.", objectName="Muted")
+        self.ticket_lbl.setWordWrap(True)
+        self.ticket_lbl.setMaximumWidth(300)
+        v.addWidget(self.ticket_lbl)
+        v.addWidget(self.ticket_box)
+        row = QHBoxLayout()
+        ok = button("Link", "primary", slot=lambda: (self._ticket_changed(), menu.close()))
+        clear = button("Clear", slot=lambda: (self.ticket_box.clear(), menu.close()))
+        row.addWidget(ok)
+        row.addWidget(clear)
+        row.addStretch(1)
+        v.addLayout(row)
+        act = QWidgetAction(menu)
+        act.setDefaultWidget(box)
+        menu.addAction(act)
+        menu.aboutToShow.connect(lambda: QTimer.singleShot(0, self.ticket_box.setFocus))
+        self.ticket_box.returnPressed.connect(menu.close)
+        self.ticket_btn.setMenu(menu)
+        self._ticket_chip()
+        return self.ticket_btn
+
+    def _ticket_chip(self):
+        if not hasattr(self, "ticket_btn"):
+            return
+        from ..integrations import ticketing as tk
+        tid = tk.ticket_id(self.ticket_box.text()) if self.ticket_box.text().strip() else ""
+        self.ticket_btn.setText(f" #{tid}" if tid else "")
+        self.ticket_btn.setToolTip(f"Linked ticket #{tid} – click to change or clear" if tid
+                                   else "Link a help-desk ticket (GAMbit adds a note to it)")
+
     def refresh_ticket_box(self):
         from ..integrations import ticketing as tk
         on = tk.configured() and tk.can("note")
-        self.ticket_box.setVisible(on)
+        if hasattr(self, "ticket_btn"):
+            self.ticket_btn.setVisible(on)
         if on:
             self.ticket_box.setPlaceholderText(f"{tk.name()} ticket (link or number)")
 
@@ -131,7 +210,7 @@ class AppActions:
         if not tid or not tk.can("read"):
             return
         Worker(tk.get, tid,
-               on_done=lambda t: (self.ticket_box.setToolTip(
+               on_done=lambda t: (self.ticket_btn.setToolTip(
                    f"Ticket {t['number']}: {t['subject']} – {t['for']}"),
                    self.statusBar().showMessage(f"Linked ticket {t['number']}: {t['subject']}",
                                                 8000)),
@@ -146,7 +225,7 @@ class AppActions:
         if not any(s.status in ("ok", "fail", "dry") for s in steps):
             return
         Worker(tk.note, tid, tk.summary_note(steps),
-               on_done=lambda _r: self.log_line(f"📝 Added a note to the {tk.name()} ticket."),
+               on_done=lambda _r: self.log_line(f"Added a note to the {tk.name()} ticket."),
                on_error=lambda e: self.log_line(f"Couldn't add the ticket note: {e}",
                                                 "#ff8a80"))
 
@@ -665,6 +744,24 @@ class AppActions:
         role = team.my_role()
         apply_helpdesk(on)
         self.hd_btn.setVisible(on)
+        self._apply_nav_visibility(on, role)
+        for p in self.pages.values():
+            if hasattr(p, "set_helpdesk"):
+                p.set_helpdesk(on)
+            if hasattr(p, "set_role"):
+                p.set_role(role)
+        current = next((n for n, p in self.pages.items() if p is self.current_page()), "")
+        if (on and current in HELPDESK_HIDDEN) or not team.page_allowed(current, role):
+            self.go("Home")
+        self.statusBar().showMessage("Help-desk mode is on – destructive actions are hidden."
+                                     if on else "Help-desk mode is off.")
+
+    def _apply_nav_visibility(self, on=None, role=None):
+        """Hide rows of folded sections and pages this person can't (or chose not to) see."""
+        if on is None:
+            on = helpdesk_on()
+        if role is None:
+            role = team.my_role()
         from .. import user_prefs as up
         folded = up.collapsed()
         base: dict[int, bool] = {}
@@ -688,16 +785,6 @@ class AppActions:
             elif row in base:
                 it.setHidden(base[row] or (not rail and sections.get(row, "") in folded) or
                              (rail and sections.get(row, "") == "MY PAGES"))
-        for p in self.pages.values():
-            if hasattr(p, "set_helpdesk"):
-                p.set_helpdesk(on)
-            if hasattr(p, "set_role"):
-                p.set_role(role)
-        current = next((n for n, p in self.pages.items() if p is self.current_page()), "")
-        if (on and current in HELPDESK_HIDDEN) or not team.page_allowed(current, role):
-            self.go("Home")
-        self.statusBar().showMessage("Help-desk mode is on – destructive actions are hidden."
-                                     if on else "Help-desk mode is off.")
 
     # =========================================================== profiles ===
     def refresh_profiles(self):
@@ -966,7 +1053,7 @@ class MoreActions:
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Approval request", f"Couldn't save the request:\n{exc}")
             return
-        self.log_line("📨 Sent to an admin for approval – see the Approvals page.", "#7cc4ff")
+        self.log_line("Sent to an admin for approval – see the Approvals page.", "#7cc4ff")
         QMessageBox.information(self, "Sent for approval",
                                 "Sent. An admin will see it on their Approvals page, and you "
                                 "can check its status on yours.")
@@ -1029,18 +1116,18 @@ class MoreActions:
         if settings.get("tasks/last_inapp_daily", "") != today:
             settings.set("tasks/last_inapp_daily", today)
             from .. import offboard
-            Worker(offboard.run_due, on_done=lambda lines: [self.log_line("🧹 " + ln)
+            Worker(offboard.run_due, on_done=lambda lines: [self.log_line(ln)
                                                             for ln in lines],
                    on_error=lambda e: self.log_line(f"Offboarding follow-ups failed: {e}",
                                                     "#ff8a80"))
             if settings.get("selfservice/sheet_url", ""):
                 from .. import selfservice
                 Worker(selfservice.process, on_done=lambda n: n and self.log_line(
-                    f"📨 {n} new staff request(s) – see Approvals."),
+                    f"{n} new staff request(s) – see Approvals."),
                        on_error=lambda e: self.log_line(f"Couldn't read staff requests: {e}"))
         from .. import onboard
         if onboard.pending():
-            Worker(onboard.run_retries, on_done=lambda lines: [self.log_line("✉ " + ln)
+            Worker(onboard.run_retries, on_done=lambda lines: [self.log_line(ln)
                                                                for ln in lines],
                    on_error=lambda e: self.log_line(f"Signature retries failed: {e}"))
         last = settings.get("activity/sheet_pushed", "") or ""
@@ -1107,6 +1194,7 @@ class MoreActions:
         def sc(keys, fn):
             QShortcut(QKeySequence(keys), self, activated=fn)
         sc("Ctrl+K", self.open_palette)
+        sc("Alt+Left", self.go_back)
         order = ["Home", "Workflows", "Users", "Groups", "Classroom", "Email", "Google Drive",
                  "Chromebooks", "Command Builder"]
         for i, name in enumerate(order, start=1):

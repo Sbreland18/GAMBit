@@ -26,7 +26,39 @@ ARTICLES = [
   you bought in Settings → Weekly digest (*Licenses you bought…*) and the license tile shows
   a meter instead.
 - Status columns (Active, Suspended, In sync…) show as coloured pills, and selecting two or
-  more rows shows a bar with the actions for them.
+  more rows shows a bar with the actions for them (extra ones under *More*).
+
+## Details panel
+Click a person, group or Chromebook in any results table and a panel slides in from the
+right with their status, the main actions (reset password, sign out, suspend…) and every
+field from the row. Click another row to switch, Esc or ✕ to close. Double-click still
+opens the full page. Turn it off in Settings & Updates → Appearance → *Details panel*.
+
+## Tables
+- The **list button** at the end of a table's toolbar: *Compact rows* / *Comfortable rows*
+  (all tables), *Columns…* (tick and drag to choose and order columns) and *Reset
+  columns*. You can also drag a column heading. Column choices are remembered per page.
+- While a list loads you see grey placeholder rows; an empty table says why – nothing
+  loaded yet, nothing matched, or nothing matches the filter (with *Clear filter*).
+
+## Getting around
+- **Back** (top left, or Alt+Left, or your mouse's back button) returns to the page you
+  came from – handy after clicking a Home tile.
+- Pages in *My pages* aren't repeated in their sections, and sections other than the one
+  you're in fold automatically. Right-click the sidebar to turn either off.
+- Pages with more tabs than fit get **More ▾** at the end of the tab strip.
+- The **ticket** icon in the top bar (when a help desk is connected): click it to paste
+  the ticket you're working on; it then shows “#1234”.
+
+## Customize Home
+**Customize** on Home puts a small bar on each box: drag by ⠿ to move it, ↑ ↓ to nudge
+it, ✕ to remove it. *Add a box* brings one back, *More options…* picks quick actions,
+number tiles, links and notes, and **Done** finishes.
+
+## Tips and messages
+Page tips can be hidden (*Hide tips*); a small **Tips** link then appears next to each page
+title to show that page's tip once. Confirmations use clear buttons – risky ones (suspend,
+delete, wipe…) are red.
 
 ## My pages and the sidebar
 - Right-click any page → **📌 Pin to My pages**. Pinned pages sit at the top of the sidebar,

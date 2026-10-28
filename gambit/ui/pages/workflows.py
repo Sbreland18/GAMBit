@@ -112,7 +112,7 @@ class WorkflowsPage(Page):
 
     def build(self):
         bar = QHBoxLayout()
-        self.dry = QCheckBox("🧪 Dry run – list the GAM commands, change nothing")
+        self.dry = QCheckBox("Dry run – list the GAM commands, change nothing")
         self.dry.setChecked(bool(settings.get("safety/dry_run", False)))
         self.dry.toggled.connect(lambda on: self.app.set_dry_run(on))
         bar.addWidget(self.dry)

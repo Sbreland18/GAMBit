@@ -39,6 +39,7 @@ class HomePage(Page):
         outer = QHBoxLayout(inner)
         outer.setContentsMargins(0, 0, 0, 0)
         col = QWidget(objectName="Page")
+        self.col, self.scroll = col, scroll
         col.setMaximumWidth(self.MAX_W)
         outer.addStretch(1)
         outer.addWidget(col, 100)
@@ -55,10 +56,19 @@ class HomePage(Page):
         greet.addWidget(self.greeting)
         greet.addWidget(self.summary)
         head.addLayout(greet, 1)
-        cust = button("Customize", slot=self.customize)
+        cust = button("Customize", slot=lambda: self.set_editing(True))
         from ..icons import set_icon
         set_icon(cust, "grid")
-        cust.setToolTip("Choose what Home shows and in what order")
+        cust.setToolTip("Move, add and remove the boxes on Home")
+        self.cust_btn = cust
+        self.add_btn = button("Add a box", slot=lambda: self.editor.add_menu(self.add_btn))
+        set_icon(self.add_btn, "plus")
+        self.more_btn = button("More options…", slot=self.customize)
+        self.more_btn.setToolTip("Quick actions, number tiles, links and notes")
+        self.done_btn = button("Done", "primary", lambda: self.set_editing(False))
+        for b in (self.add_btn, self.more_btn, self.done_btn):
+            b.hide()
+            head.addWidget(b, 0, Qt.AlignBottom)
         head.addWidget(cust, 0, Qt.AlignBottom)
         self.body.addWidget(scroll)
         self.lay.addLayout(head)
@@ -86,6 +96,8 @@ class HomePage(Page):
         self.app.directory.users_changed.connect(self._account_tiles)
         self._busy = False
         self.show_dashboard(dashboard.load_cached())
+        from ..home_edit import HomeEditor
+        self.editor = HomeEditor(self)
 
     # ------------------------------------------------------- greeting ---
     def _greeting(self) -> str:
@@ -157,6 +169,16 @@ class HomePage(Page):
         self._stretch = self.lay.itemAt(self.lay.count() - 1)
         self.apply_tiles()
 
+    def set_editing(self, on: bool):
+        self.editor.set_on(on)
+        self.cust_btn.setVisible(not on)
+        for b in (self.add_btn, self.more_btn, self.done_btn):
+            b.setVisible(on)
+        self.summary.setText("Drag boxes by ⠿ to move them, or use ↑ ↓ ✕. Click Done when "
+                             "you're finished." if on else self.summary.text())
+        if not on:
+            self._fill_attention()
+
     def customize(self):
         from ..home_customize import HomeCustomizeDialog
         if HomeCustomizeDialog(self).exec():
@@ -165,6 +187,8 @@ class HomePage(Page):
                 if w is not None:
                     w.deleteLater()
             self.arrange()
+            if getattr(self, "editor", None) is not None and self.editor.on:
+                self.editor.refresh_bars()
 
     def refresh_widget(self, key: str):
         if key == "recent" and "recent" in self.sections:
@@ -825,8 +849,11 @@ class HomePage(Page):
         self.fav_box.setVisible(bool(favs) and "favorites" in getattr(self, "_on",
                                                                        {"favorites"}))
         for f in favs[:12]:
-            b = button(self.app.fav_label(f)[2:].split("  <")[0],
+            b = button(f.get("label") or f["value"],
                        slot=lambda _=False, f=f: self.app.open_favorite(f))
+            from ..icons import set_icon
+            set_icon(b, {"user": "user", "group": "group", "ou": "building",
+                         "serial": "laptop", "search": "search"}.get(f.get("kind"), "star"))
             tip = f["value"]
             if f.get("kind") == "search":
                 from ... import saved_searches

@@ -178,7 +178,7 @@ class YearSetupTab(QScrollArea):
             n = sum(1 for x in self.planned if x["status"] == "new")
             self.new_info.setText(f"{n:,} new class(es), {len(self.planned) - n:,} already "
                                   f"there · {sum(len(x['commands']) for x in self.planned):,} "
-                                  "GAM command(s). Turn on 🧪 Dry run to see them all.")
+                                  "GAM command(s). Turn on Dry run to see them all.")
         self.page.runner.run(["print", "courses", "states", "active,provisioned", "aliases",
                               "fields", "id,name"], done, quiet_stdout=True)
 

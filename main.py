@@ -41,6 +41,8 @@ def main():
     step("Applying your theme…", 20)
     from gambit.ui.theme import apply_theme
     apply_theme(app)
+    from gambit.ui import dialogs
+    dialogs.install()                   # modern message windows everywhere
     step("Loading GAMbit…", 35)
     from gambit.ui.main_window import MainWindow
     from gambit.ui.login_dialog import gate

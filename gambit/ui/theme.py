@@ -95,6 +95,7 @@ QLineEdit#GlobalSearch:focus {{ border: 1px solid {t['accent']}; }}
 QPushButton#Chip, QToolButton#Chip {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
                    border-radius: 10px; padding: 8px 12px; min-height: 22px; }}
 QPushButton#Chip:hover, QToolButton#Chip:hover {{ background: {t['hover']}; }}
+QToolButton#Chip::menu-indicator {{ image: none; width: 0; }}
 QPushButton#ChipOn {{ background: {t['banner_warn']}; color: {t['banner_warn_text']};
                      border: 1px solid {t['banner_warn_line']}; border-radius: 10px;
                      padding: 8px 12px; min-height: 22px; font-weight: 600; }}
@@ -141,7 +142,20 @@ QFrame#Card {{ background: {t['surface']}; border: 1px solid {t['border']}; bord
 QLabel#CardValue {{ font-size: 20pt; font-weight: 700; }}
 QLabel#Banner, QFrame#Banner {{ background: {t['banner']}; border: 1px solid {t['banner_line']};
                                color: {t['banner_text']}; border-radius: 12px; padding: 12px 16px; }}
-QLabel#HelpStrip {{ border-radius: 10px; }}
+QToolButton#ViewBtn {{ background: {t['surface']}; border: 1px solid {t['input']};
+                      border-radius: 10px; padding: 7px 9px; }}
+QToolButton#ViewBtn::menu-indicator {{ image: none; width: 0; }}
+QLabel#EmptyTitle {{ font-size: 11.5pt; font-weight: 600; color: {t['text']}; }}
+QLabel#EmptyHint {{ color: {t['muted']}; }}
+QToolButton#TabMore {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                      border-radius: 9px; padding: 5px 10px; margin: 0 0 8px 6px; }}
+QToolButton#TabMore::menu-indicator {{ image: none; width: 0; }}
+QFrame#HelpBar {{ background: {t['banner']}; border: 1px solid {t['banner_line']};
+                  border-radius: 12px; }}
+QLabel#HelpStrip {{ background: transparent; color: {t['banner_text']}; }}
+QPushButton#TipsLink {{ background: transparent; border: none; color: {t['accent_text']};
+                       padding: 4px 8px; font-weight: 600; }}
+QPushButton#TipsLink:hover {{ background: {t['hover']}; border-radius: 8px; }}
 
 /* ---------- inputs ---------- */
 QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit,
@@ -259,6 +273,32 @@ QFrame#SelBar QPushButton {{ background: #1F2937; color: #F9FAFB; border: 1px so
 QFrame#SelBar QPushButton:hover {{ background: #374151; }}
 QFrame#SelBar QPushButton[kind="danger"] {{ background: #DC2626; border-color: #DC2626;
                                           color: white; font-weight: 600; }}
+QFrame#EditBar {{ background: {t['surface2']}; border: 1px solid {t['line_strong']};
+                  border-radius: 10px; }}
+QLabel#EditHandle {{ font-size: 13pt; color: {t['muted']}; padding: 0 6px; background: transparent; }}
+QLabel#EditName {{ color: {t['muted']}; font-size: 9pt; padding-right: 6px; background: transparent; }}
+QPushButton#EditBtn {{ background: transparent; border: none; border-radius: 7px; padding: 0;
+                      min-height: 0; }}
+QPushButton#EditBtn:hover {{ background: {t['hover']}; }}
+QFrame#DropMarker {{ background: {t['accent']}; border-radius: 2px; }}
+QFrame#Drawer {{ background: {t['surface']}; border-left: 1px solid {t['border']}; }}
+QWidget#DrawerHead {{ background: {t['surface']}; border-bottom: 1px solid {t['border']}; }}
+QWidget#DrawerBody {{ background: {t['surface']}; }}
+QLabel#DrawerTitle {{ font-size: 15pt; font-weight: 700; background: transparent; }}
+QLabel#DrawerSection {{ color: {t['muted']}; font-size: 8.5pt; font-weight: 700;
+                       letter-spacing: 1px; padding-top: 6px; background: transparent; }}
+QPushButton#DrawerClose {{ background: transparent; border: none; border-radius: 9px;
+                          font-size: 12pt; padding: 0; }}
+QPushButton#DrawerClose:hover {{ background: {t['hover']}; }}
+QDialog#ModernMsg {{ background: {t['surface']}; }}
+QWidget#MsgBody {{ background: {t['surface']}; }}
+QWidget#MsgFoot {{ background: {t['surface2']}; border-top: 1px solid {t['border']}; }}
+QLabel#MsgTitle {{ font-size: 13pt; font-weight: 700; background: transparent; }}
+QLabel#MsgText {{ background: transparent; color: {t['text']}; }}
+QDialog#ModernMsg QPushButton {{ min-width: 84px; }}
+QDialog#ModernMsg QPushButton[kind="danger"] {{ background: #DC2626; color: #FFFFFF;
+                                              border: 1px solid #DC2626; font-weight: 600; }}
+QDialog#ModernMsg QPushButton[kind="danger"]:hover {{ background: #B91C1C; }}
 QDialog#Palette {{ background: transparent; }}
 QFrame#PaletteBox {{ background: {t['surface']}; border: 1px solid {t['border']};
                     border-radius: 14px; }}

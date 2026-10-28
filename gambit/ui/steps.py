@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidget, QListWidgetItem
 
-ICONS = {"pending": "○", "running": "◐", "ok": "✔", "fail": "✖", "skip": "–", "dry": "🧪"}
+ICONS = {"pending": "○", "running": "◐", "ok": "✔", "fail": "✖", "skip": "–", "dry": "◇"}
 COLORS = {"pending": "#57606a", "running": "#1a73e8", "ok": "#137333", "fail": "#b42318",
           "skip": "#9aa4ae", "dry": "#9a6700"}
 

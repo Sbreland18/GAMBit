@@ -14,6 +14,21 @@ SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
     # ----- this round
+    {"id": "details-panel", "title": "Details without leaving your list",
+     "text": "Click a person, group or Chromebook in any table and their details and actions "
+             "slide in from the right. Double-click still opens the full page; Esc closes "
+             "the panel.", "page": ""},
+    {"id": "home-edit", "title": "Arrange Home by dragging",
+     "text": "Home → Customize: drag boxes by their handle, use ↑ ↓ ✕, or Add a box. "
+             "Done saves it.", "page": "Home"},
+    {"id": "tables-2", "title": "Tables you can shape",
+     "text": "The list button next to Google Sheet: compact or comfortable rows, and "
+             "Columns… to hide or reorder columns (remembered per page). Tables also show "
+             "loading rows and say why they're empty.", "page": "Users"},
+    {"id": "nav-2", "title": "Back button and a shorter sidebar",
+     "text": "← Back in the top bar (or Alt+Left) returns to the page you came from. Pages "
+             "in My pages aren't listed twice, and other sections fold as you move around "
+             "(right-click the sidebar to change either).", "page": ""},
     {"id": "modern-look-2", "title": "Home, redesigned",
      "text": "Number tiles with icons and 30-day trend lines, one big look-up box for people "
              "and Chromebooks, recently viewed people with their school, and a cleaner top "

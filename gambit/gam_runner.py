@@ -238,7 +238,7 @@ class GamRunner(QObject):
             shown = display_command(args)
             self.dry_runs.append(shown)
             self.dry_run.emit(shown)
-            self.output.emit(f"🧪 Dry run – not run: {shown}\n", False)
+            self.output.emit(f"[dry run] not run: {shown}\n", False)
             if on_done:
                 QTimer.singleShot(0, lambda: on_done(0, "", ""))
             return True
@@ -355,7 +355,7 @@ class GamRunner(QObject):
         if job.status == "failed":
             hint = friendly_error(err + "".join(job.stdout))
             if hint:
-                self.output.emit(f"💡 {hint}\n", True)
+                self.output.emit(f"Tip: {hint}\n", True)
         self.finished.emit(job.code if job.status != "cancelled" else -2,
                            self._label(job) + job.display)
         if self.on_record:
