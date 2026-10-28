@@ -159,6 +159,8 @@ QToolButton#JobsChip {{ background: {t['selected']}; color: {t['accent_text']};
                       border: 1px solid {t['accent']}; border-radius: 10px;
                       padding: 8px 12px; font-weight: 600; }}
 QToolButton#JobsChip::menu-indicator {{ image: none; width: 0; }}
+QFrame#JobsPopup {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                   border-radius: 12px; }}
 QLabel#StepNum {{ border-radius: 14px; font-weight: 700; background: {t['surface2']};
                  color: {t['muted']}; border: 1px solid {t['line_strong']}; }}
 QLabel#StepNum[state="current"] {{ background: {t['accent']}; color: {t['on_accent']};
@@ -172,6 +174,20 @@ QLabel#StepCmds {{ font-family: "Cascadia Mono", Consolas, monospace; font-size:
                   background: {t['surface2']}; border-radius: 8px; padding: 8px; }}
 QLabel#FieldErrorRow {{ color: {t['danger']}; font-size: 9pt; font-weight: 600;
                        background: transparent; margin-top: -4px; }}
+QPushButton#SimpleTile {{ background: {t['surface']}; border: 1px solid {t['border']};
+                        border-radius: 14px; font-size: 12pt; font-weight: 600;
+                        text-align: left; padding: 14px 20px; }}
+QPushButton#SimpleTile:hover {{ background: {t['hover']}; border-color: {t['accent']}; }}
+QFrame#CheckRow {{ background: {t['surface2']}; border-radius: 10px; }}
+QFrame#RowActions {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                     border-radius: 9px; }}
+QToolButton#RowActionBtn {{ background: transparent; border: none; border-radius: 7px;
+                           padding: 3px; }}
+QToolButton#RowActionBtn:hover {{ background: {t['hover']}; }}
+QWidget#ChangeRow {{ background: {t['surface']}; border: 1px solid {t['border']};
+                    border-radius: 10px; }}
+QTableView QLineEdit, QTableView QComboBox, QTableView QSpinBox, QTableView QDateEdit {{
+    padding: 1px 6px; border-radius: 6px; min-height: 0px; }}
 QToolButton#CellCopy {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
                        border-radius: 7px; padding: 2px; }}
 QToolButton#CellCopy:hover {{ background: {t['hover']}; }}

@@ -135,6 +135,13 @@ class AppActions:
         for btn in (self.dry_btn, self.practice_btn, self.helper_btn):
             btn.setText("")              # icon only until switched on (tooltip says what)
             btn.setAccessibleName(btn.toolTip().split(" –")[0].split(":")[0])
+        self.simple_btn = button("Leave simple mode", slot=lambda: self.set_simple(False))
+        self.simple_btn.setObjectName("ChipGood")
+        self.simple_btn.setToolTip("Show every page and the full Home again")
+        self.simple_btn.setProperty("helpdesk_ok", True)
+        from . import simple_mode as _sm
+        self.simple_btn.setVisible(_sm.on())
+        h.addWidget(self.simple_btn)
         from .jobs_chip import JobsChip
         self.jobs_chip = JobsChip(self)
         h.addWidget(self.jobs_chip.btn)
@@ -285,6 +292,8 @@ class AppActions:
 
     def set_dry_run(self, on: bool):
         from .. import user_prefs as up
+        if on:
+            settings.set("onboard/dry_tried", True)    # the first-day checklist item
         if not on and up.practice_on():
             on = True                    # practice mode keeps dry run on
         settings.set("safety/dry_run", bool(on))
@@ -402,6 +411,35 @@ class AppActions:
             self.open_device(v)
         elif k == "search":
             self.open_saved_search(f)
+        elif k == "view":
+            self.open_view_favorite(f)
+
+    def add_view_favorite(self, v: dict):
+        favs = [f for f in self.favorites() if not (f["kind"] == "view" and
+                                                    f.get("view") == v["id"])]
+        favs.insert(0, {"kind": "view", "value": v["page"], "label": v["name"],
+                        "view": v["id"], "table": v.get("table", 0)})
+        self._save_favorites(favs[:40])
+        self.statusBar().showMessage(f"Added the view {v['name']} to Home favorites", 5000)
+
+    def open_view_favorite(self, f: dict):
+        page = f.get("value", "")
+        self._go_safe(page)
+        p = self.pages.get(page)
+        if p is None:
+            return
+        tables = p.findChildren(ResultsTable)
+        t = tables[f.get("table", 0)] if f.get("table", 0) < len(tables) else \
+            (tables[0] if tables else None)
+        if t is None:
+            return
+        v = next((x for x in t._all_views() if x.get("id") == f.get("view")), None)
+        if v is None:
+            self.statusBar().showMessage("That saved view was deleted.", 5000)
+            return
+        t.apply_view(v)
+        self.statusBar().showMessage(f"View “{v['name']}” – run the search to fill it if "
+                                     "the table is empty.", 6000)
 
     def do_intent(self, it):
         _label, _words, page, tab = it
@@ -645,8 +683,8 @@ class AppActions:
                 if not hd:
                     out.append(("Suspend…", lambda: self._confirm_quick(
                         f"Suspend {len(emails)} account(s)?",
-                        ["users", ",".join(emails), "update", "user", "suspended", "on"]),
-                        True))
+                        ["users", ",".join(emails), "update", "user", "suspended", "on"],
+                        after=lambda: self._suspended_next(emails)), True))
             out.append(("Copy email addresses", lambda: self._copy("\n".join(emails)), False))
         if scol:
             sns = [r[scol] for r in rows if r.get(scol)]
@@ -672,9 +710,19 @@ class AppActions:
         for e in emails:
             self.runner.run(["user", e, *rest])
 
-    def _confirm_quick(self, question, args):
+    def _confirm_quick(self, question, args, after=None):
         if QMessageBox.question(self, "Please confirm", question) == QMessageBox.Yes:
-            self.runner.run(args)
+            self.runner.run(args, (lambda c, *_: c == 0 and after()) if after else None)
+
+    def _suspended_next(self, emails):
+        """After suspending: a pop-up with the usual follow-ups."""
+        from .next_steps import for_suspended, menu_for
+        n = len(emails)
+        if hasattr(self, "toasts"):
+            self.toasts.show(f"Suspended {emails[0] if n == 1 else f'{n} accounts'}. "
+                             "What's next?", "ok", "Next steps",
+                             lambda: menu_for(self, for_suspended(self, emails)), ms=12000,
+                             remember=False)
 
     def quick_reset(self, emails):
         from .pages.users import random_password
@@ -731,6 +779,9 @@ class AppActions:
         from .main_window import ADVANCED
         if page_name in ("Home", "Guide", "Settings & Updates"):
             return False
+        from . import simple_mode
+        if simple_mode.on() and page_name not in simple_mode.PAGES:
+            return True
         if page_name == "Ticket queue":
             from ..integrations import ticketing as tk
             if not (tk.configured() and tk.can("list")):
@@ -756,8 +807,15 @@ class AppActions:
         current = next((n for n, p in self.pages.items() if p is self.current_page()), "")
         if (on and current in HELPDESK_HIDDEN) or not team.page_allowed(current, role):
             self.go("Home")
-        self.statusBar().showMessage("Help-desk mode is on – destructive actions are hidden."
-                                     if on else "Help-desk mode is off.")
+        if getattr(self, "_hd_shown", None) != on:   # say it when it changes, not every time
+            if self._hd_shown_once() or on:
+                self.statusBar().showMessage(
+                    "Help-desk mode is on – destructive actions are hidden." if on else
+                    "Help-desk mode is off.", 6000)
+            self._hd_shown = on
+
+    def _hd_shown_once(self) -> bool:
+        return getattr(self, "_hd_shown", None) is not None
 
     def _apply_nav_visibility(self, on=None, role=None):
         """Hide rows of folded sections and pages this person can't (or chose not to) see."""
@@ -1108,7 +1166,28 @@ class MoreActions:
                                           lambda a: run_gam_csv(a, 120)) or res
         finally:
             QApplication.restoreOverrideCursor()
-        return BigChangeDialog(self, args, full[0], full[1]).exec() == QDialog.Accepted
+        dlg = BigChangeDialog(self, args, full[0], full[1])
+        ok = dlg.exec() == QDialog.Accepted
+        if dlg.later:
+            self.queue_tonight(args, dlg.LATER_HOUR)
+            return False
+        return ok
+
+    def queue_tonight(self, args, hour: int = 18):
+        """Put a change in the Run later queue for this evening (or tomorrow evening)."""
+        from .. import activity, change_queue
+        when = change_queue.tonight(hour)
+        title = activity.describe_any(list(args)) or " ".join(args[:4])
+        change_queue.add([list(args)], when, title, team.me())
+        day = "tonight" if when[:10] == __import__("datetime").date.today().isoformat() \
+            else "tomorrow evening"
+        msg = f"Queued for {day} at {hour - 12 if hour > 12 else hour} " \
+              f"{'PM' if hour >= 12 else 'AM'}: {title[:80]}"
+        self.log_line(msg + " (it runs from GAMbit's background task – Schedules → Setup "
+                      "& health).", "#7cc4ff")
+        if hasattr(self, "toasts"):
+            self.toasts.show(msg, "info", "View", lambda: self._go_safe("Run later & freezes"),
+                             ms=9000)
 
     def daily_tasks(self):
         """Once-a-day background jobs after a successful connection."""
@@ -1198,6 +1277,7 @@ class MoreActions:
             QShortcut(QKeySequence(keys), self, activated=fn)
         sc("Ctrl+K", self.open_palette)
         sc("Alt+Left", self.go_back)
+        sc("Ctrl+Shift+Z", self.show_changes_today)
         order = ["Home", "Workflows", "Users", "Groups", "Classroom", "Email", "Google Drive",
                  "Chromebooks", "Command Builder"]
         for i, name in enumerate(order, start=1):
@@ -1286,6 +1366,9 @@ class MoreActions:
         from PySide6.QtWidgets import QMenu
         from .icons import icon
         m = QMenu(self)
+        m.addAction(icon("undo"), "Changes today (with Undo)…  Ctrl+Shift+Z",
+                    self.show_changes_today)
+        m.addSeparator()
         items = self.notices.items[:25]
         if not items:
             a = m.addAction("No notifications yet")
@@ -1304,6 +1387,29 @@ class MoreActions:
             m.addAction("Clear all", self.notices.clear)
         self.notices.read_all()
         m.exec(QCursor.pos())
+
+    def set_simple(self, on: bool):
+        """Simple mode: a big-button Home and only the everyday pages in the sidebar."""
+        from . import simple_mode
+        settings.set(simple_mode.KEY, bool(on))
+        self.simple_btn.setVisible(bool(on))
+        self.build_nav()
+        home = self.pages.get("Home")
+        if home is not None and hasattr(home, "arrange"):
+            home.arrange()
+        self.go("Home")
+        sp = self.pages.get("Settings & Updates") if self.pages.built("Settings & Updates") \
+            else None
+        if sp is not None and hasattr(sp, "simple_cb"):
+            sp.simple_cb.blockSignals(True)
+            sp.simple_cb.setChecked(bool(on))
+            sp.simple_cb.blockSignals(False)
+        self.statusBar().showMessage("Simple mode is on – the everyday jobs on Home." if on
+                                     else "Simple mode is off.", 5000)
+
+    def show_changes_today(self):
+        from .changes_today import ChangesToday
+        ChangesToday(self).exec()
 
     def _go_safe(self, name):
         from .app_actions import HELPDESK_HIDDEN
@@ -1411,32 +1517,42 @@ class MoreActions:
 
 class Tour:
     STEPS = [
-        (None, "nav", "Pages",
-         "Everything is grouped here: People, Services, Admin and Tools. "
-         "Ctrl+1 … Ctrl+9 jump to the most-used pages."),
-        (None, "gsearch", "Jump to anything",
-         "Type a name, group, org unit, Chromebook serial or asset ID and press Enter. Anything else "
-         "searches every GAM command. Shortcut: Ctrl+K."),
-        ("Home", "tiles", "Your dashboard",
-         "Key numbers for your domain, refreshed daily. Click a tile to see the list behind it."),
+        (None, "nav", "Your pages",
+         "Everything is grouped here. Pages you pin (right-click → Pin) and use most sit at "
+         "the top under My pages; click a section heading to fold it. The arrow at the "
+         "bottom shrinks the sidebar to icons."),
+        (None, "gsearch", "Find anything – Ctrl+K",
+         "Click here or press Ctrl+K and type a person, Chromebook serial, group, org unit, "
+         "page or a task like “reset password”. The actions for a person are listed right "
+         "under their name."),
+        ("Home", "lookup", "Quick look-up",
+         "Type a student, staff member, serial or asset tag. Check everything looks for "
+         "every common problem with a person and offers a fix for each."),
+        ("Home", "tiles", "At a glance",
+         "Key numbers for your domain, with trend lines once GAMbit has a few days of "
+         "data. Click a tile for the list behind it."),
+        ("Home", "customize", "Make Home yours",
+         "Customize lets you drag boxes around, remove them or add others. Simple mode "
+         "(Settings → Appearance) turns Home into six big buttons for everyday jobs."),
+        ("Users", "table", "Tables",
+         "Click a row for a details panel on the right; hover a row for quick buttons and a "
+         "copy button. The list button at the end of the toolbar chooses columns, saves "
+         "views and prints or saves a PDF."),
+        (None, "dry", "Dry run and Practice",
+         "Dry run lists the exact GAM commands without changing anything. Practice lets a "
+         "new tech make real changes only to the test account and test org unit."),
+        (None, "bell", "Alerts and Undo",
+         "The bell keeps every alert and pop-up. Changes today (Ctrl+Shift+Z) lists today's "
+         "changes with Undo. While commands run, a “running” chip appears next to it."),
+        (None, "output", "Output",
+         "The output panel starts hidden – pop-ups tell you what happened. Show output (or "
+         "Ctrl+L) opens it when you want the details."),
         ("Workflows", "page", "Workflows",
-         "Step-by-step helpers: new staff, staff leaving, year-end rollover and "
-         "Chromebook check-in/out."),
-        ("Roster sync", "page", "Roster sync",
-         "Load your ClassLink (OneRoster) or other SIS export, preview the changes, then "
-         "apply them and print password cards."),
-        ("Command Builder", "page", "Command Builder",
-         "Every GAM command as a fill-in form, with a live preview. Save favourites and "
-         "templates, and schedule them."),
-        (None, "bottom", "Output and Jobs",
-         "Every command shows its output here. Jobs lists everything running in the "
-         "background – cancel or re-run from there."),
-        ("Activity log", "page", "Activity log",
-         "A record of every change: who, when and whether it worked – with Undo for most "
-         "changes."),
-        (None, "profile", "Domains and help-desk mode",
-         "Switch between domains here. Help-desk mode (in Settings) hides risky actions "
-         "so office staff can use GAMbit safely."),
+         "Step-by-step jobs: new staff, staff leaving, year-end rollover. Each one ends with "
+         "a Review step that lists exactly what will happen before anything runs."),
+        (None, "profile", "Domains, help-desk mode and help",
+         "The domain chip switches between domains (the dot shows the connection). "
+         "Help-desk mode hides risky actions. F1 opens the Guide for the page you're on."),
     ]
 
     def __init__(self, app):
@@ -1469,10 +1585,25 @@ class Tour:
 
     def _target(self, key):
         a = self.app
-        return {"nav": a.nav, "gsearch": a.gsearch, "bottom": a.bottom_tabs,
-                "profile": a.profile_box,
-                "tiles": a.pages["Home"].t.get("accounts") if "Home" in a.pages else None,
-                "page": a.current_page()}.get(key)
+        home = a.pages.get("Home") if hasattr(a, "pages") else None
+
+        def users_table():
+            u = a.pages.get("Users")
+            return getattr(u, "results", None) if u is not None else None
+        targets = {
+            "nav": lambda: a.nav, "gsearch": lambda: a.gsearch,
+            "bottom": lambda: a.bottom_tabs, "profile": lambda: a.profile_box,
+            "tiles": lambda: home.t.get("accounts") if home is not None else None,
+            "lookup": lambda: getattr(home, "q_person", None),
+            "customize": lambda: getattr(home, "cust_btn", None),
+            "table": users_table, "dry": lambda: a.dry_btn, "bell": lambda: a.bell_btn,
+            "output": lambda: getattr(a, "out_toggle", None),
+            "page": lambda: a.current_page()}
+        fn = targets.get(key)
+        try:
+            return fn() if fn else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def _unstyle(self):
         if self._styled is not None:
@@ -1491,6 +1622,14 @@ class Tour:
         page, key, title, text = self.STEPS[self.i]
         if page and page in self.app.pages:
             self.app.go(page)
+        if key == "table":                    # show a tab that has the results table
+            u = self.app.pages.get("Users")
+            from PySide6.QtWidgets import QTabWidget
+            tw = u.findChild(QTabWidget) if u is not None else None
+            if tw is not None:
+                for i in range(tw.count()):
+                    if tw.tabText(i) == "Find / list users":
+                        tw.setCurrentIndex(i)
         self._unstyle()
         w = self._target(key)
         if w is not None and key != "page":

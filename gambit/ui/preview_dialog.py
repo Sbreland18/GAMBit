@@ -48,11 +48,23 @@ class BigChangeDialog(QDialog):
         if emails:
             save = bb.addButton("Save list…", QDialogButtonBox.ActionRole)
             save.clicked.connect(self._save)
+        self.later = False
+        self.later_btn = bb.addButton(f"Run tonight at {self.LATER_HOUR - 12} PM",
+                                      QDialogButtonBox.ActionRole)
+        self.later_btn.setToolTip("Queue it for after school (Run later & freezes). Nothing "
+                                  "changes now.")
+        self.later_btn.clicked.connect(self._run_later)
         bb.addButton(QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
         self.confirm.setFocus()
+
+    LATER_HOUR = 18
+
+    def _run_later(self):
+        self.later = True
+        self.done(2)
 
     def _filter(self, text):
         t = text.lower().strip()

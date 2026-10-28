@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import csv
 import io
 import traceback
@@ -313,7 +315,10 @@ class _RowsModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role == Qt.ToolTipRole and orientation == Qt.Horizontal and \
                 section < len(self.headers):
-            return self.headers[section]
+            from .glossary import explain
+            h = self.headers[section]
+            tip = explain(h)
+            return f"{h}\n\n{tip}" if tip else h
         if role == Qt.DisplayRole:
             if orientation == Qt.Horizontal and section < len(self.headers):
                 return nice_header(self.headers[section])
@@ -593,6 +598,8 @@ class ResultsTable(QWidget):
         finally:
             self.table.setUpdatesEnabled(True)
         self._apply_columns()
+        if headers and getattr(self, "_pending_view", None):
+            self._use_view(self._pending_view)
         if headers or rows:
             self.states.loaded_once = True
         self.states.loading(False)
@@ -680,10 +687,118 @@ class ResultsTable(QWidget):
             a.setChecked(d == key)
             a.triggered.connect(lambda _=False, k=key: self.set_density(k))
         m.addSeparator()
+        views = self.views()
+        vm = m.addMenu("Saved views")
+        vm.setEnabled(bool(views))
+        for v in views:
+            vm.addAction(v["name"], lambda v=v: self.apply_view(v))
+        m.addAction("Save this view…", self.save_view).setEnabled(bool(self._headers))
+        if views:
+            dm = m.addMenu("Delete a view")
+            for v in views:
+                dm.addAction(v["name"], lambda v=v: self.delete_view(v))
+        m.addAction("Print or save as PDF…", self.print_table).setEnabled(
+            self.row_count() > 0)
+        m.addSeparator()
         a = m.addAction("Columns…", self.choose_columns)
         a.setEnabled(bool(self._headers))
         a = m.addAction("Reset columns", self.reset_columns)
         a.setEnabled(bool(self._cols_pref()))
+
+    # ---- saved views (filter + columns + sort, per page) ----
+    def _views_key(self) -> str:
+        return f"views/{self._title()}"
+
+    def _table_index(self) -> int:
+        page = self.parentWidget()
+        while page is not None and not isinstance(page, Page):
+            page = page.parentWidget()
+        if page is None:
+            return 0
+        tables = page.findChildren(ResultsTable)
+        return tables.index(self) if self in tables else 0
+
+    def views(self) -> list[dict]:
+        import json
+        from ..settings import settings
+        try:
+            v = json.loads(settings.get(self._views_key(), "[]") or "[]")
+        except ValueError:
+            v = []
+        return [x for x in v if isinstance(x, dict) and x.get("table", 0) ==
+                self._table_index()]
+
+    def _all_views(self) -> list[dict]:
+        import json
+        from ..settings import settings
+        try:
+            v = json.loads(settings.get(self._views_key(), "[]") or "[]")
+        except ValueError:
+            v = []
+        return [x for x in v if isinstance(x, dict)]
+
+    def save_view(self, name: str | None = None):
+        import json
+        import uuid
+        from PySide6.QtWidgets import QInputDialog
+        from ..settings import settings
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Save this view",
+                                            "Name (e.g. “7th grade, not signed in”):")
+            if not ok or not name.strip():
+                return None
+        hh = self.table.horizontalHeader()
+        order = [self._headers[hh.logicalIndex(i)] for i in range(hh.count())
+                 if hh.logicalIndex(i) < len(self._headers)]
+        hidden = [h for c, h in enumerate(self._headers) if self.table.isColumnHidden(c)]
+        col, ordr = self._sort
+        v = {"id": uuid.uuid4().hex[:8], "name": name.strip(), "table": self._table_index(),
+             "page": self._title(), "filter": self.filter.text(), "order": order,
+             "hidden": hidden,
+             "sort": [self._headers[col] if 0 <= col < len(self._headers) else "",
+                      "desc" if ordr == Qt.DescendingOrder else "asc"]}
+        views = [x for x in self._all_views() if not (x.get("name") == v["name"] and
+                                                       x.get("table") == v["table"])]
+        settings.set(self._views_key(), json.dumps(views + [v]))
+        win = self.window()
+        if hasattr(win, "toasts"):
+            win.toasts.show(f"Saved view “{v['name']}”", "ok", "Add to Home",
+                            lambda: win.add_view_favorite(v), ms=7000, remember=False)
+        return v
+
+    def delete_view(self, v: dict):
+        import json
+        from ..settings import settings
+        settings.set(self._views_key(), json.dumps(
+            [x for x in self._all_views() if x.get("id") != v.get("id")]))
+
+    def apply_view(self, v: dict):
+        """Filter, columns and sort from a saved view (now, or when rows arrive)."""
+        self._pending_view = v
+        self.filter.setText(v.get("filter", ""))
+        if self._headers:
+            self._use_view(v)
+
+    def _use_view(self, v: dict):
+        self._pending_view = None
+        low = [h.lower() for h in self._headers]
+        order = [h for h in v.get("order", []) if h.lower() in low]
+        hidden = [h for h in v.get("hidden", []) if h.lower() in low]
+        if order or hidden:
+            self._save_cols(order or list(self._headers), hidden)
+            for c, h in enumerate(self._headers):
+                self.table.setColumnHidden(c, h in hidden)
+            self._apply_columns()
+        name, how = (v.get("sort") or ["", "asc"])[:2]
+        if name and name.lower() in low:
+            self.sort_by(low.index(name.lower()),
+                         Qt.DescendingOrder if how == "desc" else Qt.AscendingOrder)
+        self._apply_filter(self.filter.text())
+
+    # ---- print / PDF ----
+    def print_table(self):
+        from .table_print import print_table
+        print_table(self)
 
     def reset_columns(self):
         from ..settings import settings
@@ -756,10 +871,16 @@ class ResultsTable(QWidget):
         t = e.type()
         if obj is self.table.viewport():
             if t == QEvent.MouseMove:
-                self._hover_copy(e.position().toPoint())
-            elif t == QEvent.Leave and self._copy_btn is not None:
-                if not self._copy_btn.underMouse():
+                pos = e.position().toPoint()
+                self._hover_row(pos)
+                self._hover_copy(pos)
+            elif t == QEvent.Leave:
+                if self._copy_btn is not None and not self._copy_btn.underMouse():
                     self._copy_btn.hide()
+                bar = getattr(self, "_row_bar", None)
+                if bar is not None and not bar.underMouse():
+                    bar.hide()
+                    self._bar_row = -1
         elif obj is self.table and t == QEvent.KeyPress and \
                 e.key() in (Qt.Key_Return, Qt.Key_Enter) and e.modifiers() == Qt.NoModifier:
             idx = self.table.currentIndex()
@@ -774,6 +895,75 @@ class ResultsTable(QWidget):
                     win.show_details(row)
                 return True
         return False
+
+    ROW_PICK = (("Open", "eye"), ("Reset password", "key"), ("Sign out of all", "login"),
+                ("Re-enable", "check-circle"), ("Disable", "x-circle"))
+
+    def _row_actions(self, row: dict):
+        win = self.window()
+        if not hasattr(win, "context_actions"):
+            return []
+        try:
+            acts = [a for a in win.context_actions([row]) if a[0] != "-" and a[1]]
+        except Exception:  # noqa: BLE001
+            return []
+        out = []
+        for key, ic in self.ROW_PICK:
+            a = next((a for a in acts if a[0].startswith(key)), None)
+            if a is not None:
+                out.append((a[0], ic, a[1]))
+            if len(out) == 3:
+                break
+        return out
+
+    def _hover_row(self, pos):
+        """Small buttons at the end of the row under the mouse (Open, Reset password…)."""
+        if getattr(self, "no_row_actions", False):
+            return
+        idx = self.table.indexAt(pos)
+        bar = getattr(self, "_row_bar", None)
+        if not idx.isValid():
+            if bar is not None:
+                bar.hide()
+                self._bar_row = -1
+            return
+        if idx.row() == getattr(self, "_bar_row", -1) and bar is not None and bar.isVisible():
+            return
+        self._bar_row = idx.row()
+        acts = self._row_actions(self.row_dict(idx.row()))
+        if not acts:
+            if bar is not None:
+                bar.hide()
+            return
+        from PySide6.QtWidgets import QToolButton
+        from .icons import set_icon
+        if bar is None:
+            bar = QFrame(self.table.viewport(), objectName="RowActions")
+            bar.setAttribute(Qt.WA_StyledBackground, True)
+            QHBoxLayout(bar).setContentsMargins(4, 2, 4, 2)
+            self._row_bar = bar
+        lay = bar.layout()
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        for label, ic, fn in acts:
+            b = QToolButton(objectName="RowActionBtn")
+            set_icon(b, ic, None, 16)
+            short = label.rstrip("…").split(" for ")[0]
+            b.setToolTip(short)
+            b.setAccessibleName(short)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(fn)
+            lay.addWidget(b)
+        vp = self.table.viewport()
+        r = self.table.visualRect(idx)
+        bar.adjustSize()
+        h = min(r.height() - 4, 30)
+        bar.setFixedHeight(h)
+        bar.move(vp.width() - bar.sizeHint().width() - 8, r.top() + (r.height() - h) // 2)
+        bar.show()
+        bar.raise_()
 
     def _hover_copy(self, pos):
         idx = self.table.indexAt(pos)
@@ -797,6 +987,9 @@ class ResultsTable(QWidget):
         size = min(26, r.height() - 4)
         b.setFixedSize(size, size)
         b.move(r.right() - size - 4, r.top() + (r.height() - size) // 2)
+        bar = getattr(self, "_row_bar", None)
+        if bar is not None and bar.isVisible() and bar.geometry().intersects(b.geometry()):
+            b.move(bar.x() - size - 4, b.y())         # sit just left of the row buttons
         b.show()
         b.raise_()
 
@@ -1120,10 +1313,12 @@ class Page(QWidget):
         except Exception as exc:  # noqa: BLE001 – one broken page mustn't stop GAMbit
             build_failed(self.body, self, exc)
         try:
-            from . import a11y, forms, tabs, unsaved
+            from . import a11y, forms, glossary, tabs, unsaved
             tabs.enhance(self)
             forms.cap_fields(self)
+            forms.polish_tables(self)
             a11y.name_buttons(self)
+            glossary.annotate(self)
             if self.title:
                 unsaved.remember_tabs(self, self.title)
         except Exception:  # noqa: BLE001 – looks only
@@ -1230,8 +1425,34 @@ class Page(QWidget):
         from .field_errors import check_fields
         return check_fields(fields, emails)
 
+    NUDGE_RE = re.compile(r"^(choose|pick|type|enter|fill in|select|paste|please (choose|"
+                          r"type|enter|pick|select))\b", re.I)
+
     def info(self, text: str, title="GAMbit"):
+        """Messages. A short “Choose the person first.” kind of message goes on the field it's
+        about (red outline + note) – or, when that isn't clear, a small pop-up – instead of
+        a window you have to click away."""
+        t = (text or "").strip()
+        if title == "GAMbit" and len(t) < 160 and "\n" not in t and self.NUDGE_RE.match(t):
+            try:
+                if self._nudge(t):
+                    return
+            except Exception:  # noqa: BLE001 – fall back to the normal message
+                pass
         QMessageBox.information(self, title, text)
+
+    def _nudge(self, text: str) -> bool:
+        from .field_errors import show_error
+        target = None if text.lower().startswith(("select", "please select")) else \
+            guess_field(self, text)
+        if target is not None:
+            show_error(target, text)
+            return True
+        win = self.window()
+        if hasattr(win, "toasts"):
+            win.toasts.show(text, "warn", ms=6000, remember=False)
+            return True
+        return False
 
     @staticmethod
     def group(title: str) -> tuple[QGroupBox, QFormLayout]:
@@ -1244,13 +1465,100 @@ class Page(QWidget):
 
     @staticmethod
     def row(*widgets, stretch=True) -> QHBoxLayout:
+        from PySide6.QtWidgets import QAbstractButton
         h = QHBoxLayout()
         h.setSpacing(8)
         for w in widgets:
             h.addWidget(w)
-        if stretch:
-            h.addStretch(1)
+        if stretch or (widgets and all(isinstance(w, QAbstractButton) for w in widgets)):
+            h.addStretch(1)            # a row of only buttons never stretches them
         return h
+
+
+_SYN = {"person": ("email", "person", "name", "user", "student", "staff", "owner",
+                    "teacher", "account", "who", "mailbox", "member"),
+        "org": ("org", "unit", "ou", "/"), "file": ("file", "csv", "spreadsheet", "path"),
+        "serial": ("serial", "asset", "chromebook", "device"),
+        "group": ("group",), "domain": ("domain",), "name": ("name",)}
+
+
+def _field_words(w) -> str:
+    from .field_errors import _form_slot
+    bits = []
+    for name in ("placeholderText", "toolTip", "accessibleName"):
+        f = getattr(w, name, None)
+        if callable(f):
+            bits.append(f() or "")
+    inner = getattr(w, "combo", None)
+    if inner is not None and inner.lineEdit() is not None:
+        bits.append(inner.lineEdit().placeholderText())
+    form, row = _form_slot(w)
+    if form is not None and row >= 0:
+        it = form.itemAt(row, QFormLayout.LabelRole)
+        if it is not None and isinstance(it.widget(), QLabel):
+            bits.append(re.sub(r"<[^>]+>", " ", it.widget().text()))
+    if w.__class__.__name__ == "OUField":
+        bits.append("org unit ou")
+    if w.__class__.__name__ in ("PersonField", "PeoplePicker"):
+        bits.append("person email name student staff")
+    return " ".join(bits).lower()
+
+
+GENERIC_WORDS = {"the", "first", "choose", "pick", "type", "enter", "fill", "and", "for",
+                 "please", "select", "paste", "new", "one", "two", "email", "address",
+                 "full", "this", "that", "who", "applies", "different"}
+
+
+def guess_field(page, text: str):
+    """The input on the visible part of `page` that a message like “Choose the owner
+    first.” is about – or None when it isn't clear (then a small pop-up is used instead).
+    It only picks a box whose label or hint shares a real word with the message, or the
+    single empty box on screen."""
+    from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
+    all_words = set(re.findall(r"[a-z]+", text.lower()))
+    words = {x for x in all_words if len(x) > 2} - GENERIC_WORDS
+    cands = []
+    for w in page.findChildren(QWidget):
+        if not w.isVisible() or not w.isEnabled():
+            continue
+        cls = w.__class__.__name__
+        if cls == "OUField":
+            cands.append((w, not w.path()))
+            continue
+        if not isinstance(w, QLineEdit) or w.isReadOnly():
+            continue
+        p = w.parentWidget()
+        if isinstance(p, (QComboBox, QAbstractSpinBox)):
+            continue
+        skip = False
+        while p is not None and p is not page:
+            if isinstance(p, ResultsTable) or p.__class__.__name__ in ("OUField",
+                                                                       "BigSearch"):
+                skip = True
+                break
+            p = p.parentWidget()
+        if not skip:
+            cands.append((w, not w.text().strip()))
+    if not cands:
+        return None
+
+    def strong(w):
+        hay = _field_words(w)
+        return sum(1 for x in words if re.search(rf"\b{re.escape(x)}", hay))
+
+    def soft(w):
+        hay = _field_words(w)
+        return sum(1 for syn in _SYN.values()
+                   if any(x in all_words for x in syn) and any(x in hay for x in syn))
+    ranked = sorted(cands, key=lambda c: (strong(c[0]), c[1], soft(c[0])), reverse=True)
+    top, empty = ranked[0]
+    if strong(top) > 0 and (len(ranked) == 1 or
+                            (strong(top), empty) > (strong(ranked[1][0]), ranked[1][1])):
+        return top
+    empties = [w for w, e in cands if e]
+    if len(empties) == 1 and soft(empties[0]) > 0:
+        return empties[0]
+    return None
 
 
 def classlink_button(field, after=None, parent=None):

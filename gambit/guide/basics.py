@@ -50,6 +50,54 @@ opens the full page. Turn it off in Settings & Updates → Appearance → *Detai
 - The **ticket** icon in the top bar (when a help desk is connected): click it to paste
   the ticket you're working on; it then shows “#1234”.
 
+## First-day checklist
+On a new PC (or for a new tech) Home starts with a **First-day checklist**: connect GAM,
+load the lists, map your schools, set a test account and org unit, try a dry run, pin your
+pages, set up the background tasks and (optionally) a team folder. Each item ticks itself
+off when GAMbit sees it's done; *Hide the checklist* puts it away (Customize → Add a box
+brings it back). **Take the tour** walks through the main parts of the window.
+
+## Short messages on the form
+Messages like “Choose the person first.” now show on the box they're about (red outline
+and a note under it) – or as a small pop-up when it isn't clear which box – instead of a
+window you have to click away.
+
+## What's next, paste a list, row buttons
+- After **creating an account** (Users or New staff) the result window offers the usual
+  follow-ups: open the person, print the account card (or welcome sheet), add to a class,
+  create another. After **suspending** from a table or the details panel, the pop-up's
+  *Next steps* offers moving them, transferring their files and signing them out.
+- **Paste a list…** (next to any list of people, and the Chromebook serial box): paste a
+  spreadsheet column of emails, names, student IDs, serials or asset tags. GAMbit shows
+  what it found and what it couldn't match before anything is added.
+- Hover a row in a people or Chromebook table for small **Open / Reset password / Sign out**
+  (or **Re-enable / Disable**) buttons at its right end.
+
+## Changes today and Undo
+The bell → **Changes today** (Ctrl+Shift+Z) lists every change from today (yours, or the
+team's with the tick box), each with **Undo** when GAMbit saved the earlier state.
+
+## Run tonight
+The “Big change – please check” window has **Run tonight at 6 PM**: the change goes into
+*Run later & freezes* and runs from GAMbit's background task (Schedules → Setup & health)
+– nothing changes now.
+
+## Simple mode
+Settings & Updates → Appearance → **Simple mode**: Home becomes six big buttons (reset a
+password, unlock, fix sign-in, print a card, find a Chromebook, ticket queue) and the
+sidebar shows only those pages. **Leave simple mode** in the top bar turns it off. Use it
+with Help-desk mode (PIN) to also lock away risky actions.
+
+## Jargon help
+A small **ⓘ** after labels like *Org unit*, *License* or *Asset ID* explains the term
+(hover or click). Table headings explain themselves on hover too.
+
+## Saved views and printing
+The list button on a table: **Save this view…** keeps the filter, columns and sort under a
+name (*Saved views* brings it back; the pop-up's *Add to Home* pins it to Home favorites).
+**Print or save as PDF…** prints the table with your district, the page, the date and the
+filter used.
+
 ## Running jobs
 While GAM commands are working, the top bar shows **“2 running”** (or “45% · 1,200 of
 4,640” for one big job). Click it to see each job's progress and time, **Stop** one, **Stop
@@ -95,15 +143,17 @@ title to show that page's tip once. Confirmations use clear buttons – risky on
 delete, wipe…) are red.
 
 ## My pages and the sidebar
-- Right-click any page → **📌 Pin to My pages**. Pinned pages sit at the top of the sidebar,
+- Right-click any page → **Pin to My pages**. Pinned pages sit at the top of the sidebar,
   with the pages you use most underneath (right-click → *Hide my most-used pages* to turn
   that off). Ctrl+Shift+P pins the page you're on.
 - Click a section heading (People, Devices…) to fold it. Right-click → *Fold all sections*.
+  Pages in My pages aren't listed twice, and other sections fold as you move around
+  (right-click the sidebar to change either).
 - With GAMbit sign-in or team roles, people only see the pages their role allows.
 
 ## Home
-**⚙ Customize Home…** chooses the boxes, their order, your quick actions, number tiles and
-links. Techs who mostly help people might keep *Quick look-up*, *Recently viewed*, *Quick
+**Customize** (top right of Home) lets you drag boxes, remove them (✕) or *Add a box*;
+*More options…* picks your quick actions, number tiles and links. *Done* finishes. Techs who mostly help people might keep *Quick look-up*, *Recently viewed*, *Quick
 actions* and *My open tickets*.
 
 ## The tray and desktop alerts
@@ -113,7 +163,7 @@ fails, and when a new approval request arrives. Quit from the tray icon's menu. 
 turned off in Settings & Updates → Appearance and safety.
 
 ## Practice mode (for new techs)
-**🎓 Practice** in the top bar: changes to the test account and the test org unit
+**Practice** (the graduation-cap button in the top bar): changes to the test account and the test org unit
 (Settings & Updates → Testing) run for real, everything else is a dry run – so a new tech
 can do whole jobs safely.
 
@@ -148,10 +198,10 @@ usually be undone.
 - **Tools** – the Command Builder, Bulk (CSV), Console, Diagnostics, Ask GAMbit, Settings.
 
 ## Three things to know first
-1. Turn on **🧪 Dry run** (top bar) whenever you want to see what would happen without
-   changing anything.
-2. Every results table can be filtered, sorted, saved as CSV or sent to a **Google Sheet**,
-   and right-clicked for quick actions.
+1. Turn on **Dry run** (the flask button in the top bar – it says *Dry run is ON* while on)
+   whenever you want to see what would happen without changing anything.
+2. Every results table can be filtered, sorted, saved as CSV or sent to a **Google Sheet**.
+   Click a row for the details panel, hover it for quick buttons, right-click for more.
 3. Press **F1** on any page to open this guide at that page.
 """),
     ("setup", "First-time setup", "install setup wizard oauth project service account "
@@ -215,7 +265,7 @@ With a team folder, the map is shared with every technician.
 """),
     ("helper", "The Helper (offline assistant)", "helper assistant chat ask question plain "
      "english ai local ai walkthrough walk me through command suggest f2", """
-Click **💬 Helper** in the top bar (or press **F2**). Type the way you'd say it – typos are
+Click **Helper** (the speech-bubble button in the top bar) or press **F2**. Type the way you'd say it – typos are
 fine.
 
 ## What it does
@@ -235,7 +285,7 @@ approvals. Commands that change things ask first. *✔ checked against GAM* mean
 GAM's own command reference.
 
 ## Local AI (optional)
-Click **⚙** in the Helper. A free AI model can run on this PC to answer open questions in
+Click the **settings** button in the Helper. A free AI model can run on this PC to answer open questions in
 its own words. Nothing leaves the computer. It needs a one-time download (about 2 GB, or
 1 GB for the small model) and 8 GB of memory for the standard model. You can also copy the
 files in from another PC, or use Ollama if it's installed. Commands the AI writes are
@@ -244,7 +294,7 @@ checked against GAM too, but read them before you run them.
     ("safe", "Trying things safely", "dry run test account practice run preview big change "
      "safe testing", """
 ## Dry run
-Turn on **🧪 Dry run** in the top bar. Look-ups still run, but every command that would
+Turn on **Dry run** (flask button) in the top bar. Look-ups still run, but every command that would
 change something is listed in the **Dry run** tab at the bottom instead of running. You can
 copy or save that list.
 
@@ -379,7 +429,7 @@ problem reports.
 """),
     ("help", "Getting help and reporting problems", "help problem report diagnostics error "
      "support crash", """
-- **Plain-English errors**: common GAM errors show a 💡 hint in the Output panel.
+- **Plain-English errors**: common GAM errors show a *Tip:* line in the output (Show output).
 - **Explain** (Console, Activity log, Ctrl+E) breaks any GAM command into plain English.
 - **Tools → Diagnostics** checks every service GAMbit uses and suggests fixes.
 - **Tools → Live test** proves each feature works on your test account.

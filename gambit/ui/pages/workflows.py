@@ -333,10 +333,19 @@ class WorkflowsPage(Page):
 
         def finished(_steps):
             ok = _steps[0].status == "ok"
-            self.info(self.ns_steps.summary(), "New staff")
+            if not ok:
+                self.info(self.ns_steps.summary(), "New staff")
             if ok:
                 self.directory.refresh_users()
-                self._ns_sheet()
+                from ..next_steps import NextSteps, for_new_account
+                failed = [s.label for s in _steps if s.status == "fail"]
+                note = ("<br><br>These didn't work: " + "; ".join(failed)) if failed else ""
+                NextSteps(self, "New staff account ready",
+                          f"<b>{email}</b> is set up ({len(_steps)} step(s)).<br>Temporary "
+                          f"password: <b>{pw}</b>{note}",
+                          for_new_account(self.app, email, sheet=self._ns_sheet) +
+                          [("Set up another", lambda: self.ns_first.setFocus())],
+                          copy_text=pw, ok=not failed).run()
                 for wdg in (self.ns_first, self.ns_last, self.ns_email, self.ns_title,
                             self.ns_dept):
                     wdg.clear()

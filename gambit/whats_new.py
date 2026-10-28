@@ -14,6 +14,34 @@ SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
     # ----- this round
+    {"id": "first-day", "title": "First-day checklist",
+     "text": "Home shows a short checklist for a new PC or a new tech – connect GAM, map "
+             "schools, set a test account, try a dry run, pin pages, background tasks. Each "
+             "item ticks itself off. The tour is updated for the new look too.",
+     "page": "Home"},
+    {"id": "jobs-fix", "title": "Running jobs pop-up fixed",
+     "text": "Clicking “1 running” no longer freezes GAMbit – the job list is now a light "
+             "pop-up that updates while it's open.", "page": ""},
+    {"id": "next-steps", "title": "What's next?",
+     "text": "After creating an account GAMbit offers the usual follow-ups – print the card, "
+             "open the person, add them to a class. After suspending: move, transfer their "
+             "files, sign out.", "page": "Users"},
+    {"id": "paste-list", "title": "Paste a list",
+     "text": "Paste a column of emails, names or student IDs (or Chromebook serials) into "
+             "Paste a list… – GAMbit matches each one and shows what it couldn't.",
+     "page": ""},
+    {"id": "row-actions", "title": "Buttons on table rows",
+     "text": "Hover a row for Open, Reset password and more at its right end.", "page": ""},
+    {"id": "changes-today", "title": "Undo anything from today",
+     "text": "The bell → Changes today (Ctrl+Shift+Z) lists today's changes, each with Undo "
+             "when GAMbit knows how to put it back.", "page": ""},
+    {"id": "simple-mode", "title": "Simple mode",
+     "text": "Six big buttons for everyday jobs and a short sidebar – for staff who don't "
+             "need everything. Settings & Updates → Appearance.", "page": "Settings & Updates"},
+    {"id": "views-print", "title": "Saved views, printouts and tonight",
+     "text": "Save a table's filter, columns and sort as a view (and pin it to Home), print "
+             "or save any table as a PDF, and queue big changes to run tonight at 6 PM.",
+     "page": ""},
     {"id": "jobs-chip", "title": "See what's running",
      "text": "While GAM commands work, the top bar shows “2 running” (or a percentage). Click "
              "it for each job's progress, how long it's taken and a Stop button.", "page": ""},

@@ -454,6 +454,11 @@ class PeoplePicker(QWidget):
         bottom = QHBoxLayout()
         bottom.setContentsMargins(0, 0, 0, 0)
         bottom.addWidget(self.hint, 1)
+        self.include_groups = include_groups
+        paste = button("Paste a list…", slot=self._paste_list)
+        paste.setToolTip("Paste emails, names or student IDs from a spreadsheet – GAMbit "
+                         "matches each one and shows what it couldn't")
+        bottom.addWidget(paste)
         bottom.addWidget(button("Remove from list", slot=self._remove_selected))
         bottom.addWidget(button("Clear", slot=self.clear))
         lay = QVBoxLayout(self)
@@ -498,6 +503,12 @@ class PeoplePicker(QWidget):
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, self.search.clear)
         self._update_hint()
+
+    def _paste_list(self):
+        from .paste_list import paste_people
+        got = paste_people(self, self.d, self.include_groups)
+        if got:
+            self._add_text(" ".join(got))
 
     def _remove_selected(self):
         for it in self.list.selectedItems():

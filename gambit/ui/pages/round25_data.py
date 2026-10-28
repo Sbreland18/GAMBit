@@ -204,7 +204,11 @@ class FillFromSISTab(ToolTab):
         box, v = self.page.group("Which roster column goes into which field")
         self.grid = QTableWidget(0, 3)
         self.grid.setHorizontalHeaderLabels(["Custom field", "Roster column", "Write it as"])
-        self.grid.horizontalHeader().setStretchLastSection(True)
+        from PySide6.QtWidgets import QHeaderView
+        gh = self.grid.horizontalHeader()
+        gh.setSectionResizeMode(0, QHeaderView.Stretch)   # readable field and column names
+        gh.setSectionResizeMode(1, QHeaderView.Stretch)
+        gh.setSectionResizeMode(2, QHeaderView.Stretch)
         self.grid.setMinimumHeight(200)
         v.addRow(self.grid)
         self.clear_blank = QCheckBox("Blank the field when the roster has no value")

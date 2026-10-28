@@ -25,7 +25,7 @@ SECTIONS = {
     "links": "My links",
     "whatsnew": "What's new",
     "scorecard": "District scorecard",
-    "started": "Getting started",
+    "started": "First-day checklist",
 }
 ADMIN_DEFAULT = ["lookup", "attention", "glance", "recent", "jobs", "quick", "favorites",
                  "status", "scorecard", "started"]

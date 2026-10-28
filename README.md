@@ -438,6 +438,14 @@ Every district's custom schemas are different, so GAMbit reads yours from Google
 ## Making GAMbit yours
 
 - **Modern look:** light and dark themes built from one set of colours, an **accent colour** (Settings & Updates → Appearance), line icons, an **icon-only sidebar** (button at the bottom of the sidebar), coloured status pills in tables, a selection bar for two or more rows, a person header with status chips on Student lookup, and a Windows 11 title bar that matches the theme with rounded corners.
+- **First-day checklist** on Home (connect GAM, lists, schools, test account, dry run, pins, background tasks, team folder – each ticks itself off) and an updated **tour**.
+- **Consistency pass:** “Choose … first” messages show on the matching field (or a small pop-up), older tables match the new ones (no grid, taller rows, left headings), rows of buttons never stretch, help-desk status only announced when it changes.
+- **What's next** after creating accounts (open, print card / welcome sheet, add to a class) and after suspending (move, transfer files, sign out).
+- **Paste a list** for people pickers (emails, names, “Last, First”, student IDs – unmatched and ambiguous shown) and Chromebook serials/asset tags (checked against the fleet list).
+- **Row quick actions** on hover (Open, Reset password, Sign out / Re-enable, Disable).
+- **Changes today** (bell, Ctrl+Shift+Z) with per-change Undo; **Run tonight at 6 PM** on big changes (Run later queue).
+- **Simple mode** (Appearance): six big task buttons on Home and a short sidebar.
+- **Jargon ⓘ** on form labels and table headings; **saved table views** (pin to Home); **print / PDF** any table with a header.
 - **Running-jobs chip** in the top bar (count or %); click for progress, time and Stop / Stop all.
 - **Friendly values** in tables (“Oct 12, 2026 (16 days ago)”, Yes/No; exact value on hover, in exports and actions), copy button on hover for emails/serials/asset tags, Enter opens a row.
 - **Forms:** org unit drop-down (search, schools/grades, people counts, recently used), errors shown on the field (red outline + note), step-by-step Create a user and New staff with a Review step (plan + GAM commands), and a “Leave without saving?” check.

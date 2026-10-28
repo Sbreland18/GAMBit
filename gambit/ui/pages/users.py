@@ -388,11 +388,18 @@ class UsersPage(Page):
         plan = self._c_plan(pw)
         first, rest = plan[0], plan[1:]
 
+        def finished(note=""):
+            from ..next_steps import NextSteps, for_new_account
+            self._c_reset()
+            acts = for_new_account(self.app, email) + [
+                ("Create another", lambda: self.c_first.setFocus())]
+            NextSteps(self, "User created",
+                      f"Created <b>{email}</b>.<br>Temporary password: <b>{pw}</b>{note}",
+                      acts, copy_text=pw, ok=not note).run()
+
         def extras_done(codes, _outs):
             bad = [plan[1 + n][0] for n, c in enumerate(codes) if c != 0]
-            note = ("\n\nThese didn't work: " + "; ".join(bad)) if bad else ""
-            self.info(f"Created {email}.\n\nTemporary password: {pw}{note}", "User created")
-            self._c_reset()
+            finished(("<br><br>These didn't work: " + "; ".join(bad)) if bad else "")
 
         def done(code, _o, _e):
             if code != 0:
@@ -400,8 +407,7 @@ class UsersPage(Page):
             if rest:
                 self.run_many([a for _w, a, _c in rest], extras_done, with_codes=True)
             else:
-                self.info(f"Created {email}.\n\nTemporary password: {pw}", "User created")
-                self._c_reset()
+                finished()
         self.run(first[1], done)
 
     def _c_reset(self):

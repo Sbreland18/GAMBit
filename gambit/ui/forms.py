@@ -82,3 +82,27 @@ def cap_fields(page) -> int:
                 lay.setStretchFactor(w, 1)          # grows up to its cap…
             lay.addStretch(1)                       # …then the row stops there
     return n
+
+
+def polish_tables(page) -> int:
+    """Older grid tables (QTableWidget) get the same look as result tables: no grid lines,
+    taller rows, left-aligned headings that aren't cut in the middle."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QTableWidget
+    n = 0
+    for t in page.findChildren(QTableWidget):
+        if t.property("_gb_polished"):
+            continue
+        t.setProperty("_gb_polished", True)
+        t.setShowGrid(False)
+        t.setAlternatingRowColors(False)
+        t.setWordWrap(False)
+        vh = t.verticalHeader()
+        if vh.defaultSectionSize() < 34:
+            vh.setDefaultSectionSize(36)
+        hh = t.horizontalHeader()
+        hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        hh.setTextElideMode(Qt.ElideRight)
+        hh.setMinimumSectionSize(60)
+        n += 1
+    return n

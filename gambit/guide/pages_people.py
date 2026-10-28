@@ -4,11 +4,12 @@ PAGES = {
     "Home": dict(
         what="The district at a glance: account, license and Chromebook numbers, security "
              "alerts, failed jobs, favorites, quick actions and the weekly scorecard.",
-        steps=["**⚙ Customize Home…** (top right) chooses which boxes Home shows and in what "
-               "order: quick look-up, recently viewed, favorites, quick actions, waiting for "
-               "approval, my open tickets, my notes, my links, background jobs, the numbers, "
-               "the scorecard, what's new. Pick your quick actions, number tiles and links "
-               "there too. It's just for you; *Reset to the default* puts it back.",
+        steps=["**Customize** (top right): drag boxes by ⠿ to move them, ✕ to remove, *Add a "
+               "box* to bring one back (quick look-up, recently viewed, favorites, quick "
+               "actions, waiting for approval, my open tickets, notes, links, background jobs, "
+               "the numbers, the scorecard, what's new). *More options…* picks your quick "
+               "actions, number tiles and links. It's just for you; *Reset to the default* "
+               "(in More options) puts it back.",
                "**Quick look-up**: type a person (or a Chromebook serial / asset ID) and press "
                "Enter; *Check everything* runs the full check on that person.",
                "**Recently viewed** lists the last people, Chromebooks, groups and org units "
@@ -128,7 +129,7 @@ PAGES = {
                                         "new accounts.",
         },
         tips=["Limited roles send suspensions and deletions to Approvals automatically.",
-              "Passwords are masked in the Output panel and the activity log."],
+              "Passwords are masked in the output and the activity log."],
         commands=["gam info user <email>", "gam update user <email> password … "
                   "changepassword on", "gam update user <email> suspended on|off",
                   "gam user <email> signout", "gam create alias <alias> user <email>",

@@ -110,15 +110,25 @@ class DevicesPage(Page):
         self.tabs.addTab(self.commands_tab, "Send a command")
         self.body.addWidget(self.tabs)
 
+    def _paste_serials(self):
+        from ..paste_list import paste_serials
+        got = paste_serials(self)
+        if got:
+            have = [x.strip() for x in self.sn.text().split(",") if x.strip()]
+            self.sn.setText(", ".join(have + [g for g in got if g not in have]))
+
     # --------------------------------------------------------- single ---
     def _device_tab(self):
         w = QWidget()
         lay = QVBoxLayout(w)
         box, form = self.group("Device")
         self.sn = QLineEdit(placeholderText="Serial number(s), comma separated")
+        paste = button("Paste a list…", slot=self._paste_serials)
+        paste.setToolTip("Paste serials or asset tags from a spreadsheet; GAMbit checks them "
+                         "against the fleet list")
         form.addRow("Serial number", self.row(
             self.sn, button("Show info", "primary", self.cros_info),
-            button("Last signed-in user", slot=self.last_user), stretch=False))
+            button("Last signed-in user", slot=self.last_user), paste, stretch=False))
         self.find_asset = QLineEdit(placeholderText="Asset ID / tag, e.g. HMS-01234 (or several, "
                                                     "comma separated)")
         self.find_asset.returnPressed.connect(self.by_asset)

@@ -200,6 +200,12 @@ class SettingsPage(Page):
         self.restore_cb.setChecked(bool(settings.get("ui/restore", True)))
         self.restore_cb.toggled.connect(lambda on: settings.set("ui/restore", on))
         form.addRow("Remember where I was", self.restore_cb)
+        self.simple_cb = QCheckBox("Simple mode: Home shows six big buttons for everyday jobs "
+                                   "and the sidebar only the pages they need")
+        from .. import simple_mode
+        self.simple_cb.setChecked(simple_mode.on())
+        self.simple_cb.toggled.connect(lambda on: self.app.set_simple(on))
+        form.addRow("Simple mode", self.simple_cb)
         form.addRow("", self.row(button("Keyboard shortcuts (Shift+F1)", slot=self.app.show_help),
                                  button("Take the tour", slot=self.app.start_tour),
                                  button("Report a problem…", slot=self._report_problem)))

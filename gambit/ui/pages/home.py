@@ -160,8 +160,35 @@ class HomePage(Page):
             w.hide()
         if self._stretch is not None:
             self.lay.removeItem(self._stretch)
-        self._on = {x["id"] for x in hl.layout(self._admin()) if x["on"]}
-        for item in hl.layout(self._admin()):
+        from .. import simple_mode
+        simple = simple_mode.on()
+        if simple:
+            if "simple" not in self.sections:
+                self.sections["simple"] = simple_mode.SimplePanel(self)
+            w = self.sections["simple"]
+            w.refresh()
+            self.lay.addWidget(w)
+            w.show()
+        layout_items = hl.layout(self._admin())
+        try:
+            from ... import onboarding
+            if not simple and not onboarding.hidden() and not onboarding.complete(
+                    onboarding.items(self.app.directory)):
+                layout_items = [{"id": "started", "on": True}] + [
+                    x for x in layout_items if x["id"] != "started"]
+            elif onboarding.hidden():
+                layout_items = [x if x["id"] != "started" else {"id": "started", "on": False}
+                                for x in layout_items]
+        except Exception:  # noqa: BLE001
+            pass
+        if simple:   # simple mode: the big buttons, then what you looked at lately
+            layout_items = [{"id": "recent", "on": True}]
+        if hasattr(self, "cust_btn"):
+            self.cust_btn.setVisible(not simple)
+            if simple:
+                self.summary.setText("Pick a job below – GAMbit asks who or which Chromebook.")
+        self._on = {x["id"] for x in layout_items if x["on"]}
+        for item in layout_items:
             if not item["on"]:
                 continue
             k = item["id"]
@@ -543,6 +570,10 @@ class HomePage(Page):
                         "waiting.", objectName="Muted")
             ok.setWordWrap(True)
             self.att_lay.addWidget(ok)
+        from .. import simple_mode
+        if simple_mode.on():
+            self.summary.setText("Pick a job below – GAMbit asks who or which Chromebook.")
+            return
         self.summary.setText(f"{len(items)} thing(s) need your attention." if items else
                              "Everything is running smoothly.")
 
@@ -653,15 +684,131 @@ class HomePage(Page):
         return box
 
     def _w_started(self):
-        box, form = self.group("Getting started")
-        steps = QLabel(
-            "New to GAM? The <b>Setup wizard</b> installs GAM and connects it to Google "
-            "Workspace one step at a time.<br>Already use GAM? It can find your existing "
-            "setup too.")
-        form.addRow(steps)
-        form.addRow(self.row(button("Open setup wizard", "primary", self.app.open_setup),
-                             button("Take the tour", slot=self.app.start_tour)))
+        """The first-day checklist – each item ticks itself off when it's done."""
+        box, form = self.group("First-day checklist")
+        self.chk_head = QLabel("", objectName="Muted")
+        self.chk_head.setWordWrap(True)
+        form.addRow(self.chk_head)
+        self.chk_wrap = QWidget()
+        self.chk_lay = QVBoxLayout(self.chk_wrap)
+        self.chk_lay.setContentsMargins(0, 0, 0, 0)
+        self.chk_lay.setSpacing(6)
+        form.addRow(self.chk_wrap)
+        self.chk_hide = button("Hide the checklist", slot=self._hide_checklist)
+        form.addRow(self.row(button("Take the tour", slot=self.app.start_tour),
+                             self.chk_hide))
+        self._tasks_checked = False
+        self._fill_checklist()
         return box
+
+    def _checklist_items(self):
+        from ... import onboarding
+        return onboarding.items(self.app.directory)
+
+    def _fill_checklist(self):
+        if not hasattr(self, "chk_lay"):
+            return
+        from ... import onboarding
+        from ..icons import icon
+        from ..theme import tokens
+        while self.chk_lay.count():
+            it = self.chk_lay.takeAt(0)
+            if it.widget():
+                it.widget().hide()
+                it.widget().deleteLater()
+        its = self._checklist_items()
+        done, total = onboarding.progress(its)
+        self.chk_head.setText(
+            "All set – GAMbit is ready. You can hide this checklist." if
+            onboarding.complete(its) else
+            f"{done} of {total} done. Each item ticks itself off when GAMbit sees it's done.")
+        t = tokens()
+        for item in its:
+            row = QFrame(objectName="CheckRow")
+            row.setAttribute(Qt.WA_StyledBackground, True)
+            h = QHBoxLayout(row)
+            h.setContentsMargins(10, 6, 8, 6)
+            h.setSpacing(10)
+            mark = QLabel()
+            mark.setStyleSheet("background:transparent;")
+            mark.setPixmap(icon("check-circle" if item["done"] else "dot",
+                                "#16A34A" if item["done"] else t["faint"], 20).pixmap(20, 20))
+            h.addWidget(mark, 0, Qt.AlignTop)
+            v = QVBoxLayout()
+            v.setSpacing(0)
+            title = QLabel(item["title"], objectName="RowTitle")
+            if item["done"]:
+                title.setStyleSheet(f"color:{t['muted']};background:transparent;")
+            v.addWidget(title)
+            if not item["done"]:
+                why = QLabel(item["why"], objectName="RowSub")
+                why.setWordWrap(True)
+                v.addWidget(why)
+            h.addLayout(v, 1)
+            if not item["done"]:
+                b = button(self.CHECK_ACTIONS.get(item["key"], ("Open", None))[0],
+                           slot=lambda _=False, k=item["key"]: self._checklist_do(k))
+                h.addWidget(b, 0, Qt.AlignTop)
+                if item.get("optional"):
+                    skip = button("Just me", slot=self._checklist_solo)
+                    skip.setToolTip("I'm the only tech – skip this")
+                    h.addWidget(skip, 0, Qt.AlignTop)
+            self.chk_lay.addWidget(row)
+        if not self._tasks_checked:            # Task Scheduler can be slow: check it once,
+            self._tasks_checked = True         # in the background
+            Worker(onboarding.tasks_installed,
+                   on_done=lambda ok: ok and self._fill_checklist(), on_error=lambda e: None)
+
+    CHECK_ACTIONS = {"gam": ("Open the setup wizard", None), "lists": ("Load them now", None),
+                     "schools": ("Map my schools", None), "test": ("Set them", None),
+                     "dry": ("Turn on Dry run", None), "pin": ("Show me", None),
+                     "tasks": ("Set them up", None), "team": ("Set up a team folder", None)}
+
+    def _checklist_do(self, key: str):
+        app = self.app
+        if key == "gam":
+            app.open_setup()
+        elif key == "lists":
+            app.refresh_everything()
+            self.info("Loading people, groups and org units in the background – this ticks "
+                      "itself off when they arrive.")
+        elif key == "schools":
+            app._go_safe("Settings & Updates")
+            sp = app.pages.get("Settings & Updates")
+            if sp is not None and hasattr(sp, "open_ou_map"):
+                sp.open_ou_map()
+        elif key in ("test", "team"):
+            app._go_safe("Settings & Updates")
+            sp = app.pages.get("Settings & Updates")
+            if sp is not None and hasattr(sp, "section_nav"):
+                sp.section_nav.search.setText("Testing" if key == "test" else "team folder")
+        elif key == "dry":
+            app.set_dry_run(True)
+        elif key == "pin":
+            if hasattr(app, "toasts"):
+                app.toasts.show("Right-click any page in the sidebar → Pin to My pages "
+                                "(or press Ctrl+Shift+P on the page).", "info", ms=9000,
+                                remember=False)
+        elif key == "tasks":
+            app._go_safe("Schedules")
+            p = app.pages.get("Schedules")
+            if p is not None and hasattr(p, "show_tab"):
+                p.show_tab("Setup & health")
+        self._fill_checklist()
+
+    def _checklist_solo(self):
+        from ... import onboarding
+        from ...settings import settings
+        settings.set(onboarding.SOLO_KEY, True)
+        self._fill_checklist()
+
+    def _hide_checklist(self):
+        from ... import onboarding
+        onboarding.set_hidden(True)
+        self.arrange()
+        if hasattr(self.app, "toasts"):
+            self.app.toasts.show("Checklist hidden – Customize → Add a box → First-day "
+                                 "checklist brings it back.", "info", ms=7000, remember=False)
 
     # ---------------------------------------------------------- tiles ---
     def _account_tiles(self):
@@ -821,6 +968,7 @@ class HomePage(Page):
 
     def on_show(self):
         self.greeting.setText(self._greeting())
+        self._fill_checklist()
         for t in getattr(self, "t", {}).values():
             t.restyle()
         self._fill_attention()
@@ -863,7 +1011,8 @@ class HomePage(Page):
                        slot=lambda _=False, f=f: self.app.open_favorite(f))
             from ..icons import set_icon
             set_icon(b, {"user": "user", "group": "group", "ou": "building",
-                         "serial": "laptop", "search": "search"}.get(f.get("kind"), "star"))
+                         "serial": "laptop", "search": "search", "view": "table"}.get(
+                f.get("kind"), "star"))
             tip = f["value"]
             if f.get("kind") == "search":
                 from ... import saved_searches

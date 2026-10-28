@@ -25,7 +25,7 @@ options. In GAMbit you type commands without the word `gam`.
 - `query "…"` – filter users or Chromebooks, e.g. `query "orgUnitPath='/Staff'"`
 - `gam csv file.csv gam update user ~email ou ~ou` – one command per row (Bulk (CSV) page)
 - `redirect csv ./out.csv` – save output to a file
-- `select <section>` – use another domain from gam.cfg (GAMbit's Domain box)
+- `select <section>` – use another domain from gam.cfg (GAMbit's domain chip in the top bar)
 """)
 
 # (category, command, what it does)

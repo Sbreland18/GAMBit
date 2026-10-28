@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Qt, QTimer
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMenu, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget,
-    QWidgetAction,
+    QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
 
@@ -15,34 +14,62 @@ def _elapsed(sec: float) -> str:
     return f"{sec}s" if sec < 60 else f"{sec // 60}m {sec % 60:02d}s"
 
 
+class _Popup(QFrame):
+    """A plain pop-up panel (not a menu): it opens without blocking GAMbit, so the job list
+    can update every second while it's open."""
+
+    def __init__(self, chip):
+        super().__init__(chip.win, Qt.Popup)
+        self.chip = chip
+        self.setObjectName("JobsPopup")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
+    def hideEvent(self, e):
+        self.chip._closed_at = __import__("time").time()
+        super().hideEvent(e)
+
+
 class JobsChip(QObject):
     def __init__(self, win):
         super().__init__(win)
         self.win = win
         self.btn = QToolButton(objectName="JobsChip")
-        self.btn.setPopupMode(QToolButton.InstantPopup)
         self.btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn.setProperty("helpdesk_ok", True)
         from .icons import set_icon
         set_icon(self.btn, "activity")
-        self.menu = QMenu(self.btn)
-        self.box = QWidget()
-        self.lay = QVBoxLayout(self.box)
+        self.menu = _Popup(self)          # kept as .menu for older callers
+        self.box = self.menu
+        self.lay = QVBoxLayout(self.menu)
         self.lay.setContentsMargins(14, 12, 14, 12)
         self.lay.setSpacing(10)
-        act = QWidgetAction(self.menu)
-        act.setDefaultWidget(self.box)
-        self.menu.addAction(act)
-        self.menu.aboutToShow.connect(self.fill)
-        self.btn.setMenu(self.menu)
+        self.btn.clicked.connect(self.toggle)
         self.btn.hide()
         self._rows = {}
+        self._closed_at = 0.0
         self.live = QTimer(self, interval=1000, timeout=self._tick)
         self.soon = QTimer(self, singleShot=True, interval=250, timeout=self.refresh)
         r = win.runner
         for sig in (r.job_added, r.job_changed):
-            sig.connect(lambda *_: self.soon.start())
+            sig.connect(lambda *_: self.soon.start() if not self.soon.isActive() else None)
         r.finished.connect(lambda *_: self.soon.start())
+
+    def toggle(self):
+        import time
+        if self.menu.isVisible():
+            self.menu.hide()
+            return
+        if time.time() - self._closed_at < 0.25:
+            return                    # the click that closed the pop-up also hit the button
+        self.fill()
+        self.menu.adjustSize()
+        pos = self.btn.mapToGlobal(self.btn.rect().bottomRight())
+        x = pos.x() - self.menu.width()
+        scr = self.btn.screen().availableGeometry() if self.btn.screen() else None
+        if scr is not None:
+            x = max(scr.left() + 8, x)
+        self.menu.move(x, pos.y() + 6)
+        self.menu.show()
 
     def active(self):
         return [j for j in self.win.runner.jobs if j.status in ("running", "queued")]
@@ -53,7 +80,8 @@ class JobsChip(QObject):
             self.btn.hide()
             self.live.stop()
             if self.menu.isVisible():
-                self.fill()
+                self.fill()                       # "Nothing is running" …
+                QTimer.singleShot(2000, lambda: not self.active() and self.menu.hide())
             return
         running = [j for j in jobs if j.status == "running"]
         queued = len(jobs) - len(running)
@@ -118,9 +146,9 @@ class JobsChip(QObject):
             foot.addWidget(stop)
         foot.addStretch(1)
         self.lay.addLayout(foot)
-        self.box.setMinimumWidth(460)
-        self.box.adjustSize()
-        self.menu.adjustSize()
+        self.menu.setMinimumWidth(460)
+        if self.menu.isVisible():
+            self.menu.adjustSize()
 
     def stop_all(self):
         for j in list(self.active()):
