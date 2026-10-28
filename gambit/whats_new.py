@@ -14,6 +14,11 @@ SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
     # ----- this round
+    {"id": "modern-look-2", "title": "Home, redesigned",
+     "text": "Number tiles with icons and 30-day trend lines, one big look-up box for people "
+             "and Chromebooks, recently viewed people with their school, and a cleaner top "
+             "bar. The Output panel now starts hidden – Show output in the bottom-right "
+             "corner (or Ctrl+L) brings it back.", "page": "Home"},
     {"id": "modern-look", "title": "A fresh, modern look",
      "text": "New colours, icons and an icon-only sidebar option, an accent colour of your "
              "choice (Settings & Updates → Appearance), and a Needs your attention box on "

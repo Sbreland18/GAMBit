@@ -253,7 +253,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         names = QVBoxLayout()
         names.setSpacing(0)
         self.brand_name = QLabel(APP_NAME, objectName="Brand")
-        self.brand_sub = QLabel("GAM made friendly", objectName="BrandSub")
+        self.brand_sub = QLabel("Google Workspace admin", objectName="BrandSub")
         names.addWidget(self.brand_name)
         names.addWidget(self.brand_sub)
         brand.addLayout(names, 1)
@@ -348,23 +348,25 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         split.addWidget(log_box)
         split.setStretchFactor(0, 5)
         split.setStretchFactor(1, 1)
-        split.setSizes([720, 150])
+        split.setSizes([870, 0])          # Output starts hidden – pop-ups say what happened
         split.setCollapsible(1, True)
         self.split = split
         try:
-            st = settings.get("ui/split", None)
+            st = settings.get(self.SPLIT_KEY, None)
             if st:
                 from PySide6.QtCore import QByteArray
                 split.restoreState(QByteArray.fromBase64(str(st).encode()))
         except Exception:  # noqa: BLE001
             pass
-        split.splitterMoved.connect(lambda *_: settings.set(
-            "ui/split", bytes(self.split.saveState().toBase64()).decode()))
+        split.splitterMoved.connect(lambda *_: (settings.set(
+            self.SPLIT_KEY, bytes(self.split.saveState().toBase64()).decode()),
+            self._out_label()))
         from .widgets import button as _b
         self.out_toggle = _b("Output", slot=lambda: self.toggle_output())
         self.out_toggle.setObjectName("Chip")
         self.out_toggle.setToolTip("Show or hide the Output panel (Ctrl+L)")
         self.statusBar().addPermanentWidget(self.out_toggle)
+        self._out_label()
 
         root = QWidget()
         h = QHBoxLayout(root)
@@ -388,6 +390,10 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         self.install_shortcuts()
         self.directory.connection_changed.connect(
             lambda ok, _t: ok and (self.pages["Home"].auto_refresh(), self.daily_tasks()))
+        self.directory.connection_changed.connect(
+            lambda ok, _t: self.brand_sub.setText(self.directory.domain if ok and
+                                                  self.directory.domain else
+                                                  "Google Workspace admin"))
         self.nav.setCurrentRow(0)
         self.statusBar().showMessage("Ready  ·  Press F1 for help")
         from .toast import NotifyCenter, ToastHost
@@ -402,14 +408,25 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             QApplication.instance().setQuitOnLastWindowClosed(False)
         QTimer.singleShot(300, self._startup)
 
+    SPLIT_KEY = "ui/split2"     # new key: the modern look starts with Output hidden
+
     def toggle_output(self, show=None):
         sizes = self.split.sizes()
         hidden = sizes[1] == 0
         if show is None:
             show = hidden
         total = sum(sizes) or 870
-        self.split.setSizes([total - 180, 180] if show else [total, 0])
-        settings.set("ui/split", bytes(self.split.saveState().toBase64()).decode())
+        self.split.setSizes([total - 220, 220] if show else [total, 0])
+        settings.set(self.SPLIT_KEY, bytes(self.split.saveState().toBase64()).decode())
+        self._out_label()
+
+    def _out_label(self):
+        if not hasattr(self, "out_toggle"):
+            return
+        shown = self.split.sizes()[1] > 0
+        self.out_toggle.setText("Hide output" if shown else "Show output")
+        from .icons import set_icon
+        set_icon(self.out_toggle, "terminal")
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -593,9 +610,14 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
     # ------------------------------------------------------------ sidebar ---
     MY = "MY PAGES"
 
+    @staticmethod
+    def _header_text(key: str, folded: bool) -> str:
+        return f"{key}   {'▸' if folded else '▾'}"
+
     def build_nav(self, select: bool = True):
         """The sidebar: My pages (pinned + most used) on top, then every section. Sections
         fold with a click on their heading."""
+        from PySide6.QtCore import QSize
         from .. import team, user_prefs as up
         names = [n for n, _c in PAGES]
         cur = self.stack.currentIndex() if select else 0
@@ -608,7 +630,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         folded = up.collapsed()
 
         def header(key):
-            it = QListWidgetItem(("▸  " if key in folded else "▾  ") + key, self.nav)
+            it = QListWidgetItem(self._header_text(key, key in folded), self.nav)
+            it.setSizeHint(QSize(0, 34))
             it.setFlags(Qt.ItemIsEnabled)
             it.setData(Qt.UserRole, "header")
             it.setData(Qt.UserRole + 1, key)
@@ -625,6 +648,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             self._header_row[self.nav.count() - 1] = key
 
         from .icons import page_icon
+        from PySide6.QtCore import QSize
 
         def item(name, section, tip=""):
             self._row_page[self.nav.count()] = names.index(name)
@@ -685,7 +709,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         from .. import user_prefs as up
         key = it.data(Qt.UserRole + 1)
         folded = up.toggle_section(key)
-        it.setText(("▸  " if folded else "▾  ") + key)
+        it.setText(self._header_text(key, folded))
         self.apply_helpdesk_mode()
 
     def fold_all(self, fold: bool):

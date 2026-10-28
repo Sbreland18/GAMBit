@@ -18,6 +18,11 @@ P = {
     "users": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 '
              '1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.8c2 .7 3.2 '
              '2.5 3.6 5.2"/>',
+    "user-x": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5 '
+              '1.6 0 3 .5 4.1 1.3"/><path d="m16 15 5 5M21 15l-5 5"/>',
+    "building": '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h1M14 7h1'
+                'M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3"/>',
+    "chevron-down": '<path d="m6 9 6 6 6-6"/>',
     "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.2 4-6.5 8-6.5s7 2.3 8 6.5"/>',
     "user-check": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5 '
                   '1.6 0 3 .5 4.1 1.3"/><path d="m15 18 2 2 4-4"/>',
@@ -116,6 +121,7 @@ P = {
     "graduation": '<path d="m2 9 10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5"/>',
     "message": '<path d="M4 5h16v11H9l-5 4z"/>',
     "dot": '<circle cx="12" cy="12" r="4"/>',
+    "dot-fill": '<circle cx="12" cy="12" r="2.6" stroke-width="5.2"/>',
     "star": '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
     "play": '<path d="M7 4.5v15l12-7.5z"/>',
     "link": '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 '

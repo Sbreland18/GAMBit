@@ -162,6 +162,12 @@ class ToastHost(QObject):
             t.raise_()
             y -= 10
 
+    def _see_output(self):
+        if hasattr(self.win, "toggle_output"):
+            self.win.toggle_output(True)
+        if hasattr(self.win, "bottom_tabs"):
+            self.win.bottom_tabs.setCurrentIndex(0)
+
     # ---------------------------------------------- after GAMbit runs a change ---
     def change_done(self, entry: dict | None, code: int, display: str):
         if code == 0 and entry:
@@ -176,7 +182,7 @@ class ToastHost(QObject):
         if failed:
             what = failed[0] if len(failed) == 1 else f"{len(failed)} changes"
             self.show(f"Failed: {what[:110]}", "bad", "See output",
-                      lambda: self.win.bottom_tabs.setCurrentIndex(0), ms=9000)
+                      self._see_output, ms=9000)
         if not batch:
             return
         if len(batch) == 1:

@@ -27,8 +27,32 @@ def load_cached() -> dict:
         return {}
 
 
+HISTORY_KEYS = ("active", "suspended", "inactive", "never", "licenses", "cros_active",
+                "cros_expiring", "cros_stale", "alerts", "jobs")
+HISTORY_DAYS = 30
+
+
+def _record(data: dict) -> list[dict]:
+    """One picture per day (the latest wins), newest last, for the Home trend lines."""
+    hist = [h for h in (load_cached().get("history") or []) if isinstance(h, dict)]
+    day = datetime.date.fromtimestamp(data.get("time") or time.time()).isoformat()
+    point = {"d": day, **{k: data[k] for k in HISTORY_KEYS
+                          if isinstance(data.get(k), (int, float))}}
+    hist = [h for h in hist if h.get("d") != day] + [point]
+    return sorted(hist, key=lambda h: h.get("d", ""))[-HISTORY_DAYS:]
+
+
+def history(key: str) -> list[float]:
+    return [h[key] for h in (load_cached().get("history") or [])
+            if isinstance(h, dict) and isinstance(h.get(key), (int, float))]
+
+
 def save(data: dict):
     os.makedirs(os.path.dirname(_path()), exist_ok=True)
+    try:
+        data = {**data, "history": _record(data)}
+    except Exception:  # noqa: BLE001
+        pass
     with open(_path(), "w", encoding="utf-8") as fh:
         json.dump(data, fh)
 

@@ -189,18 +189,18 @@ def test_window_sidebar_home_and_tray(qapp, fake_gam):
     from gambit.ui.main_window import MainWindow
     w = MainWindow()
     texts = [w.nav.item(i).text() for i in range(w.nav.count())]
-    assert "▾  MY PAGES" in texts
-    i = texts.index("▾  MY PAGES")
+    assert "MY PAGES   ▾" in texts
+    i = texts.index("MY PAGES   ▾")
     assert texts[i + 1] == "Device history"
     # folding PEOPLE hides its pages but not the heading
-    row = texts.index("▾  PEOPLE")
+    row = texts.index("PEOPLE   ▾")
     w._nav_clicked(w.nav.item(row))
     users_row = next(r for r, s in w._row_section.items() if s == "PEOPLE")
     assert w.nav.item(users_row).isHidden() and not w.nav.item(row).isHidden()
     w._nav_clicked(w.nav.item(row))
     assert not w.nav.item(users_row).isHidden()
     w.toggle_pin("Device history")
-    assert "▾  MY PAGES" not in [w.nav.item(i).text() for i in range(w.nav.count())]
+    assert "MY PAGES   ▾" not in [w.nav.item(i).text() for i in range(w.nav.count())]
     # go() still works after rebuilding
     w.go("Device history")
     assert w.current_page() is w.pages["Device history"]

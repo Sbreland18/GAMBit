@@ -626,12 +626,23 @@ class ResultsTable(QWidget):
             if it.widget():
                 it.widget().deleteLater()
         lay.addWidget(QLabel(f"{len(rows)} selected"))
-        for label, fn, risky in acts[:6]:
-            b = QPushButton(label.rstrip("…").replace(f" for {len(rows)} person(s)", ""))
+        room = max(2, (self.width() - 220) // 170)       # how many buttons fit
+        shown, more = acts[:room], acts[room:]
+        for label, fn, risky in shown:
+            b = QPushButton(self._short(label, len(rows)))
+            b.setToolTip(label)
             if risky:
                 b.setProperty("kind", "danger")
             b.clicked.connect(fn)
             lay.addWidget(b)
+        if more:
+            from PySide6.QtWidgets import QMenu
+            mb = QPushButton("More ▾")
+            m = QMenu(mb)
+            for label, fn, _r in more:
+                m.addAction(label, fn)
+            mb.setMenu(m)
+            lay.addWidget(mb)
         x = QPushButton("✕")
         x.setToolTip("Clear the selection")
         x.clicked.connect(self.table.clearSelection)
@@ -641,13 +652,25 @@ class ResultsTable(QWidget):
         self.selbar.show()
         self.selbar.raise_()
 
+    SHORT = {"Require password change at next sign-in": "Require new password",
+             "Sign out of all sessions": "Sign out everywhere"}
+
+    def _short(self, label: str, n: int) -> str:
+        t = label.rstrip("…").replace(f" for {n} person(s)", "").strip()
+        for long_, short in self.SHORT.items():
+            if t.startswith(long_):
+                return short
+        return t if len(t) <= 24 else t[:22].rstrip() + "…"
+
     def _place_selbar(self):
         if self.selbar is None:
             return
         w = min(self.selbar.sizeHint().width(), self.width() - 24)
         self.selbar.resize(w, self.selbar.sizeHint().height())
+        vis = self.visibleRegion().boundingRect()       # stay on screen in a scrolled page
+        bottom = min(self.height(), vis.bottom() + 1) if not vis.isEmpty() else self.height()
         self.selbar.move(max(8, (self.width() - w) // 2),
-                         self.height() - self.selbar.height() - 14)
+                         max(0, bottom - self.selbar.height() - 14))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

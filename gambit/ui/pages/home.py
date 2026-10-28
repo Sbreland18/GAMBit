@@ -12,51 +12,40 @@ from ... import dashboard
 from ...version import APP_NAME, __version__
 from ..widgets import Page, Worker, button
 
-STATUS = {"good": ("✔", "#137333"), "warn": ("⚠", "#9a6700"), "bad": ("✖", "#b42318"),
-          None: ("", "#57606a")}
+from ..home_widgets import RecentRow, StatTile
 
 
-class StatTile(QFrame):
-    """A clickable hero number with a label and an optional status line."""
+SKU_NAMES = {"1010070001": "Education Fundamentals", "1010310005": "Education Standard",
+             "1010310006": "Education Standard (staff)", "1010310008": "Education Plus",
+             "1010310009": "Education Plus (staff)",
+             "1010310010": "Education Plus (extra student)",
+             "1010370001": "Teaching & Learning Upgrade"}
 
-    clicked = Signal()
 
-    def __init__(self, label: str, hint: str = ""):
-        super().__init__(objectName="Card")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(hint)
-        v = QVBoxLayout(self)
-        v.setContentsMargins(16, 12, 16, 12)
-        v.setSpacing(2)
-        self.label = QLabel(label, objectName="Muted")
-        self.value = QLabel("—", objectName="CardValue")
-        self.sub = QLabel("", objectName="Small")
-        self.sub.setWordWrap(True)
-        v.addWidget(self.label)
-        v.addWidget(self.value)
-        v.addWidget(self.sub)
-
-    def set(self, value, sub: str = "", status=None):
-        self.value.setText(f"{value:,}" if isinstance(value, int) else str(value))
-        icon, color = STATUS[status]
-        self.sub.setText(f"<span style='color:{color}'>{icon}</span> {sub}" if icon else sub)
-
-    def mousePressEvent(self, e):
-        self.clicked.emit()
-        super().mousePressEvent(e)
+def _sku_name(k: str) -> str:
+    return SKU_NAMES.get(str(k), str(k))
 
 
 class HomePage(Page):
     title = ""          # Home has its own greeting
     subtitle = ""
+    MAX_W = 1440        # wide screens: keep Home a readable width, centred
 
     def build(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
         inner = QWidget(objectName="Page")
-        self.lay = QVBoxLayout(inner)
-        self.lay.setContentsMargins(0, 0, 8, 0)
+        outer = QHBoxLayout(inner)
+        outer.setContentsMargins(0, 0, 0, 0)
+        col = QWidget(objectName="Page")
+        col.setMaximumWidth(self.MAX_W)
+        outer.addStretch(1)
+        outer.addWidget(col, 100)
+        outer.addStretch(1)
+        self.lay = QVBoxLayout(col)
+        self.lay.setContentsMargins(8, 6, 14, 28)
+        self.lay.setSpacing(18)
         scroll.setWidget(inner)
         head = QHBoxLayout()
         greet = QVBoxLayout()
@@ -71,8 +60,8 @@ class HomePage(Page):
         set_icon(cust, "grid")
         cust.setToolTip("Choose what Home shows and in what order")
         head.addWidget(cust, 0, Qt.AlignBottom)
-        self.body.addLayout(head)
         self.body.addWidget(scroll)
+        self.lay.addLayout(head)
 
         self.banner = QLabel("", objectName="Banner")
         self.banner.setWordWrap(True)
@@ -205,34 +194,40 @@ class HomePage(Page):
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
         head = QHBoxLayout()
-        head.addWidget(QLabel("<b style='font-size:12pt'>At a glance</b>"))
+        head.addWidget(QLabel("At a glance", objectName="SectionTitle"))
+        head.addSpacing(8)
         self.updated = QLabel("", objectName="Muted")
         head.addWidget(self.updated, 1)
         self.refresh_btn = button("Refresh now", slot=self.refresh_dashboard)
         head.addWidget(self.refresh_btn)
         v.addLayout(head)
         self.tiles_grid = QGridLayout()
-        self.tiles_grid.setSpacing(12)
+        self.tiles_grid.setSpacing(14)
         self.t = {}
         spec = [
-            ("accounts", "Active accounts", "Open Users", lambda: self._users(0)),
-            ("suspended", "Suspended", "List suspended accounts", lambda: self._users(3)),
+            ("accounts", "Active accounts", "Open Users", lambda: self._users(0),
+             "users", "blue"),
+            ("suspended", "Suspended", "List suspended accounts", lambda: self._users(3),
+             "user-x", "slate"),
             ("inactive", "No sign-in for 90+ days", "Open the inactive accounts report",
-             self._inactive),
-            ("never", "Never signed in", "Open the inactive accounts report", self._inactive),
+             self._inactive, "clock", "amber"),
+            ("never", "Never signed in", "Open the inactive accounts report", self._inactive,
+             "login", "violet"),
             ("licenses", "Licenses assigned", "Open Licenses",
-             lambda: self.app.go("Licenses")),
+             lambda: self.app.go("Licenses"), "id-card", "green"),
             ("cros", "Active Chromebooks", "Open Chromebooks",
-             lambda: self.app.go("Chromebooks")),
+             lambda: self.app.go("Chromebooks"), "laptop", "blue"),
             ("expiring", "Chromebooks losing updates", "Open the end-of-updates report",
-             self._aue),
-            ("stale", "Chromebooks not seen in 30 days", "List them", self._stale),
-            ("alerts", "Security alerts (7 days)", "Open alerts", self._alerts),
+             self._aue, "calendar-clock", "amber"),
+            ("stale", "Chromebooks not seen in 30 days", "List them", self._stale,
+             "alert", "amber"),
+            ("alerts", "Security alerts (7 days)", "Open alerts", self._alerts,
+             "shield", "red"),
             ("jobs", "Scheduled jobs", "Open Schedules",
-             lambda: self.app.go("Schedules")),
+             lambda: self.app.go("Schedules"), "calendar", "green"),
         ]
-        for key, label, hint, fn in spec:
-            tile = StatTile(label, hint)
+        for key, label, hint, fn, ic, colr in spec:
+            tile = StatTile(label, hint, ic, colr)
             tile.clicked.connect(fn)
             self.t[key] = tile
         v.addLayout(self.tiles_grid)
@@ -301,19 +296,47 @@ class HomePage(Page):
             self.app.refresh_everything()
 
     def _w_lookup(self):
+        from ..home_widgets import BigSearch
+        from ..icons import set_icon
         from ..pickers import PersonField
         box, form = self.group("Quick look-up")
-        self.q_person = PersonField(self.app.directory, "A person's name or email, then Enter")
-        self.q_person.returnPressed.connect(self._q_person)
-        self.q_dev = QLineEdit(placeholderText="Chromebook serial or asset ID")
-        self.q_dev.returnPressed.connect(self._q_device)
-        form.addRow("Person", self.row(self.q_person, button("Look up", "primary",
-                                                             self._q_person),
-                                       button("✅ Check everything", slot=self._q_check),
-                                       stretch=False))
-        form.addRow("Chromebook", self.row(self.q_dev, button("Find", slot=self._q_device),
-                                           stretch=False))
+        self.q_person = PersonField(self.app.directory,
+                                    "A student, staff member, Chromebook serial or asset tag")
+        self.q_person.returnPressed.connect(self._q_go)
+        self.q_dev = self.q_person          # older code talks to q_dev
+        form.addRow(BigSearch(self.q_person))
+        look = button("Look up", "primary", self._q_go)
+        chk = button("Check everything", slot=self._q_check)
+        set_icon(chk, "check-circle")
+        rst = button("Reset password", slot=self._q_reset)
+        set_icon(rst, "key")
+        hint = QLabel("Enter opens a person or Chromebook. Check everything looks for "
+                      "problems and offers fixes.", objectName="Muted")
+        hint.setWordWrap(True)
+        form.addRow(self.row(look, chk, rst, hint))
         return box
+
+    def _q_go(self):
+        e = self._q_email()
+        if e:
+            self.app.open_recent({"kind": "user", "value": e})
+            return
+        t = self.q_person.text().strip()
+        if t and " " not in t:
+            self._q_device()
+        elif t:
+            if hasattr(self.app, "open_palette"):
+                self.app.open_palette(t)
+
+    def _q_reset(self):
+        e = self._q_email()
+        if not e:
+            self.info("Type the person first.")
+            return
+        self.app.open_lookup(e)
+        p = self.app.pages.get("Student lookup")
+        if p is not None and hasattr(p, "reset"):
+            p.reset()
 
     def _q_email(self):
         e = self.q_person.email() or self.q_person.text().strip()
@@ -333,7 +356,7 @@ class HomePage(Page):
         PersonCheckDialog(self, e).exec()
 
     def _q_device(self):
-        t = self.q_dev.text().strip()
+        t = self.q_person.text().strip()
         if not t:
             return
         if any(c in t for c in "-_.#") or t.isdigit():
@@ -346,26 +369,57 @@ class HomePage(Page):
         self.recent_wrap = QWidget()
         self.recent_grid = QGridLayout(self.recent_wrap)
         self.recent_grid.setContentsMargins(0, 0, 0, 0)
+        self.recent_grid.setHorizontalSpacing(12)
+        self.recent_grid.setVerticalSpacing(2)
         form.addRow(self.recent_wrap)
         self._fill_recent()
         return box
+
+    def _recent_sub(self, r: dict) -> str:
+        kind, value = r.get("kind"), r.get("value", "")
+        if kind == "user":
+            u = next((u for u in getattr(self.app.directory, "users", []) or []
+                      if (u.get("email") or "").lower() == value.lower()), None)
+            if u:
+                bits = []
+                try:
+                    from ... import ou_map
+                    school = ou_map.classify(u.get("ou", ""))
+                    if isinstance(school, (list, tuple)):
+                        school = school[-1] if school else ""
+                    if school and isinstance(school, str):
+                        bits.append(school)
+                except Exception:  # noqa: BLE001
+                    pass
+                if not bits and u.get("ou"):
+                    bits.append(u["ou"])
+                if u.get("suspended"):
+                    bits.insert(0, "Suspended")
+                return " · ".join([value] + bits[:2])
+            return value
+        return {"group": f"Group · {value}", "ou": "Org unit", "device": "Chromebook",
+                "serial": "Chromebook",
+                "asset": "Chromebook (asset tag)"}.get(kind, value)
 
     def _fill_recent(self):
         from ... import user_prefs as up
         while self.recent_grid.count():
             it = self.recent_grid.takeAt(0)
             if it.widget():
+                it.widget().hide()
                 it.widget().deleteLater()
-        items = up.recent(12)
+        items = up.recent(8)
         if not items:
             self.recent_grid.addWidget(QLabel("People, Chromebooks, groups and org units you "
                                               "open show up here.", objectName="Muted"), 0, 0)
             return
         for i, r in enumerate(items):
-            b = button(up.recent_label(r)[2:].split("  <")[0],
-                       slot=lambda _=False, r=r: self.app.open_recent(r))
-            b.setToolTip(f"{r['value']} – opened {r.get('when', '').replace('T', ' ')}")
-            self.recent_grid.addWidget(b, i // 4, i % 4)
+            title = r.get("label") or r["value"]
+            row = RecentRow(title, self._recent_sub(r), r["value"], r.get("kind", ""),
+                            r.get("when", ""))
+            row.clicked.connect(lambda _=False, r=r: self.app.open_recent(r))
+            row.setToolTip(f"{r['value']} – opened {r.get('when', '').replace('T', ' ')}")
+            self.recent_grid.addWidget(row, i // 2, i % 2)
 
     def _w_attention(self):
         box, form = self.group("Needs your attention")
@@ -421,6 +475,7 @@ class HomePage(Page):
         while self.att_lay.count():
             it = self.att_lay.takeAt(0)
             if it.widget():
+                it.widget().hide()
                 it.widget().deleteLater()
         from ..icons import icon
         from ..theme import is_dark
@@ -430,7 +485,7 @@ class HomePage(Page):
                 "info": ("#F4F6FA", "#1D4ED8", "shield")}
         if is_dark():
             tint = {"bad": ("#3B1C1C", "#FCA5A5", "x-circle"),
-                    "warn": ("#3A2A06", "#FDE68A", "alert"),
+                    "warn": ("#2B2310", "#FCD34D", "alert"),
                     "info": ("#1B2330", "#93C5FD", "shield")}
         for level, text, btn, fn in items:
             row = QFrame(objectName="AttRow")
@@ -580,13 +635,16 @@ class HomePage(Page):
         if not users:
             return
         s = dashboard.account_stats(users)
-        self.t["accounts"].set(s["active"], f"{s['accounts']:,} accounts in total")
-        self.t["suspended"].set(s["suspended"], "")
+        h = dashboard.history
+        self.t["accounts"].set(s["active"], f"{s['accounts']:,} accounts in total",
+                               trend=h("active"))
+        self.t["suspended"].set(s["suspended"], "", trend=h("suspended"))
         if s["has_login_data"]:
             self.t["inactive"].set(s["inactive"], "worth a look" if s["inactive"] else
                                    "everyone has signed in recently",
-                                   "warn" if s["inactive"] else "good")
-            self.t["never"].set(s["never"], "")
+                                   "warn" if s["inactive"] else "good",
+                                   trend=h("inactive"))
+            self.t["never"].set(s["never"], "", trend=h("never"))
         else:
             self.t["inactive"].set("—", "refresh lists in Settings to calculate")
             self.t["never"].set("—", "")
@@ -601,25 +659,43 @@ class HomePage(Page):
                              f"updated {age} min ago" if age < 120 else
                              f"updated {age // 60} hr ago")
         if "licenses" in d:
-            top = sorted(d.get("license_breakdown", {}).items(), key=lambda x: -x[1])[:2]
-            self.t["licenses"].set(d["licenses"], " · ".join(f"{k}: {v:,}" for k, v in top))
+            self.t["licenses"].set(d["licenses"], *self._license_line(d))
         if "cros" in d:
             self.t["cros"].set(d.get("cros_active", 0),
-                               f"{d['cros']:,} total · {d.get('cros_disabled', 0):,} disabled")
+                               f"{d['cros']:,} total · {d.get('cros_disabled', 0):,} disabled",
+                               trend=dashboard.history("cros_active"))
             exp, soon = d.get("cros_expired", 0), d.get("cros_expiring", 0)
             self.t["expiring"].set(soon, f"within 12 months · {exp:,} already expired",
-                                   "warn" if soon or exp else "good")
+                                   "warn" if soon or exp else "good",
+                                   trend=dashboard.history("cros_expiring"))
             stale = d.get("cros_stale", 0)
             self.t["stale"].set(stale, "missing or unused?" if stale else "all checking in",
-                                "warn" if stale else "good")
+                                "warn" if stale else "good",
+                                trend=dashboard.history("cros_stale"))
         if "alerts" in d:
             a = d["alerts"]
             self.t["alerts"].set(a, "review them" if a else "nothing new",
-                                 "bad" if a else "good")
+                                 "bad" if a else "good", trend=dashboard.history("alerts"))
         if "jobs" in d:
             f = d.get("jobs_failed", 0)
             self.t["jobs"].set(d["jobs"], f"{f} failed last run" if f else "all ran fine",
                                "bad" if f else ("good" if d["jobs"] else None))
+
+    def _license_line(self, d: dict):
+        """(sub text, status, trend, meter) – a meter when you've entered what you bought."""
+        from ... import digest
+        by = d.get("license_breakdown", {}) or {}
+        seats = digest.seats()
+        bought = [(k, v, seats.get(str(k).strip().lower())) for k, v in by.items()]
+        bought = [(k, v, t) for k, v, t in bought if t]
+        if bought:
+            used, total = sum(v for _k, v, _t in bought), sum(t for _k, _v, t in bought)
+            frac = used / total if total else 0
+            return (f"{round(100 * frac)}% of the {total:,} you bought",
+                    "warn" if frac >= 0.95 else None, None, frac)
+        top = sorted(by.items(), key=lambda x: -x[1])[:2]
+        return (" · ".join(f"{_sku_name(k)}: {v:,}" for k, v in top), None,
+                dashboard.history("licenses"), None)
 
     def refresh_dashboard(self):
         if self._busy:
@@ -711,6 +787,8 @@ class HomePage(Page):
 
     def on_show(self):
         self.greeting.setText(self._greeting())
+        for t in getattr(self, "t", {}).values():
+            t.restyle()
         self._fill_attention()
         if hasattr(self, "recent_grid") and "recent" in self.sections:
             self._fill_recent()
@@ -741,6 +819,7 @@ class HomePage(Page):
         while self.fav_row.count():
             it = self.fav_row.takeAt(0)
             if it.widget():
+                it.widget().hide()
                 it.widget().deleteLater()
         favs = self.app.favorites() if hasattr(self.app, "favorites") else []
         self.fav_box.setVisible(bool(favs) and "favorites" in getattr(self, "_on",

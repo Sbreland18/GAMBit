@@ -54,12 +54,14 @@ class AppActions:
         self.gsearch.setCompleter(comp)
         self.gsearch.returnPressed.connect(lambda: self.global_go(self.gsearch.text()))
         h.addWidget(self.gsearch, 1)
-        h.addSpacing(16)
-        h.addWidget(QLabel("Domain:", objectName="Muted"))
-        self.profile_box = QComboBox()
-        self.profile_box.setMinimumWidth(160)
+        h.addSpacing(12)
+        self.profile_box = QComboBox(objectName="DomainChip")
+        self.profile_box.setMinimumWidth(150)
+        self.profile_box.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.profile_box.setToolTip("Which Google Workspace domain (GAM profile) GAMbit "
+                                    "works on. The dot shows the connection.")
         self.profile_box.activated.connect(lambda _i: self.switch_profile(
-            self.profile_box.currentText()))
+            self.profile_box.currentData() or self.profile_box.currentText()))
         h.addWidget(self.profile_box)
         self.ticket_box = QLineEdit()
         self.ticket_box.setPlaceholderText("Ticket (paste a link or number)")
@@ -98,6 +100,9 @@ class AppActions:
                         (self.helper_btn, "chat"), (self.hd_btn, "lock")):
             set_icon(btn, ic)
             btn.setObjectName("Chip")
+        for btn in (self.dry_btn, self.practice_btn, self.helper_btn):
+            btn.setText("")              # icon only until switched on (tooltip says what)
+            btn.setAccessibleName(btn.toolTip().split(" –")[0].split(":")[0])
         self.bell_btn = button("", slot=self.show_notifications)
         self.bell_btn.setObjectName("Chip")
         set_icon(self.bell_btn, "bell")
@@ -106,6 +111,7 @@ class AppActions:
         h.addWidget(self.bell_btn)
         self.install_session(h)
         self.refresh_profiles()
+        self.directory.connection_changed.connect(lambda *_: self.refresh_profiles())
         for sig in (self.directory.users_changed, self.directory.groups_changed,
                     self.directory.ous_changed):
             sig.connect(self._refresh_search)
@@ -158,9 +164,8 @@ class AppActions:
             settings.set("practice/prev_dry", bool(settings.get("safety/dry_run", False)))
         settings.set(up.PRACTICE_KEY, bool(on))
         self.practice_btn.setChecked(bool(on))
-        self.practice_btn.setStyleSheet("background:#e7f5e9;border-color:#2da44e;"
-                                        "font-weight:600;" if on else "")
-        self.practice_btn.setText("Practice is ON" if on else "Practice")
+        self._chip_state(self.practice_btn, "ChipGood" if on else "Chip",
+                         "Practice is ON" if on else "")
         self.set_dry_run(True if on else bool(settings.get("practice/prev_dry", False)))
         if on:
             self.statusBar().showMessage(
@@ -181,15 +186,29 @@ class AppActions:
         if up.practice_on():
             self.set_practice(True)
 
+    def _chip_state(self, btn, name: str, text: str):
+        from .icons import set_icon
+        btn.setObjectName(name)
+        btn.setText(text)
+        btn.setStyleSheet("")
+        color = None
+        if name != "Chip":
+            from .theme import tokens
+            t = tokens()
+            color = t["banner_warn_text"] if name == "ChipOn" else t["good_text"]
+        set_icon(btn, btn.property("_gb_icon") or ("flask" if btn is self.dry_btn
+                                                    else "graduation"), color)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
     def set_dry_run(self, on: bool):
         from .. import user_prefs as up
         if not on and up.practice_on():
             on = True                    # practice mode keeps dry run on
         settings.set("safety/dry_run", bool(on))
         self.dry_btn.setChecked(bool(on))
-        self.dry_btn.setStyleSheet("background:#fff4ce;border-color:#d4a72c;font-weight:600;"
-                                   if on else "")
-        self.dry_btn.setText("Dry run is ON" if on else "Dry run")
+        self._chip_state(self.dry_btn, "ChipOn" if on else "Chip",
+                         "Dry run is ON" if on else "")
         for p in self.pages.values():
             if hasattr(p, "refresh_help"):
                 p.refresh_help()
@@ -684,11 +703,29 @@ class AppActions:
     def refresh_profiles(self):
         self.profile_box.blockSignals(True)
         self.profile_box.clear()
+        cur = profiles.current_name()
+        d = getattr(self, "directory", None)
         for p in profiles.profiles():
-            self.profile_box.addItem(p["name"])
-        self.profile_box.setCurrentText(profiles.current_name())
+            label = p["name"]
+            if p["name"] == cur and d is not None and d.connected and d.domain:
+                label = d.domain if p["name"].lower() == "default" else \
+                    f"{p['name']} · {d.domain}"
+            self.profile_box.addItem(label, p["name"])
+        i = self.profile_box.findData(cur)
+        self.profile_box.setCurrentIndex(max(0, i))
         self.profile_box.blockSignals(False)
         self.profile_box.setVisible(True)
+        self._profile_dot()
+
+    def _profile_dot(self, *_a):
+        from .icons import icon
+        d = getattr(self, "directory", None)
+        ok = d.connected if d is not None else None
+        col = {True: "#22C55E", False: "#EF4444"}.get(ok, "#9CA3AF")
+        i = self.profile_box.currentIndex()
+        for j in range(self.profile_box.count()):
+            self.profile_box.setItemIcon(j, icon("dot-fill", col, 12) if j == i else icon(
+                "dot-fill", "#9CA3AF", 12))
 
     def switch_profile(self, name: str):
         if name == profiles.current_name():
@@ -1138,15 +1175,20 @@ class MoreActions:
         from .. import support
         support.send_feedback(self, output_text=self.log.toPlainText())
 
-    def open_palette(self):
+    def open_palette(self, text: str = ""):
         from .palette import CommandPalette
-        CommandPalette(self).exec()
+        dlg = CommandPalette(self)
+        if text:
+            dlg.input.setText(text)
+        dlg.exec()
 
     def refresh_bell(self):
         n = self.notices.unread if hasattr(self, "notices") else 0
         self.bell_btn.setText(f" {n}" if n else "")
         self.bell_btn.setStyleSheet("QPushButton{color:#ffffff;background:#DC2626;"
                                     "border-color:#DC2626;font-weight:700;}" if n else "")
+        from .icons import set_icon
+        set_icon(self.bell_btn, "bell", "#FFFFFF" if n else None)
 
     def show_notifications(self):
         from PySide6.QtGui import QCursor
@@ -1238,6 +1280,15 @@ class MoreActions:
             if hasattr(self, "build_nav"):
                 self.build_nav()
             winstyle.apply(self)
+            from .. import user_prefs as up
+            dry = bool(settings.get("safety/dry_run", False))
+            self._chip_state(self.dry_btn, "ChipOn" if dry else "Chip",
+                             "Dry run is ON" if dry else "")
+            pr = up.practice_on()
+            self._chip_state(self.practice_btn, "ChipGood" if pr else "Chip",
+                             "Practice is ON" if pr else "")
+            if hasattr(self, "refresh_user_chip"):
+                self.refresh_user_chip()
         except Exception:  # noqa: BLE001
             pass
         if hasattr(self, "pages") and "Home" in self.pages and \

@@ -17,7 +17,14 @@ ARTICLES = [
   ("3 changes done · Undo"). Turn them off in Appearance.
 - **The bell** in the top bar keeps every pop-up and alert, so nothing is lost when one
   closes. *Clear all* empties it.
-- **Output** in the status bar shows or hides the output panel (Ctrl+L / Ctrl+J show it).
+- The **Output** panel starts hidden – pop-ups tell you what happened. **Show output** in
+  the bottom-right corner (or Ctrl+L / Ctrl+J) brings it back; a failed change's pop-up has
+  *See output*.
+- **Top bar:** the domain chip (green dot = connected), then Dry run, Practice and Helper as
+  icons – Dry run and Practice show their name in colour while they're on.
+- **Home tiles** show a 30-day trend line once GAMbit has a few days of numbers. Enter what
+  you bought in Settings → Weekly digest (*Licenses you bought…*) and the license tile shows
+  a meter instead.
 - Status columns (Active, Suspended, In sync…) show as coloured pills, and selecting two or
   more rows shows a bar with the actions for them.
 

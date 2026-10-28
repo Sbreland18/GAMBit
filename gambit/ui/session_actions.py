@@ -35,17 +35,35 @@ class SessionActions:
         self.user_btn.setVisible(False)
         topbar_layout.addWidget(self.user_btn)
 
+    def refresh_user_chip(self):
+        """Avatar with initials and the first name; email and role in the tooltip/menu."""
+        if not session.active():
+            return
+        from PySide6.QtCore import QSize
+        from .home_widgets import avatar_pixmap
+        from .person_header import initials
+        from PySide6.QtGui import QIcon
+        cur = session.current()
+        email = cur.get("email", "")
+        name = cur.get("name") or email.split("@")[0].replace(".", " ")
+        first = (name.split() or [email])[0].title()
+        self.user_btn.setIcon(QIcon(avatar_pixmap(initials(name, email), email, 28)))
+        self.user_btn.setIconSize(QSize(28, 28))
+        self.user_btn.setText(f" {first}")
+        self.user_btn.setToolTip(f"{email} · {cur.get('role_name', '')}")
+        self.user_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+
     def start_session_ui(self):
         if not session.active():
             return
         cur = session.current()
         self.user_btn.setVisible(True)
-        label = cur.get("email", "")
-        self.user_btn.setText(f"{label}  ·  {cur.get('role_name', '')}")
-        from .icons import icon
-        self.user_btn.setIcon(icon("user"))
-        self.user_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.user_btn.setObjectName("UserChip")
+        self.refresh_user_chip()
         m = QMenu(self.user_btn)
+        who = m.addAction(f"{cur.get('email', '')}  ·  {cur.get('role_name', '')}")
+        who.setEnabled(False)
+        m.addSeparator()
         m.addAction("Lock GAMbit now", self.lock_now)
         m.addAction("Sign out", self.sign_out)
         if cur.get("role", {}).get("admin"):

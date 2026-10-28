@@ -30,16 +30,20 @@ def tokens(mode: str | None = None) -> dict:
     m = mode or _MODE
     a = accent()
     if m == "dark":
-        return {"window": "#0F141B", "sidebar": "#121821", "topbar": "#121821",
-                "surface": "#161C25", "surface2": "#1B2330", "border": "#253041",
+        return {"window": "#0B0F15", "sidebar": "#10151D", "topbar": "#0B0F15",
+                "surface": "#161C25", "surface2": "#1B2330", "border": "#222C3A",
                 "input": "#2E3A4B", "text": "#E6EAF0", "muted": "#A3ADBB",
                 "faint": "#8B95A3", "icon": "#C5CCD6", "hover": "#1E2733",
                 "selected": "#1D2C44", "row_line": "#1F2835", "header": "#1A212B",
                 "scroll": "#334155", "accent": a, "accent_hover": _shade(a, 0.12),
                 "accent_text": _shade(a, 0.45), "on_accent": "#FFFFFF",
                 "danger": "#FCA5A5", "danger_bg": "#3B1C1C", "danger_line": "#7F1D1D",
-                "banner": "#3A2A06", "banner_line": "#A16207", "banner_text": "#FDE68A",
-                "tooltip": "#E6EAF0", "tooltip_text": "#111827"}
+                "banner": "#1B2330", "banner_line": "#2A3545", "banner_text": "#E6EAF0",
+                "field": "#0F141B", "line_strong": "#2A3545", "input_bg": "#0F141B",
+                "tooltip": "#E6EAF0", "tooltip_text": "#111827",
+                "banner_warn": "#3A2A06", "banner_warn_line": "#A16207",
+                "banner_warn_text": "#FDE68A", "good_bg": "#0F2A1A", "good_line": "#166534",
+                "good_text": "#86EFAC"}
     return {"window": "#EEF2F7", "sidebar": "#F5F7FA", "topbar": "#F8FAFC",
             "surface": "#FFFFFF", "surface2": "#F4F6FA", "border": "#DCE2EA",
             "input": "#D0D7E2", "text": "#111827", "muted": "#4B5563", "faint": "#6B7280",
@@ -47,8 +51,11 @@ def tokens(mode: str | None = None) -> dict:
             "row_line": "#EEF1F5", "header": "#F8FAFC", "scroll": "#C7CED9",
             "accent": a, "accent_hover": _shade(a, -0.12), "accent_text": a,
             "on_accent": "#FFFFFF", "danger": "#B91C1C", "danger_bg": "#FEF2F2",
-            "danger_line": "#FECACA", "banner": "#FFFBEB", "banner_line": "#FDE68A",
-            "banner_text": "#78350F", "tooltip": "#111827", "tooltip_text": "#FFFFFF"}
+            "danger_line": "#FECACA", "banner": "#EFF4FF", "banner_line": "#D6E2FB",
+            "banner_text": "#1E3A8A", "field": "#F8FAFC", "line_strong": "#D0D7E2", "input_bg": "#FFFFFF",
+            "banner_warn": "#FFFBEB", "banner_warn_line": "#FCD34D",
+            "banner_warn_text": "#78350F", "good_bg": "#ECFDF3", "good_line": "#86EFAC",
+            "good_text": "#166534", "tooltip": "#111827", "tooltip_text": "#FFFFFF"}
 
 
 def build_css(mode: str = "light") -> str:
@@ -60,20 +67,20 @@ def build_css(mode: str = "light") -> str:
         check = ""
     return f"""
 QWidget {{ font-family: "Segoe UI Variable Text", "Segoe UI", "Inter", sans-serif;
-          font-size: 10pt; color: {t['text']}; }}
+          font-size: 10.5pt; color: {t['text']}; }}
 QMainWindow, QWidget#Page, QScrollArea > QWidget > QWidget#Page {{ background: {t['window']}; }}
 QStackedWidget, QSplitter {{ background: {t['window']}; }}
 
 /* ---------- sidebar ---------- */
 QWidget#Side {{ background: {t['sidebar']}; border-right: 1px solid {t['border']}; }}
 QListWidget#Nav {{ background: {t['sidebar']}; border: none; padding: 4px 0; outline: 0; }}
-QListWidget#Nav::item {{ color: {t['text']}; padding: 7px 10px; margin: 1px 10px;
+QListWidget#Nav::item {{ color: {t['text']}; padding: 8px 12px; margin: 1px 10px;
                         border-radius: 8px; border-left: 3px solid transparent; }}
 QListWidget#Nav::item:hover {{ background: {t['hover']}; }}
 QListWidget#Nav::item:selected {{ background: {t['surface']}; color: {t['text']};
                                  border-left: 3px solid {t['accent']}; font-weight: 600; }}
-QLabel#Brand {{ background: transparent; color: {t['text']}; font-size: 13pt; font-weight: 700; }}
-QLabel#BrandSub {{ background: transparent; color: {t['muted']}; font-size: 8.5pt; }}
+QLabel#Brand {{ background: transparent; color: {t['text']}; font-size: 13.5pt; font-weight: 700; }}
+QLabel#BrandSub {{ background: transparent; color: {t['muted']}; font-size: 9pt; }}
 QLabel#Logo {{ background: {t['accent']}; color: {t['on_accent']}; border-radius: 10px;
               font-weight: 700; font-size: 11pt; }}
 QPushButton#RailToggle {{ background: transparent; border: none; border-radius: 8px;
@@ -82,10 +89,24 @@ QPushButton#RailToggle:hover {{ background: {t['hover']}; }}
 
 /* ---------- top bar ---------- */
 QWidget#TopBar {{ background: {t['topbar']}; border-bottom: 1px solid {t['border']}; }}
-QLineEdit#GlobalSearch {{ background: {t['surface']}; border: 1px solid {t['input']};
-                         border-radius: 10px; padding: 7px 12px; min-height: 20px; }}
+QLineEdit#GlobalSearch {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                         border-radius: 10px; padding: 8px 12px; min-height: 22px; }}
 QLineEdit#GlobalSearch:focus {{ border: 1px solid {t['accent']}; }}
-QPushButton#Chip {{ border-radius: 10px; padding: 7px 12px; }}
+QPushButton#Chip, QToolButton#Chip {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                   border-radius: 10px; padding: 8px 12px; min-height: 22px; }}
+QPushButton#Chip:hover, QToolButton#Chip:hover {{ background: {t['hover']}; }}
+QPushButton#ChipOn {{ background: {t['banner_warn']}; color: {t['banner_warn_text']};
+                     border: 1px solid {t['banner_warn_line']}; border-radius: 10px;
+                     padding: 8px 12px; min-height: 22px; font-weight: 600; }}
+QPushButton#ChipGood {{ background: {t['good_bg']}; color: {t['good_text']};
+                       border: 1px solid {t['good_line']}; border-radius: 10px;
+                       padding: 8px 12px; min-height: 22px; font-weight: 600; }}
+QToolButton#UserChip {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                       border-radius: 20px; padding: 4px 12px 4px 4px; }}
+QToolButton#UserChip:hover {{ background: {t['hover']}; }}
+QToolButton#UserChip::menu-indicator {{ image: none; width: 0; }}
+QComboBox#DomainChip {{ background: {t['surface']}; border: 1px solid {t['line_strong']};
+                       border-radius: 10px; padding: 8px 12px 8px 12px; min-height: 22px; }}
 QLabel#Badge {{ background: #DC2626; color: white; border-radius: 8px; font-size: 7.5pt;
                font-weight: 700; padding: 0 5px; }}
 
@@ -94,28 +115,39 @@ QLabel#PageTitle {{ font-size: 18pt; font-weight: 700; color: {t['text']}; }}
 QLabel#PageSub {{ color: {t['muted']}; }}
 QLabel#Muted {{ color: {t['muted']}; }}
 QLabel#Small {{ color: {t['muted']}; font-size: 8.5pt; }}
-QLabel#Greeting {{ font-size: 18pt; font-weight: 700; }}
-QLabel#SectionTitle {{ font-size: 11pt; font-weight: 600; }}
+QLabel#Greeting {{ font-size: 21pt; font-weight: 700; }}
+QLabel#SectionTitle {{ font-size: 12pt; font-weight: 600; }}
+QLabel#TileLabel {{ color: {t['muted']}; font-size: 10pt; background: transparent; }}
+QLabel#TileValue {{ font-size: 23pt; font-weight: 700; background: transparent; }}
+QLabel#TileSub {{ font-size: 9pt; font-weight: 600; background: transparent; }}
+QLabel#RowTitle {{ font-weight: 600; background: transparent; }}
+QLabel#RowSub {{ color: {t['muted']}; font-size: 9pt; background: transparent; }}
+QFrame#RecentRow {{ background: transparent; border: none; border-radius: 10px; }}
+QFrame#RecentRow:hover, QFrame#RecentRow:focus {{ background: {t['hover']}; }}
+QFrame#BigSearch {{ background: {t['field']}; border: 1px solid {t['line_strong']};
+                   border-radius: 12px; }}
+QFrame#BigSearch QLineEdit {{ background: transparent; border: none; font-size: 11.5pt;
+                             padding: 10px 4px; }}
 
 /* ---------- cards ---------- */
 QGroupBox {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 14px;
-            margin-top: 0px; padding: 40px 16px 16px 16px; font-weight: 600;
-            font-size: 10.5pt; }}
+            margin-top: 0px; padding: 48px 20px 20px 20px; font-weight: 600;
+            font-size: 12pt; }}
 QGroupBox::title {{ subcontrol-origin: padding; subcontrol-position: top left;
-                   left: 16px; top: 13px; padding: 0; color: {t['text']}; }}
+                   left: 20px; top: 18px; padding: 0; color: {t['text']}; }}
 QGroupBox QLabel, QGroupBox QCheckBox, QGroupBox QRadioButton {{ font-weight: normal;
-                                                               font-size: 10pt; }}
+                                                               font-size: 10.5pt; }}
 QFrame#Card {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 14px; }}
 QLabel#CardValue {{ font-size: 20pt; font-weight: 700; }}
 QLabel#Banner, QFrame#Banner {{ background: {t['banner']}; border: 1px solid {t['banner_line']};
-                               color: {t['banner_text']}; border-radius: 10px; padding: 10px 14px; }}
+                               color: {t['banner_text']}; border-radius: 12px; padding: 12px 16px; }}
 QLabel#HelpStrip {{ border-radius: 10px; }}
 
 /* ---------- inputs ---------- */
 QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit,
 QTimeEdit, QDateTimeEdit {{
-    background: {t['surface']}; color: {t['text']}; border: 1px solid {t['input']};
-    border-radius: 9px; padding: 6px 10px; selection-background-color: {t['selected']};
+    background: {t['input_bg']}; color: {t['text']}; border: 1px solid {t['input']};
+    border-radius: 10px; padding: 8px 12px; selection-background-color: {t['selected']};
     selection-color: {t['text']}; }}
 QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus,
 QDateEdit:focus, QTimeEdit:focus {{ border: 1px solid {t['accent']}; }}
@@ -140,7 +172,7 @@ QRadioButton::indicator:checked {{ border: 1px solid {t['accent']};
 
 /* ---------- buttons ---------- */
 QPushButton {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['input']};
-              border-radius: 9px; padding: 7px 14px; min-height: 20px; }}
+              border-radius: 10px; padding: 8px 16px; min-height: 22px; }}
 QPushButton:hover {{ background: {t['hover']}; }}
 QPushButton:pressed {{ background: {t['selected']}; }}
 QPushButton:checked {{ background: {t['selected']}; border-color: {t['accent']}; }}
