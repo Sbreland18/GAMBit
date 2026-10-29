@@ -546,6 +546,13 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         except Exception:  # noqa: BLE001
             pass
         self.start_session_ui()
+        try:                          # who can open GAM's keys on this PC (quietly)
+            from .. import gam_keys
+            from .widgets import Worker
+            Worker(gam_keys.run, lambda *_a: None, on_done=lambda _r: None,
+                   on_error=lambda _e: None)
+        except Exception:  # noqa: BLE001
+            pass
         self.preload_pages()          # the rest of the pages, quietly in the background
         self.install_practice()
         try:

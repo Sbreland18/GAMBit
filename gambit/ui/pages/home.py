@@ -517,7 +517,8 @@ class HomePage(Page):
                                 "Review", lambda: self.app._go_safe("Approvals")))
         except Exception:  # noqa: BLE001
             pass
-        for src, page, btn in (("sso_watch", "Single sign-on", "Fix"),
+        for src, page, btn in (("gam_keys", "Settings & Updates", "Fix"),
+                               ("sso_watch", "Single sign-on", "Fix"),
                                ("maildns", "Domain & extras", "Fix"),
                                ("activity", "Activity log", "Check")):
             try:

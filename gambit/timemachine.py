@@ -13,7 +13,7 @@ import re
 from .settings import settings
 
 USERS_ARGS = ["print", "users", "fields", "primaryemail,name,ou,suspended,aliases", "licenses"]
-MEMBERS_ARGS = ["print", "group-members", "fields", "email,role"]
+MEMBERS_ARGS = ["print", "group-members", "fields", "email,role,type"]
 TASK = {"name": "GAMbit account time machine", "args": ["--task", "timemachine"],
         "freq": "daily", "time": "01:30",
         "what": "Saves every account's org unit, groups, aliases and licenses each night",
@@ -170,6 +170,103 @@ def restore_commands(email: str, then: dict, now: dict,
     return steps
 
 
+# ================================================================ groups ===
+def _groups_dir() -> str:
+    d = os.path.join(folder(), "groups")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def build_groups(member_rows: list[dict]) -> dict:
+    """{group: {member: {"role", "type"}}} – everyone, including outside addresses and
+    groups inside groups (the per-account snapshot only has the district's own accounts)."""
+    out: dict = {}
+    for r in member_rows:
+        low = _low(r)
+        g, e = low.get("group", "").lower(), low.get("email", "").lower()
+        if g and e:
+            out.setdefault(g, {})[e] = {"role": (low.get("role") or "MEMBER").upper(),
+                                        "type": (low.get("type") or "USER").upper()}
+    return out
+
+
+def save_groups(groups: dict, day: datetime.date | None = None) -> str:
+    day = day or datetime.date.today()
+    path = os.path.join(_groups_dir(), f"{day.isoformat()}.json.gz")
+    tmp = path + ".tmp"
+    with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+        json.dump(groups, fh)
+    os.replace(tmp, path)
+    cut = (day - datetime.timedelta(days=keep_days())).isoformat()
+    for f in os.listdir(_groups_dir()):
+        if f.endswith(".json.gz") and f[:10] < cut:
+            try:
+                os.remove(os.path.join(_groups_dir(), f))
+            except OSError:
+                pass
+    return path
+
+
+def group_then(day: str, group: str) -> tuple[dict, bool]:
+    """(members on that day, complete). Nights saved before full group snapshots only know
+    the district's own accounts – complete is then False."""
+    g = group.strip().lower()
+    p = os.path.join(_groups_dir(), f"{day}.json.gz")
+    if os.path.isfile(p):
+        with gzip.open(p, "rt", encoding="utf-8") as fh:
+            return dict(json.load(fh).get(g, {})), True
+    out = {}
+    for e, a in load(day).items():
+        role = (a.get("groups") or {}).get(g)
+        if role:
+            out[e] = {"role": role, "type": "USER"}
+    return out, False
+
+
+def group_now(group: str, run_csv) -> dict:
+    code, rows, err = run_csv(["print", "group-members", "group", group, "fields",
+                               "email,role,type"])
+    if code != 0:
+        raise RuntimeError((err or "").strip().splitlines()[-1] if (err or "").strip()
+                           else f"Couldn't read the members of {group}.")
+    return build_groups([{**r, "group": group} for r in rows]).get(group.lower(), {})
+
+
+def group_diff(then: dict, now: dict) -> list[dict]:
+    rows = []
+    for m in sorted(set(then) | set(now)):
+        a, b = then.get(m), now.get(m)
+        if a and not b:
+            rows.append({"Member": m, "Then": a["role"].lower(), "Now": "(not a member)",
+                         "Change": "removed since"})
+        elif b and not a:
+            rows.append({"Member": m, "Then": "(not a member)", "Now": b["role"].lower(),
+                         "Change": "added since"})
+        elif a["role"] != b["role"]:
+            rows.append({"Member": m, "Then": a["role"].lower(), "Now": b["role"].lower(),
+                         "Change": "role changed"})
+    return rows
+
+
+def group_restore_commands(group: str, then: dict, now: dict, add_back: bool = True,
+                           remove_new: bool = False, roles: bool = True
+                           ) -> list[tuple[str, list[str]]]:
+    role_word = {"OWNER": "owner", "MANAGER": "manager"}
+    steps = []
+    for m in sorted(set(then) - set(now)) if add_back else []:
+        r = role_word.get(then[m]["role"], "member")
+        steps.append((f"Add {m} back as {r}", ["update", "group", group, "add", r, "user",
+                                                m]))
+    for m in sorted(set(now) - set(then)) if remove_new else []:
+        steps.append((f"Take {m} out", ["update", "group", group, "remove", "user", m]))
+    for m in sorted(set(then) & set(now)) if roles else []:
+        if then[m]["role"] != now[m]["role"]:
+            r = role_word.get(then[m]["role"], "member")
+            steps.append((f"Make {m} {r} again", ["update", "group", group, "update", r,
+                                                  "user", m]))
+    return steps
+
+
 def run(log=print, run_csv=None) -> int:
     from .directory import run_gam_csv
     run_csv = run_csv or (lambda a: run_gam_csv(a, 3600))
@@ -182,5 +279,7 @@ def run(log=print, run_csv=None) -> int:
         members = []
     data = build(users, members)
     path = save(data)
+    if members:
+        save_groups(build_groups(members))
     log(f"Time machine: saved {len(data)} account(s) to {os.path.basename(path)}.")
     return len(data)

@@ -65,6 +65,13 @@ class SettingsPage(Page):
             button("Test connection", slot=self.app.test_connection)))
         self.conn = QLabel("Not tested yet")
         form.addRow("Connection", self.conn)
+        self.keys_lab = QLabel("", objectName="Muted")
+        self.keys_lab.setWordWrap(True)
+        form.addRow("GAM's keys", self.row(
+            button("Check who can open them", slot=self._check_keys),
+            button("Lock down GAM's keys…", "primary", self._lock_keys)))
+        form.addRow("", self.keys_lab)
+        self._show_keys()
         self.app.directory.connection_changed.connect(
             lambda ok, t: self.conn.setText(f"✔ Connected to {t}" if ok else f"✖ Not connected – {t}"))
         lay.addWidget(box)
@@ -489,6 +496,58 @@ class SettingsPage(Page):
         lay.addStretch(1)
         from ..section_nav import install
         self.section_nav = install(self, scroll, inner)
+
+    def _show_keys(self):
+        from ... import gam_keys
+        d = gam_keys.last()
+        fs = d.get("findings", [])
+        bad = [f for f in fs if f.get("level") in ("bad", "warn")]
+        if not d:
+            self.keys_lab.setText("GAM's folder holds keys to your whole Google domain. "
+                                  "GAMbit checks who on this PC can open them.")
+        elif bad:
+            self.keys_lab.setText("⚠ " + "\n⚠ ".join(f["text"] for f in bad[:4]))
+        else:
+            self.keys_lab.setText("✔ " + (fs[0]["text"] if fs else "Protected."))
+
+    def _check_keys(self):
+        from ... import gam_keys
+        from ..widgets import Worker
+
+        def done(res):
+            gam_keys.save_last(res)
+            self._show_keys()
+        self.keys_lab.setText("Checking…")
+        Worker(gam_keys.check, on_done=done, on_error=lambda e: self.keys_lab.setText(
+            f"Couldn't check: {e}"))
+
+    def _lock_keys(self):
+        from ... import gam_keys
+        from ..widgets import Worker
+        p = gam_keys.paths()
+        if not p["config"] and not p["keys"]:
+            self.info("GAM isn't set up on this computer yet.")
+            return
+        if not self.confirm(
+                "Lock down GAM's keys?\n\n"
+                f"• {p['config'] or '(config folder)'} and the key files in it: only you, "
+                "Administrators and SYSTEM can open them.\n"
+                f"• {p['program'] or '(program folder)'}: only you and Administrators can "
+                "change it; other users can still run GAM.\n\n"
+                "Windows may ask for administrator rights. Other Windows users on this PC "
+                "won't be able to use this GAM config afterwards – each tech should have "
+                "their own.", "GAM's keys"):
+            return
+
+        def done(res):
+            self._show_keys()
+            bad = [f for f in res if f.level == "bad"]
+            self.info("Locked down. " + ("Some things are still open:\n" + "\n".join(
+                f"• {f.text}" for f in bad) if bad else "Only you, Administrators and "
+                "SYSTEM can open GAM's keys now."), "GAM's keys")
+        self.keys_lab.setText("Locking down…")
+        Worker(gam_keys.lock_down, on_done=done,
+               on_error=lambda e: self.keys_lab.setText(f"Couldn't lock down: {e}"))
 
     def on_show(self):
         self.refresh_installed()

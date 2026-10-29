@@ -263,6 +263,24 @@ def run_cleanup(log=print, run_csv=None, users=None) -> list[str]:
             code, lic, _e = run_csv(LICENSE_ARGS)
             lic = lic if code == 0 else []
         found = evaluate(r, users, lic)
+        if r.get("kind") == "inactive" and int(r.get("warn_days", 0) or 0) > 0:
+            from .. import suspend_notice as sn
+            today = datetime.date.today()
+            state = sn.load_state()
+            warn, due, dropped, new_state = sn.split(r, found, users, today, state)
+            if dropped:
+                lines.append(f"“{r.get('name')}”: {len(dropped)} person(s) signed in after "
+                             "their notice – left alone.")
+            if warn:
+                if len(warn) > int(r.get("max", 200) or 200):
+                    lines.append(f"“{r.get('name')}”: {len(warn)} people to warn is over the "
+                                 "limit – nobody was emailed. Check the rule.")
+                    found = []
+                    continue
+                sn.send(r, warn, users, today, log=lines.append)
+            if not settings.get("safety/dry_run", False):
+                sn.save_state(new_state)
+            found = due
         cap = int(r.get("max", 200) or 200)
         if not found:
             lines.append(f"“{r.get('name')}”: nothing to do.")

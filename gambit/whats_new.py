@@ -13,6 +13,19 @@ from .settings import settings
 SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
+    # ----- round 41
+    {"id": "gam-keys", "title": "GAM's keys locked down",
+     "text": "GAMbit checks who on this PC can open GAM's keys (they control your whole "
+             "Google domain) or change gam.exe, and Settings & Updates → GAM location → Lock "
+             "down GAM's keys fixes it in one click.", "page": "Settings & Updates"},
+    {"id": "group-restore", "title": "Put a whole group back",
+     "text": "The Account time machine now saves every group's members each night – outside "
+             "addresses and groups inside groups too – and can put a group back to how it was "
+             "on any day.", "page": "Account time machine"},
+    {"id": "suspend-notice", "title": "Notice before suspending",
+     "text": "A clean-up rule that suspends inactive accounts can email people (and their "
+             "manager) first. Anyone who signs in during the notice drops off the list.",
+     "page": "Clean-up rules"},
     # ----- round 40
     {"id": "sso-certs", "title": "Sign-in certificate warnings",
      "text": "Single sign-on → Certificates reads your sign-in provider's certificate "

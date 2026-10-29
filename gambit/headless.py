@@ -117,7 +117,8 @@ def daily(log) -> int:
     for name, fn in (("Archive-then-delete", "retention:run_due"),
                      ("Sign-in certificates", "sso_watch:run"),
                      ("Email domain check", "maildns:run"),
-                     ("Activity log check", "activity:run_check")):
+                     ("Activity log check", "activity:run_check"),
+                     ("GAM key check", "gam_keys:run")):
         try:
             import importlib
             mod, func = fn.split(":")

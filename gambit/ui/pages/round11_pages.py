@@ -1029,7 +1029,8 @@ class OwnershipPage(Page):
 class TimeMachinePage(Page):
     title = "Account time machine"
     subtitle = ("Every night GAMbit saves each account's org unit, status, aliases, licenses and "
-                "groups. See what an account looked like on any day, and put it back.")
+                "groups, and every group's members. See what an account or a group looked "
+                "like on any day, and put it back.")
 
     def build(self):
         self.who = PersonField(self.directory, "Whose account?")
@@ -1048,6 +1049,23 @@ class TimeMachinePage(Page):
         self.body.addLayout(self.row(self.groups_too,
                                      button("Put the account back to that day", "primary",
                                             self.restore)))
+        from PySide6.QtWidgets import QGroupBox, QVBoxLayout
+        gbox = QGroupBox("Put a whole group back")
+        gv = QVBoxLayout(gbox)
+        from ..pickers import GroupField
+        self.grp = GroupField(self.directory, "group email, e.g. hs-staff@yourdistrict.org")
+        self.grp.setMinimumWidth(320)
+        gv.addLayout(self.row(self.grp, QLabel("to how it was on the day above"),
+                              button("Compare the group", slot=self.group_compare),
+                              stretch=False))
+        self.g_add = QCheckBox("Add back people removed since")
+        self.g_add.setChecked(True)
+        self.g_roles = QCheckBox("Put owner / manager roles back")
+        self.g_roles.setChecked(True)
+        self.g_remove = QCheckBox("Take out people added since")
+        gv.addLayout(self.row(self.g_add, self.g_roles, self.g_remove,
+                              button("Put the group back", "primary", self.group_restore)))
+        self.body.addWidget(gbox)
         self.steps = StepList(self)
         self.steps.setMaximumHeight(140)
         self.body.addWidget(self.steps)
@@ -1055,6 +1073,64 @@ class TimeMachinePage(Page):
 
     def on_show(self):
         self._dates()
+
+    def _group_pair(self, then_now):
+        from ... import timemachine as tm
+        from .round13_tabs import _csv
+        from .round25_data import _work
+        g, d = (self.grp.email() or self.grp.text()).strip().lower(), self.day.currentText()
+        if "@" not in g or not d:
+            self.info("Type the group's email address and pick a day.")
+            return
+
+        def work():
+            then, complete = tm.group_then(d, g)
+            return then, complete, tm.group_now(g, _csv())
+
+        def done(res):
+            then, complete, now = res
+            if not then and not complete:
+                self.info(f"{g} isn't in the {d} snapshot (nights saved before this version "
+                          "only know the district's own accounts).")
+                return
+            then_now(g, d, then, now, complete)
+        _work(self, work, done, self.status, f"Reading {g}…")
+
+    def group_compare(self):
+        from ... import timemachine as tm
+
+        def show(g, d, then, now, complete):
+            rows = tm.group_diff(then, now)
+            self.table.set_rows(["Member", "Change", f"On {d}", "Now"],
+                                [[r["Member"], r["Change"], r["Then"], r["Now"]]
+                                 for r in rows])
+            note = "" if complete else (" – this night only knows the district's own "
+                                        "accounts, so outside addresses and groups inside "
+                                        "the group aren't shown.")
+            self.status.setText(f"{g}: {len(then)} member(s) on {d}, {len(now)} now, "
+                                f"{len(rows)} difference(s){note}")
+        self._group_pair(show)
+
+    def group_restore(self):
+        from ... import timemachine as tm
+
+        def go(g, d, then, now, complete):
+            steps = tm.group_restore_commands(g, then, now, self.g_add.isChecked(),
+                                              self.g_remove.isChecked(),
+                                              self.g_roles.isChecked())
+            if not steps:
+                self.info("Nothing to put back – the group matches that day for the "
+                          "options you chose.")
+                return
+            if len(steps) > 50 and not self.confirm(
+                    f"This puts back {len(steps)} membership change(s) in {g}. Continue?"):
+                return
+            run_or_request(self, self.steps, steps, f"Put {g} back to {d}",
+                           f"Account time machine: restore the members of {g} to how they "
+                           f"were on {d}." + ("" if complete else " (District accounts "
+                                              "only – that night didn't save outside "
+                                              "members.)"))
+        self._group_pair(go)
 
     def _dates(self):
         from ... import timemachine as tm

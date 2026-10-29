@@ -54,7 +54,8 @@ def build(days: int = 7) -> dict:
     except Exception:  # noqa: BLE001
         bg_failed, bg_ok = [], 0
     watch = []
-    for mod, fn in (("sso_watch", "attention"), ("maildns", "attention"),
+    for mod, fn in (("gam_keys", "attention"), ("sso_watch", "attention"),
+                    ("maildns", "attention"),
                     ("activity", "integrity_attention")):
         try:
             import importlib

@@ -171,6 +171,31 @@ class RuleDialog(QDialog):
         f.addRow("", self.never)
         f.addRow("Stop if more than", self.max)
         f.addRow("Never touch", self.exc)
+        self.warn_days = QSpinBox()
+        self.warn_days.setRange(0, 90)
+        self.warn_days.setValue(int(r.get("warn_days", 0) or 0))
+        self.warn_days.setSpecialValueText("No notice")
+        self.warn_days.setSuffix(" days' notice")
+        self.warn_mgr = QCheckBox("Also tell their manager (from the directory)")
+        self.warn_mgr.setChecked(bool(r.get("warn_manager", True)))
+        self.warn_also = QLineEdit(r.get("warn_also", ""))
+        self.warn_also.setPlaceholderText("optional – HR or principal emails for a summary")
+        self.warn_contact = QLineEdit(r.get("warn_contact", ""))
+        self.warn_contact.setPlaceholderText("who people should contact – e.g. the help desk")
+        from PySide6.QtWidgets import QPlainTextEdit
+        from ... import suspend_notice as _sn
+        self.warn_msg = QPlainTextEdit(r.get("warn_message", "") or _sn.MESSAGE)
+        self.warn_msg.setMaximumHeight(110)
+        self.warn_note = QLabel("People get an email this many days before; anyone who signs "
+                                "in meanwhile drops off the list. {name}, {email}, {date}, "
+                                "{days} and {contact} are filled in.",
+                                objectName="Muted", wordWrap=True)
+        f.addRow("Warn first", self.warn_days)
+        f.addRow("", self.warn_mgr)
+        f.addRow("Summary to", self.warn_also)
+        f.addRow("Contact", self.warn_contact)
+        f.addRow("Message", self.warn_msg)
+        f.addRow("", self.warn_note)
         f.addRow("Archive first to", self.archive)
         f.addRow("", self.arch_cal)
         f.addRow("", self.arch_note)
@@ -178,11 +203,15 @@ class RuleDialog(QDialog):
 
         def kind_changed(*_a):
             dele = self.kind.currentData() == "delete_old"
-            for w in (self.archive, self.arch_cal, self.arch_note):
-                w.setVisible(dele)
-                lab = f.labelForField(w)
-                if lab is not None:
-                    lab.setVisible(dele)
+            inactive = self.kind.currentData() == "inactive"
+            for ws, show in (((self.archive, self.arch_cal, self.arch_note), dele),
+                             ((self.warn_days, self.warn_mgr, self.warn_also,
+                               self.warn_contact, self.warn_msg, self.warn_note), inactive)):
+                for w in ws:
+                    w.setVisible(show)
+                    lab = f.labelForField(w)
+                    if lab is not None:
+                        lab.setVisible(show)
         self.kind.currentIndexChanged.connect(kind_changed)
         kind_changed()
         f.addRow("", QLabel("Rules never change anything by themselves – each finding becomes an "
@@ -201,7 +230,15 @@ class RuleDialog(QDialog):
                 "archive_to": self.archive.text().strip().lower()
                 if self.kind.currentData() == "delete_old" else "",
                 "archive_what": ["drive"] + (["calendar"] if self.arch_cal.isChecked()
-                                             else [])}
+                                             else []),
+                **({"warn_days": self.warn_days.value(),
+                    "warn_manager": self.warn_mgr.isChecked(),
+                    "warn_also": self.warn_also.text().strip(),
+                    "warn_contact": self.warn_contact.text().strip(),
+                    "warn_message": "" if self.warn_msg.toPlainText().strip() ==
+                    __import__("gambit.suspend_notice", fromlist=["x"]).MESSAGE.strip()
+                    else self.warn_msg.toPlainText().strip()[:2000]}
+                   if self.kind.currentData() == "inactive" else {})}
 
     def accept(self):
         a = self.archive.text().strip()
