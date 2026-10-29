@@ -182,6 +182,12 @@ def _main(argv=None) -> int:
     support.setup_logging()
     log("Starting")
     try:
+        from . import secrets_store
+        from .settings import settings as _settings
+        secrets_store.migrate(_settings)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         from .updaters import update_in_progress
         if update_in_progress():
             log("A GAMbit update is being installed – skipped this run; the next one runs "

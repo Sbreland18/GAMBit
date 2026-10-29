@@ -236,7 +236,8 @@ def test_senior_plan(themap):
                  "collect_by": "2026-05-22", "grad_ou": "/Graduates", "move_on": "2026-06-01",
                  "suspend_on": "2026-07-15", "sku": "1010310008"})
     assert sum(1 for lab, _a in p["now"] if lab.startswith("Takeout")) == 2
-    assert ["cros_sn", "A1", "update", "notes", "Collect – Class of 2026 by 2026-05-22"] in \
+    assert ["cros_sn", "A1", "update", "updatenotes",
+            "Collect – Class of 2026 by 2026-05-22\n#notes#"] in \
         [a for _l, a in p["now"]]
     when = {w: c for w, _t, c in p["later"]}
     assert ["update", "user", "a@x", "ou", "/Graduates"] in when["2026-06-01T06:00"]

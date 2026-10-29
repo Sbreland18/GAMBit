@@ -79,7 +79,9 @@ def _settings_dump() -> dict:
     from .settings import settings
     out = {}
     for k in settings._s.allKeys():
-        if any(s in k.lower() for s in SECRET_KEYS):
+        from .secrets_store import is_secret
+        if is_secret(k) or any(s in k.lower() for s in SECRET_KEYS) or \
+                k.startswith(("access/", "seal/")):
             out[k] = "(hidden)"
             continue
         v = settings._s.value(k)
@@ -116,7 +118,9 @@ def make_report(path: str, description: str = "", output_text: str = "") -> str:
         except Exception as exc:  # noqa: BLE001
             zf.writestr("activity-error.txt", str(exc))
         if output_text:
-            zf.writestr("output-panel.txt", output_text[-200_000:])
+            from .gam_runner import hide_text_passwords
+            zf.writestr("output-panel.txt", "\n".join(
+                hide_text_passwords(ln) for ln in output_text[-200_000:].splitlines()))
     return path
 
 

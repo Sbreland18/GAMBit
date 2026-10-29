@@ -156,8 +156,9 @@ def run(name: str, log=print) -> int:
     # files: full preview + password cards
     out = output_dir()
     preview = os.path.join(out, f"{_slug(name)}_{stamp}_changes.csv")
+    from . import csv_safe
     with open(preview, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
+        w = csv_safe.writer(fh)
         w.writerow(["Change", "Account", "Name", "Details", "Result"])
         done_ids = {id(c): r for c, r in applied}
         fail_ids = {id(c): r for c, r in failed}
@@ -167,6 +168,11 @@ def run(name: str, log=print) -> int:
                                                and request else "not applied"))
             w.writerow([c.action, c.email, c.name, c.details, res])
     pw_csv = ""
+    from . import private_files
+    removed = private_files.purge_old(out)          # password files are kept 30 days
+    if removed:
+        log(f"Removed {removed} new-account password file(s) older than "
+            f"{private_files.KEEP_DAYS} days.")
     if created:
         pw_csv = os.path.join(out, f"{_slug(name)}_{stamp}_new_accounts.csv")
         with open(pw_csv, "w", newline="", encoding="utf-8") as fh:
@@ -174,12 +180,18 @@ def run(name: str, log=print) -> int:
             w.writerow(["Name", "Email", "Temporary password", "Org unit"])
             for c in created:
                 w.writerow([c["name"], c["email"], c["password"], c["group"]])
+        private_files.restrict(pw_csv)
         try:
             from .ui.cards import cards_html
-            with open(pw_csv.replace(".csv", "_cards.html"), "w", encoding="utf-8") as fh:
+            cards = pw_csv.replace(".csv", "_cards.html")
+            with open(cards, "w", encoding="utf-8") as fh:
                 fh.write(cards_html(created))
+            private_files.restrict(cards)
         except Exception:  # noqa: BLE001
             pass
+        if private_files.synced_or_shared(out):
+            problems.append(f"New passwords were saved in {out}, which looks like a synced "
+                            "or network folder – choose a folder only you can open.")
 
     text = [f"Roster sync “{name}” ran on {datetime.datetime.now():%A %d %B %Y at %H:%M}.",
             "", f"Applied: {len(applied)} change(s). Failed: {len(failed)}.",

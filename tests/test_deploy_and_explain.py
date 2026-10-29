@@ -8,9 +8,12 @@ def test_deploy_fill_only_empty(tmp_path):
     settings.set("safety/threshold", 25)
     settings.set("alerts/email", "")
     f = tmp_path / "gambit-deploy.json"
-    f.write_text(json.dumps({"gambit_deploy": 1, "created": "2026-01-01T00:00:00",
-                             "overwrite": False,
-                             "settings": {"safety/threshold": 5, "alerts/email": "t@s.org"}}))
+    data = {"gambit_deploy": 1, "created": "2026-01-01T00:00:00", "overwrite": False,
+            "settings": {"safety/threshold": 5, "alerts/email": "t@s.org"}}
+    f.write_text(json.dumps(data))
+    assert deploy.apply_file(str(f)) == []          # unsigned, from a shared place
+    from gambit import seal
+    f.write_text(json.dumps(seal.sign("deploy", {**data, "created": "2026-01-02T00:00:00"})))
     changed = deploy.apply_file(str(f))
     assert changed == ["alerts/email"]
     assert int(settings.get("safety/threshold")) == 25

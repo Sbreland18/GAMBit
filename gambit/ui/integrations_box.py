@@ -248,8 +248,9 @@ def integrations_box(page):
     on.toggled.connect(lambda v: (settings.set("assistant/enabled", v), page.app.apply_role()))
     key = _field("assistant/api_key", "Anthropic API key (sk-ant-…)", secret=True)
     model = _field("assistant/model", "Model, e.g. claude-sonnet-4-5")
-    share = QCheckBox("Also send user names and org units (otherwise only org units, groups and "
-                      "your domain are sent)")
+    share = QCheckBox("Also send people's addresses (otherwise only org units, groups and your "
+                      "domain are sent, and “Explain” replaces people with person1, person2…). "
+                      "Check your student-data agreement first.")
     share.setChecked(bool(settings.get("assistant/share_users", False)))
     share.toggled.connect(lambda v: settings.set("assistant/share_users", v))
     form.addRow("", on)

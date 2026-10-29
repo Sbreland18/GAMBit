@@ -263,7 +263,10 @@ class SettingsPage(Page):
                                  slot=lambda: self.app.open_access())
         self.access_btn.setToolTip("Require Google sign-in for GAMbit, choose who can use it, "
                                    "their roles and org units.")
-        form.addRow("", self.row(self.roles_btn, self.access_btn))
+        self.trust_btn = button("Signatures && trust…", slot=self._trust_center)
+        self.trust_btn.setToolTip("Check and sign shared items (Run later, offboarding plans, "
+                                  "automatic groups…) and pair computers.")
+        form.addRow("", self.row(self.roles_btn, self.access_btn, self.trust_btn))
         lay.addWidget(box)
         self._team_text()
 
@@ -556,7 +559,9 @@ class SettingsPage(Page):
         self.info("Saved. Put gambit-deploy.json in the same folder as GAMbit-Setup.exe and "
                   "install with:\n\nGAMbit-Setup-x.y.z.exe /VERYSILENT /SUPPRESSMSGBOXES "
                   "/NORESTART /NOLAUNCH\n\nOr copy it to %ProgramData%\\GAMbit\\ or "
-                  "<team folder>\\deploy\\ – GAMbit picks it up when it starts.\n\n"
+                  "<team folder>\\deploy\\ – GAMbit picks it up when it starts. From those "
+                  "shared places only a file signed by a GAMbit admin can change settings "
+                  "(this one is signed if you have an admin key here).\n\n"
                   "Each PC still signs GAM in once (Setup wizard), unless you copy the GAM "
                   "config folder too.")
 
@@ -567,9 +572,26 @@ class SettingsPage(Page):
         if not path:
             return
         secrets = QMessageBox.question(
-            self, "Back up", "Include secrets (webhook URL, help-desk PIN hash)? Choose No "
-            "if the backup will be stored somewhere others can read.") == QMessageBox.Yes
-        deploy.backup(path, secrets)
+            self, "Back up", "Include secrets (API tokens, webhook links, the help-desk PIN)? "
+            "They're encrypted with a password you choose now.") == QMessageBox.Yes
+        pw = ""
+        if secrets:
+            from PySide6.QtWidgets import QInputDialog
+            pw, ok = QInputDialog.getText(self, "Backup password", "Password for this backup "
+                                          "(at least 10 characters – you'll need it to "
+                                          "restore):", QLineEdit.Password)
+            if not ok:
+                return
+            pw2, ok = QInputDialog.getText(self, "Backup password", "Type it again:",
+                                           QLineEdit.Password)
+            if not ok or pw != pw2:
+                self.info("The passwords didn't match – nothing was saved.")
+                return
+        try:
+            deploy.backup(path, secrets, password=pw)
+        except ValueError as exc:
+            self.info(str(exc))
+            return
         self.info(f"Backed up to {path}.")
 
     def _restore(self):
@@ -581,8 +603,15 @@ class SettingsPage(Page):
         replace = QMessageBox.question(
             self, "Restore", "Replace settings that are already set on this PC? Choose No "
             "to only fill in what's missing.") == QMessageBox.Yes
+        pw = ""
+        if deploy.needs_password(path):
+            from PySide6.QtWidgets import QInputDialog
+            pw, ok = QInputDialog.getText(self, "Backup password", "This backup's password:",
+                                          QLineEdit.Password)
+            if not ok:
+                return
         try:
-            n, f = deploy.restore(path, replace)
+            n, f = deploy.restore(path, replace, password=pw)
         except Exception as exc:  # noqa: BLE001
             self.info(f"Couldn't restore:\n{exc}")
             return
@@ -601,6 +630,14 @@ class SettingsPage(Page):
             return
         try:
             done = deploy.publish_project(d)
+        except deploy.FolderTooOpen as exc:
+            self.info("Not copied: " + ", ".join(exc.who) + " can open that folder, and "
+                      "oauth2service.json lets whoever has it read every mailbox and Drive "
+                      "in the domain – whatever their GAMbit or Google admin role.\n\n"
+                      "Limit the folder to the tech staff (and remove Everyone / Users / "
+                      "Domain Users), then try again. Better still: give each PC its own "
+                      "service account key.")
+            return
         except Exception as exc:  # noqa: BLE001
             self.info(str(exc))
             return
@@ -653,6 +690,14 @@ class SettingsPage(Page):
                                         self.app.directory.refresh_users()))
 
     # ---- team ----
+    def _trust_center(self):
+        from ..trust_center import TrustCenter
+        dlg = TrustCenter(self)
+        try:
+            dlg.exec()
+        finally:
+            dlg.deleteLater()
+
     def _team_text(self):
         from ...auth import session as _s
         signed_user = _s.active() and not team.is_admin()

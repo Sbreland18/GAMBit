@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 
@@ -44,8 +44,8 @@ class NextSteps(QDialog):
         col.addWidget(lab)
         if copy_text:
             cp = QPushButton("Copy password")
-            cp.clicked.connect(lambda: (QApplication.clipboard().setText(copy_text),
-                                        cp.setText("Copied")))
+            from .secure_clip import copy_secret
+            cp.clicked.connect(lambda: (copy_secret(copy_text), cp.setText("Copied")))
             col.addWidget(cp, 0, Qt.AlignLeft)
         if actions:
             col.addSpacing(6)
@@ -77,9 +77,13 @@ class NextSteps(QDialog):
         self.accept()
 
     def run(self):
-        self.exec()
-        if self.chosen is not None:
-            self.chosen()
+        try:
+            self.exec()
+            chosen = self.chosen
+        finally:
+            self.deleteLater()      # it shows the new password – don't keep it in memory
+        if chosen is not None:
+            chosen()
 
 
 def for_new_account(win, email: str, extra_note: str = "", sheet=None):

@@ -146,7 +146,8 @@ def tasks(rows: list[dict]) -> list[dict]:
 
 # ================================================================ Sheet ranges ===
 def sheetrange_args(user: str, file_id: str, rng: str, values: list[list]) -> list[str]:
-    js = json.dumps({"range": rng, "values": [[("" if v is None else v) for v in row]
+    from ..csv_safe import cell
+    js = json.dumps({"range": rng, "values": [[("" if v is None else cell(v)) for v in row]
                                               for row in values],
                      "majorDimension": "ROWS"})
     return ["user", user, "update", "sheetrange", file_id, "json", js, "userentered"]

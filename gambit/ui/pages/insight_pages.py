@@ -3,6 +3,7 @@ School reports, Unusual activity, Budget planner and the help-desk ticket queue.
 
 from __future__ import annotations
 
+from ... import tempfiles as _tf
 import os
 
 from PySide6.QtCore import QDate, Qt, QUrl
@@ -593,7 +594,6 @@ class SchoolReportsPage(Page):
                on_error=lambda e: (self.status.setText(""), self.info(str(e))))
 
     def preview(self):
-        import tempfile
         from ... import school_reports as sr
         sel = self.table.selected_dicts()
         if not self.stats or not sel:
@@ -601,7 +601,7 @@ class SchoolReportsPage(Page):
             return
         s = sel[0]["School"]
         _subj, body = sr.render(s, self.stats[s], self._opts())
-        path = os.path.join(tempfile.gettempdir(), "gambit_school_preview.html")
+        path = os.path.join(_tf.folder(), "gambit_school_preview.html")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(body)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
@@ -1186,8 +1186,12 @@ class TicketQueuePage(Page):
 
     def _detail(self, *_):
         t = self._cur()
-        self.desc.setText((f"<b>{t['subject']}</b> · {t['category']} {t['issue']}<br>"
-                           f"{t['description'][:600]}") if t else "")
+        from ..safe_html import esc
+        from PySide6.QtCore import Qt as _Qt
+        self.desc.setTextFormat(_Qt.RichText)        # ticket text is escaped – no markup
+        self.desc.setText((f"<b>{esc(t['subject'])}</b> · {esc(t['category'])} "
+                           f"{esc(t['issue'])}<br>"
+                           f"{esc(t['description'][:600])}") if t else "")
 
     def work_on(self):
         t = self._cur()

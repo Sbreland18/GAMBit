@@ -4,6 +4,7 @@ email, when something needs attention."""
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 
 from .settings import settings
@@ -105,8 +106,18 @@ def powershell_post(url: str, text_expr: str, title: str = "GAMbit") -> str:
     text_expr is plain text that may contain %VAR% batch variables.
     """
     body = json.dumps(payload(url, "__TEXT__", title))
-    safe = text_expr.replace('"', "").replace("'", "’")
+    # The text ends up outside cmd.exe's quotes (the JSON's \" toggle them), so nothing in
+    # it may be a cmd operator: & | < > ^ ( ) would run as commands, and quotes would shift
+    # the quoting of everything after them.
+    safe = re.sub(r"[\r\n]+", " ", text_expr).replace('"', "").replace("'", "’")
+    safe = safe.replace("&", " and ")
+    # literal % would start a batch variable; keep GAMbit's own %VAR% placeholders only
+    keep = re.findall(r"%[A-Z_]+%", safe)
+    safe = re.sub(r"%[A-Z_]+%", "\x00", safe).replace("%", "%%")
+    for v in keep:
+        safe = safe.replace("\x00", v, 1)
+    safe = re.sub(r"[|<>^()!`]", "", safe)
     body = body.replace('"', '\\"').replace("__TEXT__", safe)
-    url_q = url.replace("'", "''").replace("%", "%%")
+    url_q = re.sub(r'["\s^&|<>]', "", url).replace("'", "''").replace("%", "%%")
     return ('powershell -NoProfile -Command "Invoke-RestMethod -Method Post -ContentType '
             f"'application/json' -Uri '{url_q}' -Body '{body}'\" >nul 2>&1")

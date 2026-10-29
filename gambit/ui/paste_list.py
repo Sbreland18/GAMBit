@@ -189,9 +189,15 @@ class PasteListDialog(QDialog):
 
 def paste_people(parent, directory, include_groups=False) -> list[str]:
     dlg = PasteListDialog(parent, directory, "people", include_groups)
-    return dlg.result_items if dlg.exec() else []
+    try:
+        return dlg.result_items if dlg.exec() else []
+    finally:
+        dlg.deleteLater()
 
 
 def paste_serials(parent) -> list[str]:
     dlg = PasteListDialog(parent, None, "serials")
-    return dlg.result_items if dlg.exec() else []
+    try:
+        return dlg.result_items if dlg.exec() else []
+    finally:
+        dlg.deleteLater()

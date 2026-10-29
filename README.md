@@ -1016,6 +1016,49 @@ Three code reviews (sign-in/security, GAM command syntax, data modules), a click
 - Home scorecard shows a red alert line when a number breaks sharply from its usual range (also sent through Alerts on the weekly snapshot).
 - The leadership dashboard sheet is now updated in place with `update sheetrange` (charts and formatting survive), falling back to replacing the tab.
 
+## Round 37: QA review fixes
+
+A full QA pass found these; each has a regression test in `tests/test_round36.py`.
+
+- **Practice mode** only runs a change for real when *everything* it touches is the test
+  account or inside the test org unit: group changes, adding/moving into an org unit and
+  any other account named anywhere in the command (Drive transfer, delegate, forward…)
+  stay dry runs.
+- **Background tasks** run with "Run here now" no longer leave GAMbit pointed at another
+  domain profile; with Dry run or Practice on they don't run at all, and saved Chromebook
+  jobs only *list* what they would change.
+- **Undo** for on/off settings (suspended, change password, directory, archived) reads the
+  real values first and only reverses accounts that actually changed – also for org units
+  and groups. Undo refuses to run in a different domain profile than the change was made
+  in, multi-Chromebook undo restores each device's own values, and an undo held back by
+  Dry run can't attach itself to the next command.
+- **Year-end rollover** pairs grade org units by grade number (9 → 10, not 10 → 11 → 12 →
+  9), refuses rows that skip a grade or loop, runs moves top grade first, stops at the
+  first failed move, and only suspends a graduates org unit that isn't a grade.
+- **Passwords**: the offboarding lock password is a placeholder that becomes a random
+  password only when GAM runs (older saved plans are cleaned when read); passwords are
+  removed from Run later items and approval requests once they've run, and a command whose
+  password was removed can never run; welcome-email passwords are hidden in logs whatever
+  the template's wording.
+- **Run later** items are claimed before they run (never twice, from two PCs), keep their
+  domain profile, and edits made meanwhile aren't lost.
+- **Scheduled job scripts** quote arguments safely for cmd.exe (a job name with `&` can't
+  run anything), webhook alerts too.
+- **Tables**: row buttons, the copy button and the selection bar can't act on rows that
+  have changed underneath them; selections follow their rows when sorting; a dragged
+  column order doesn't carry over to different results; saved views on tabbed pages open
+  from Home.
+- **Also**: view-only roles can't slip past the page check; change detection reads the
+  action word (more GAM7 verbs, names like “info” no longer confuse it); roster sync skips
+  setup steps for a failed create, keeps other external IDs and organizations, and test
+  mode doesn't email real supervisors or join real groups; offboarding/graduation restarts
+  keep the original snapshot and warn when GAMbit couldn't read it; graduation needs an
+  alumni org unit; Manage user needs a real person and forgets the password field after a
+  reset; dry runs don't claim passwords were changed or accounts created; Chromebook notes
+  are added to rather than replaced; org unit names with apostrophes work in searches;
+  test builds are never offered as updates to the release; pop-ups holding passwords are
+  freed after closing; Undo on a pop-up can't run twice.
+
 ## Automated tests
 
 `run_tests.bat` (or `python -m pytest -q`) runs about 150 tests in under a minute. They use a pretend GAM (`tests/fakegam`), so nothing touches Google. The tests cover the roster sync plan, onboarding, offboarding, activity log masking and undo, roles, deployment files, rooms, the guardian report and signatures. They also open every page, check dry run, and check that a 30,000-row table stays fast. The Builder can run the tests before every build (*Run the tests first*).
@@ -1356,13 +1399,35 @@ You need `signtool.exe` from the Windows SDK (*Signing Tools for Desktop Apps*).
   "version": "1.0.1",
   "url": "https://github.com/Sbreland18/GAMbit/releases/download/v1.0.1/GAMbit-Setup-1.0.1.exe",
   "notes": "What changed",
-  "released": "2026-10-13"
+  "released": "2026-10-13",
+  "sha256": "<installer SHA-256>",
+  "sig": "<Ed25519 signature – written by the Builder>"
 }
 ```
 
 GitHub's raw file cache can take about 5 minutes to show the new `latest.json`. To see what clients see, click **Check live latest.json**.
 
-> "Remember token" stores the token in your Windows user registry (plain text). Leave it unchecked on shared PCs.
+> "Remember token" keeps the token in your Windows user registry, encrypted for your Windows account (DPAPI). Leave it unchecked on shared PCs anyway.
+
+### Release signing (automatic)
+
+Every build signs `latest.json` and a `release.json` asset with the Builder's own Ed25519 release key, and records the installer's SHA-256. Installed copies only install an update that is from this repository's GitHub releases, matches its SHA-256, and carries a valid signature (plus, if you set a code-signing certificate, the same Authenticode signer). The key is created on first build at `%APPDATA%\GAMbit Builder\release-signing.key`, encrypted for your Windows account. **Back it up** (the build log shows its code and path). If it's lost, make a new one and ship one release that clients install by hand, because copies with the old key won't trust the new one.
+
+## Security model (Round 38)
+
+The team folder, `%ProgramData%\GAMbit` and shared drives are treated as **untrusted**. Anything there that can make GAMbit act on its own is signed:
+
+- **Signed records.** Run later items, offboarding plans, time-limited accounts, Chrome policy plans, automatic groups, approval requests, approvals, approval rules and shared workflow settings each carry an Ed25519 signature. With GAMbit sign-in on, the signer is a person whose key a GAMbit admin approved (Users & access → Keys). Without sign-in, it's a computer key, and other PCs trust it only after pairing (Settings → Team → *Signatures & trust…*). Background tasks run an item only if its signature is valid **and** the signer's role (and org units) allow every command. Edited or unsigned items are skipped and flagged.
+- **After updating:** open *Signatures & trust…*, check each unsigned item's exact commands, and sign the ones that are right. Pending two-person approvals made before this version need approving again.
+- **Approvals.** Approvals are bound to a hash of the exact commands, so a request changed after approval needs approving again. Nobody approves their own two-person request. Email approvals are read from each approver's **Sent** mail (the service account needs Gmail read access to approvers' mailboxes), and the subject carries the command hash.
+- **Passwords.** Passwords can't be queued for later. Requests carry `{new-password}`, and GAMbit makes the password when the command runs and shows it once to the person who ran it. Clipboard copies of passwords are kept out of clipboard history and cleared after 60 seconds.
+- **Deploy files.** A `gambit-deploy.json` from a shared place is applied only if it's signed by a GAMbit admin, sits next to GAMbit.exe, or is in `%ProgramData%\GAMbit` with administrator-only write access. Access, sign-in, signature and installer settings can never be deployed.
+- **Secrets.** Tokens, client secrets, webhooks and the help-desk PIN are stored DPAPI-encrypted and hidden from problem reports. Backups that include secrets need a password (scrypt + Fernet).
+- **Lock sign-in on a PC.** Users & access → *Lock sign-in on this computer…* writes `%ProgramData%\GAMbit\signin-lock.json` (UAC prompt), so clearing a user's settings can't turn sign-in off.
+- **Updates.** GAM, GAMbit and the local AI model are hash-checked; GAMbit releases are also signature-checked (see Release signing). HTTPS→HTTP redirects are refused.
+- **Other hardening.** Help-desk mode looks through `csv`/`select`/`redirect` wrappers and refuses `batch`. The AI assistant may only run plain `print`/`show`/`info`/`report` look-ups, and addresses are pseudonymized before log lines are explained. CSV and Sheets exports neutralise formulas. Temp files go to a private folder. Rich text in labels is cleaned (https links only, no images or remote resources). Dependencies install from hash-pinned `requirements-lock.txt`.
+
+The real security boundary is still Google: give each tech the narrowest admin role and their own GAM credentials. GAMbit roles add a second check, not a replacement.
 
 ## Notes
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ... import csv_safe
 import os
 
 from PySide6.QtCore import Qt, QUrl
@@ -202,13 +203,12 @@ class ActivityPage(Page):
         QApplication.clipboard().setText("\n".join(e.get("command", "") for e in self._selected()))
 
     def export(self):
-        import csv
         path, _ = QFileDialog.getSaveFileName(self, "Export activity", "gambit-activity.csv",
                                               "CSV (*.csv)")
         if not path:
             return
         with open(path, "w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh)
+            w = csv_safe.writer(fh)
             w.writerow(["time", "who", "computer", "domain", "what was done", "chromebooks",
                         "command", "result", "undone"])
             for e in self.entries:

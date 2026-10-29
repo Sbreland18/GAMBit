@@ -252,6 +252,11 @@ def gate(parent=None) -> bool:
     p, method = dlg.person
     session.set_doc(doc)
     session.start(p, method, doc)
+    try:      # a personal signing key, so what this person asks for can be verified
+        if doc:
+            access.ask_key_if_needed(doc, session.email())
+    except Exception:  # noqa: BLE001 – never block signing in over it
+        pass
     return True
 
 

@@ -18,21 +18,36 @@ ENTITY_WORDS = {"ou", "ou_and_children", "ous", "ous_and_children", "group", "gr
                 "cros_ou_and_children", "ou_ns", "ou_and_children_ns", "group_ns"}
 
 
+# What applies when the shared rules can't be trusted (edited in the team folder, or not
+# signed by a GAMbit admin): nothing is approved automatically and deletes need two people.
+STRICT = {**DEFAULT, "auto": [], "on": True, "escalate_hours": 0, "unverified": True}
+
+
 def load() -> dict:
     from . import team
-    d = team.read_shared("approval_policy.json") if team.folder() else {}
-    if not d:
-        try:
-            d = json.loads(settings.get("approvals/policy", "{}") or "{}")
-        except ValueError:
-            d = {}
-    return {**DEFAULT, **d}
+    if team.folder():
+        d = team.read_shared("approval_policy.json")
+        if d:
+            d, v = team.read_shared_verified("approval_policy.json", "approvalpolicy")
+            if v is None:
+                return dict(STRICT)
+            return {**DEFAULT, **d}
+    try:
+        d = json.loads(settings.get("approvals/policy", "{}") or "{}")
+    except ValueError:
+        d = {}
+    if team.folder() and d:
+        return dict(STRICT) if d.get("on") or d.get("auto") else {**DEFAULT, **d}
+    return {**DEFAULT, **(d if isinstance(d, dict) else {})}
 
 
 def save(p: dict):
     from . import team
+    p = {k: v for k, v in p.items() if k not in ("seal", "unverified")}
     if team.folder():
-        team.write_shared("approval_policy.json", p)
+        if not team.is_admin():
+            raise PermissionError("Only a GAMbit admin can change the approval rules.")
+        team.write_shared_signed("approval_policy.json", "approvalpolicy", p)
     settings.set("approvals/policy", json.dumps(p))
 
 
@@ -86,18 +101,69 @@ def needs_two(req: dict, policy: dict | None = None) -> bool:
     return any(risky(c) for c in req.get("commands", []))
 
 
-def record_approval(req: dict, who: str, policy: dict | None = None) -> tuple[bool, dict]:
-    """Add one person's approval. Returns (ready to run, request)."""
+APPROVAL_FIELDS = ("request", "who", "decision", "hash", "at", "via")
+
+
+def _approval_body(a: dict) -> dict:
+    return {k: a.get(k) for k in APPROVAL_FIELDS}
+
+
+def make_approval(req: dict, who: str, via: str = "app") -> dict:
+    """One person's approval of these exact commands, signed on this computer."""
+    from . import seal
+    a = {"request": req.get("id", ""), "who": (who or "").lower(), "decision": "approve",
+         "hash": seal.commands_hash(req.get("commands", [])),
+         "at": datetime.datetime.now().isoformat(timespec="seconds"), "via": via}
+    a["seal"] = seal.seal_for("approval", _approval_body(a))
+    return a
+
+
+def valid_approvers(req: dict, policy: dict | None = None) -> list[str]:
+    """People whose approval of the request *as it is now* checks out: signed, for these
+    exact commands, by the approver themselves (or recorded by a computer this one
+    trusts), allowed to approve, and – for two-person requests – not the requester."""
+    from . import seal, team
+    h = seal.commands_hash(req.get("commands", []))
+    claimed = (req.get("by") or "").lower()
+    vreq = team.verify_request(req)
+    requesters = {claimed} | ({vreq.who} if vreq and vreq.who else set())
+    two = needs_two(req, policy)
+    doc = seal._doc() if seal.signin_required() else {}
+    out: list[str] = []
+    for a in req.get("approvals", []) or []:
+        if not isinstance(a, dict):
+            continue                          # approvals saved before they were signed
+        v = seal.check_seal("approval", _approval_body(a), a.get("seal"))
+        who = str(a.get("who", "")).lower()
+        if v is None or a.get("decision") != "approve" or a.get("hash") != h or \
+                a.get("request") != req.get("id") or not who:
+            continue
+        if v.level in ("admin", "member") and v.who != who:
+            continue                          # someone signing on another's behalf
+        if seal.signin_required():
+            from .auth import access
+            p = access.person(doc, who) if doc else None
+            if not p or not p["role"].get("admin"):
+                continue
+        if two and who in requesters:
+            continue
+        if who not in out:
+            out.append(who)
+    return out
+
+
+def record_approval(req: dict, who: str, policy: dict | None = None,
+                    via: str = "app") -> tuple[bool, dict]:
+    """Add one person's (signed) approval. Returns (ready to run, request)."""
     from . import team
     who = (who or "").lower()
     req = dict(req)
-    approvals = [a.lower() for a in req.get("approvals", [])]
-    if who and who == (req.get("by") or "").lower() and needs_two(req, policy):
-        return False, req                    # can't approve your own two-person request
-    if who and who not in approvals:
-        approvals.append(who)
+    approvals = [a for a in req.get("approvals", []) or [] if isinstance(a, dict)]
+    if who and who not in valid_approvers({**req, "approvals": approvals}, policy):
+        approvals.append(make_approval(req, who, via))
     req["approvals"] = approvals
-    ready = len(approvals) >= (2 if needs_two(req, policy) else 1)
+    have = valid_approvers(req, policy)
+    ready = len(have) >= (2 if needs_two(req, policy) else 1)
     team.save_request(req)
     return ready, req
 
@@ -105,8 +171,9 @@ def record_approval(req: dict, who: str, policy: dict | None = None) -> tuple[bo
 def approval_note(req: dict, policy: dict | None = None) -> str:
     if not needs_two(req, policy):
         return ""
-    n = len(req.get("approvals", []))
-    return f"{n} of 2 approvals" + (f" ({', '.join(req['approvals'])})" if n else "")
+    have = valid_approvers(req, policy)
+    n = len(have)
+    return f"{n} of 2 approvals" + (f" ({', '.join(have)})" if n else "")
 
 
 def overdue(reqs: list[dict], hours: int, now: datetime.datetime | None = None) -> list[dict]:

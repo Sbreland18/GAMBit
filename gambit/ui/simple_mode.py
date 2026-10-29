@@ -92,7 +92,10 @@ class SimplePanel(QWidget):
 
     def _ask(self, title, device=False) -> str:
         dlg = AskDialog(self, self.app.directory, title, device)
-        return dlg.value() if dlg.exec() else ""
+        try:
+            return dlg.value() if dlg.exec() else ""
+        finally:
+            dlg.deleteLater()           # one per button press – don't keep them all
 
     def do(self, key: str):
         app = self.app

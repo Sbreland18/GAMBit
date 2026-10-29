@@ -45,6 +45,21 @@ def save(items: list[dict]):
     settings.set("tempaccounts/list", json.dumps(items))
 
 
+SEAL_FIELDS = ("email", "kind", "sponsor", "end", "created", "by")
+
+
+def sign(rec: dict) -> dict:
+    from . import seal
+    signed = seal.sign("tempaccount", rec, SEAL_FIELDS)
+    rec["seal"] = signed["seal"]
+    return rec
+
+
+def verify(rec: dict):
+    from . import seal
+    return seal.check("tempaccount", rec, SEAL_FIELDS)
+
+
 def add(items: list[dict], email: str, kind: str, sponsor: str, end: str, who: str,
         note: str = "") -> dict:
     email = email.strip().lower()
@@ -53,6 +68,7 @@ def add(items: list[dict], email: str, kind: str, sponsor: str, end: str, who: s
            "created": datetime.date.today().isoformat(), "by": who, "note": note,
            "status": "active", "warned": "", "history": [f"{datetime.date.today()} added by "
                                                          f"{who}, ends {end}"]}
+    sign(rec)
     items.append(rec)
     return rec
 
@@ -63,6 +79,7 @@ def extend(rec: dict, new_end: str, who: str):
     rec["warned"] = ""
     if rec["status"] == "expired":
         rec["status"] = "active"
+    sign(rec)
 
 
 def create_args(email: str, first: str, last: str, ou: str, password: str) -> list[str]:
@@ -112,6 +129,17 @@ def run(log=print, run_text=None, today: datetime.date | None = None) -> list[st
     items = load()
     warn, expire = due(items, opts, today)
     lines = []
+    from . import seal
+    ok_recs = []
+    for rec in warn + expire:
+        why = seal.may_run(verify(rec), expire_args(rec, opts))
+        if why:
+            lines.append(f"{rec.get('email', '?')}: not acted on – {why}. Check it in "
+                         "People → Time-limited accounts.")
+        else:
+            ok_recs.append(id(rec))
+    warn = [r for r in warn if id(r) in ok_recs]
+    expire = [r for r in expire if id(r) in ok_recs]
     for rec in warn:
         to = ",".join(x for x in (rec["email"], rec.get("sponsor", "")) if "@" in x)
         c, _o = run_text(google_io.email_args(to, f"Your account ends on {rec['end']}",

@@ -95,6 +95,8 @@ class UsersPage(Page):
 
         box, form = self.group("Password")
         self.m_pw = QLineEdit(placeholderText="Leave blank to generate one")
+        # a typed or generated password belongs to the person it was made for
+        self.m_email.textChanged.connect(lambda *_: self.m_pw.clear())
         self.m_pw_change = QCheckBox("Require change at next sign-in")
         self.m_pw_change.setChecked(True)
         form.addRow("New password", self.row(
@@ -253,7 +255,27 @@ class UsersPage(Page):
         self.danger_box.setVisible(not on)
 
     def _email(self):
-        return self.m_email.email() if self.need(("the user's email", self.m_email)) else None
+        """The person to act on – a full address. A bare name or username is only accepted
+        when it matches exactly one person in the saved list (GAM would otherwise add the
+        domain and act on whoever has that username)."""
+        if not self.need(("the user's email", self.m_email)):
+            return None
+        e = self.m_email.email().strip()
+        if "@" in e:
+            from ..field_errors import EMAIL_RE
+            if EMAIL_RE.match(e):
+                return e
+        else:
+            low = e.lower()
+            hits = [u["email"] for u in self.directory.users
+                    if u.get("email") and (u["email"].split("@")[0].lower() == low or
+                                           (u.get("name") or "").strip().lower() == low)]
+            if len(hits) == 1:
+                self.m_email.setText(hits[0])
+                return hits[0]
+        from ..field_errors import show_error
+        show_error(self.m_email, "Choose the person from the list, or type their full email")
+        return None
 
     def user_info(self):
         if e := self._email():
@@ -279,8 +301,14 @@ class UsersPage(Page):
         if self.m_pw_change.isChecked():
             args += ["changepassword", "on"]
 
+        dry = self.app.runner.would_hold_back(args)
+
         def done(code, _o, _e):
-            if code == 0:
+            self.m_pw.clear()                 # never reuse a password for the next person
+            if code == 0 and dry:
+                self.info(f"Dry run – {e}'s password was NOT changed. Turn off Dry run to "
+                          "reset it for real.", "Password reset")
+            elif code == 0:
                 self.info(f"Password for {e} was reset.\n\nNew password: {pw}",
                           "Password reset")
         self.run(args, done)
@@ -344,7 +372,7 @@ class UsersPage(Page):
             [("Details", d), ("Groups & license", g)], self._c_review, "Create user",
             self.create_user, validate={0: self._c_valid})
         from ..unsaved import track
-        track(self, self.c_stepper, "a new user account", self.c_stepper.finish_btn)
+        self._c_tracker = track(self, self.c_stepper, "a new user account")
         return scroll(self.c_stepper)
 
     def _c_valid(self) -> bool:
@@ -388,8 +416,15 @@ class UsersPage(Page):
         plan = self._c_plan(pw)
         first, rest = plan[0], plan[1:]
 
+        dry = self.app.runner.would_hold_back(first[1])
+
         def finished(note=""):
             from ..next_steps import NextSteps, for_new_account
+            if dry:                               # nothing was created – keep the form
+                self.info(f"Dry run – {email} was NOT created. The GAM commands are on the "
+                          "Dry run tab; turn off Dry run to create it.", "New user")
+                return
+            self._c_tracker.clean()
             self._c_reset()
             acts = for_new_account(self.app, email) + [
                 ("Create another", lambda: self.c_first.setFocus())]

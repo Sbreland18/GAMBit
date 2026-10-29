@@ -16,7 +16,6 @@ import datetime
 import json
 import os
 import re
-import secrets
 
 from . import google_io, team
 from .directory import run_gam_csv, run_gam_text
@@ -24,7 +23,9 @@ from .settings import settings
 
 COLS = {
     "time": ["Timestamp"],
-    "requester": ["Email Address", "Email address", "Email", "Your email", "Teacher email"],
+    # only the address Google Forms collects and verifies ("Collect email addresses") –
+    # never a column people type into, or anyone could ask in a teacher's name
+    "requester": ["Email Address", "Email address"],
     "student": ["Student's school email", "Student email", "Student", "Student account",
                 "Account", "Whose account"],
     "action": ["What do you need?", "What do you need", "Request", "Request type", "Type"],
@@ -207,9 +208,8 @@ def describe(r: dict) -> str:
 
 
 def _password() -> str:
-    words = ["apple", "river", "tiger", "maple", "cloud", "pizza", "rocket", "panda",
-             "ocean", "comet", "lemon", "otter", "piano", "falcon", "cactus", "zebra"]
-    return f"{secrets.choice(words).title()}{secrets.choice(words)}{secrets.randbelow(90) + 10}"
+    from .secret_args import readable_password
+    return readable_password()
 
 
 def reset_args(student: str, pw: str) -> list[str]:
@@ -250,6 +250,18 @@ def approve(page, r: dict):
     """Approvals page: run an approved self-service request through the runner."""
     from .gam_runner import dry_run_on
     action, student, requester = r.get("action"), r.get("student"), r.get("requester")
+    # check again now – the request file could have been changed since it was made, and
+    # the teacher or student may have moved on
+    from .directory import load_users
+    try:
+        users = {u["email"].lower(): u for u in (page.directory.users or load_users())}
+    except Exception:  # noqa: BLE001
+        users = {}
+    problem = check(str(requester or ""), str(student or ""), users, opts()) \
+        if "@" in str(student or "") else "no student account"
+    if problem:
+        page.info(f"Not run: {problem}")
+        return
     if dry_run_on():
         page.info("Dry run is on, so this request wasn't run (and stays waiting).")
         team.update_request(r, "pending")

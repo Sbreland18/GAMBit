@@ -55,9 +55,39 @@ def exists() -> bool:
     return os.path.isfile(path())
 
 
+def lock_path() -> str:
+    """A machine-wide marker an administrator puts in place (Users can read it but not
+    change or delete it): sign-in stays required even if someone clears this user's
+    settings, and only access lists signed by the listed admin keys are accepted."""
+    if os.environ.get("GAMBIT_SIGNIN_LOCK"):
+        return os.environ["GAMBIT_SIGNIN_LOCK"]
+    base = os.environ.get("ProgramData", r"C:\ProgramData") if os.name == "nt" else "/etc"
+    return os.path.join(base, "GAMbit", "signin-lock.json")
+
+
+def machine_lock() -> dict | None:
+    try:
+        with open(lock_path(), encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {"keys": []}
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return {"keys": []}          # there but unreadable: still require sign-in
+
+
+def lock_allows(doc_or_kid) -> bool:
+    lock = machine_lock()
+    if not lock or not lock.get("keys"):
+        return True
+    kid = doc_or_kid if isinstance(doc_or_kid, str) else ""
+    return kid in set(lock.get("keys") or [])
+
+
 def required() -> bool:
-    """Sign-in is required once this PC has accepted an access list, or one exists."""
-    return bool(pinned().get("keys")) or exists()
+    """Sign-in is required once this PC has accepted an access list, one exists, or an
+    administrator locked sign-in on for this computer."""
+    return bool(pinned().get("keys")) or exists() or machine_lock() is not None
 
 
 # ============================================================== pinning ===
@@ -143,10 +173,14 @@ def keyed_admins(doc: dict) -> list[str]:
 
 
 def prune_keys(doc: dict) -> dict:
-    """Stop trusting keys whose owner is no longer an enabled admin."""
+    """Stop trusting keys whose owner is no longer an enabled admin (or, for member keys,
+    no longer allowed to sign in)."""
     doc = json.loads(json.dumps(doc))
     doc["admin_keys"] = {kid: k for kid, k in (doc.get("admin_keys") or {}).items()
                          if signer_is_admin(doc, kid)}
+    if "member_keys" in doc:
+        doc["member_keys"] = {kid: k for kid, k in (doc.get("member_keys") or {}).items()
+                              if person(doc, k.get("email", ""))}
     return doc
 
 
@@ -164,6 +198,10 @@ def first_look() -> dict:
         ok = False
     if not ok or not signer_is_admin(doc, kid):
         raise AccessError("The access list in the team folder isn't validly signed.")
+    if not lock_allows(kid):
+        raise AccessError("This computer only accepts an access list signed by your "
+                          "district's GAMbit admin keys, and this one isn't. Ask your "
+                          "GAMbit admin.")
     return {"email": k.get("email", "?"), "fingerprint": crypto.fingerprint(crypto.unb64(pub)),
             "domain": doc.get("domain", ""), "serial": doc.get("serial", 0), "doc": doc}
 
@@ -230,7 +268,11 @@ def load() -> dict:
     if not pin.get("keys"):
         raise AccessError("NOT_PINNED")
     env = read_raw()
-    doc = check_signature(env, pin["keys"])
+    lock = machine_lock() or {}
+    keys = pin["keys"]
+    if lock.get("keys"):
+        keys = {k: v for k, v in keys.items() if k in set(lock["keys"])} or {"-": ""}
+    doc = check_signature(env, keys)
     if int(doc.get("serial", 0)) < int(pin.get("serial", 0)):
         raise AccessError("The access list is older than one this computer has already "
                           "seen – someone may have put back an old copy. Ask your GAMbit "
@@ -352,16 +394,50 @@ def key_requests() -> list[dict]:
 
 
 def approve_key(doc: dict, req: dict) -> dict:
+    """Trust a person's key. Admins' keys can sign the access list; everyone else's key
+    (a 'member' key) only signs their own records – Run later items, requests, approvals –
+    so other computers and the background tasks know who really made them."""
     doc = json.loads(json.dumps(doc))
-    person = doc.get("people", {}).get(req["email"].lower(), {})
-    roles = all_roles(doc)
-    if not roles.get(person.get("role", ""), {}).get("admin"):
-        raise AccessError(f"{req['email']} must have an admin role before their key can be "
-                          "trusted.")
-    doc.setdefault("admin_keys", {})[req["key_id"]] = {
-        "email": req["email"].lower(), "public": req["public"],
-        "added": datetime.date.today().isoformat()}
+    email = req["email"].lower()
+    if person(doc, email) is None:
+        raise AccessError(f"{req['email']} must be in the access list (and allowed to sign "
+                          "in) before their key can be trusted.")
+    entry = {"email": email, "public": req["public"],
+             "added": datetime.date.today().isoformat()}
+    if all_roles(doc).get(doc.get("people", {}).get(email, {}).get("role", ""), {}) \
+            .get("admin"):
+        doc.setdefault("admin_keys", {})[req["key_id"]] = entry
+    else:
+        doc.setdefault("member_keys", {})[req["key_id"]] = entry
     return doc
+
+
+def key_trusted(doc: dict, email: str) -> str:
+    """'admin', 'member' or '' – how this computer's key for `email` is trusted."""
+    try:
+        k = my_key(email)
+    except Exception:  # noqa: BLE001
+        k = None
+    if not k:
+        return ""
+    kid = crypto.key_id(k[1])
+    if kid in (doc.get("admin_keys") or {}) and signer_is_admin(doc, kid):
+        return "admin"
+    if kid in (doc.get("member_keys") or {}) and person(doc, email):
+        return "member"
+    return ""
+
+
+def ask_key_if_needed(doc: dict, email: str) -> str:
+    """After signing in: make sure this person has a key here and has asked for it to be
+    trusted. Returns the code to read to an admin ('' when already trusted)."""
+    if not email or key_trusted(doc, email):
+        return ""
+    pub = ensure_my_key(email)
+    kid = crypto.key_id(pub)
+    if not any(r["key_id"] == kid for r in key_requests()):
+        request_admin_key(email)
+    return crypto.fingerprint(pub)
 
 
 def drop_request(req: dict):
@@ -401,3 +477,33 @@ def admin_count(doc: dict) -> int:
     roles = all_roles(doc)
     return sum(1 for p in doc.get("people", {}).values()
                if p.get("enabled", True) and roles.get(p.get("role"), {}).get("admin"))
+
+
+# ============================================================ machine lock ===
+def lock_script(key_ids: list[str]) -> str:
+    """PowerShell (run elevated) that writes the machine lock: Administrators and SYSTEM
+    may change it, Users may only read it."""
+    import re
+    kids = [k for k in key_ids if re.fullmatch(r"[0-9a-f]{16}", k or "")]
+    body = json.dumps({"keys": kids, "made": datetime.date.today().isoformat()})
+    return ("$d = Join-Path $env:ProgramData 'GAMbit'; "
+            "New-Item -ItemType Directory -Force -Path $d | Out-Null; "
+            "$f = Join-Path $d 'signin-lock.json'; "
+            f"Set-Content -LiteralPath $f -Value '{body}' -Encoding UTF8; "
+            "icacls $f /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' "
+            "'*S-1-5-32-545:R' | Out-Null")
+
+
+def write_machine_lock(key_ids: list[str]):
+    """Ask Windows for administrator rights (UAC) and write the lock."""
+    import base64
+    import subprocess
+    if os.name != "nt":
+        raise AccessError("Locking sign-in for the computer is only available on Windows.")
+    enc = base64.b64encode(lock_script(key_ids).encode("utf-16-le")).decode("ascii")
+    subprocess.run(["powershell", "-NoProfile", "-Command",
+                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList "
+                    f"'-NoProfile','-EncodedCommand','{enc}'"],
+                   timeout=300, creationflags=subprocess.CREATE_NO_WINDOW)
+    if machine_lock() is None:
+        raise AccessError("The lock wasn't written (the administrator prompt was cancelled?).")

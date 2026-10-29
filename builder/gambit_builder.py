@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gambit.ui.theme import apply_theme  # noqa: E402
 import github_sync  # noqa: E402  (builder/github_sync.py)
 import signing  # noqa: E402  (builder/signing.py)
+import release_key  # noqa: E402  (builder/release_key.py)
 
 VERSION_FILE = os.path.join(ROOT, "gambit", "version.py")
 LATEST_JSON = os.path.join(ROOT, "latest.json")
@@ -107,6 +108,22 @@ def release_download_url(repo: str, version: str) -> str:
 
 
 # ---------------------------------------------------------- GitHub API ---
+
+def _seal_token(tok: str) -> str:
+    """The GitHub token can publish releases, so it's only kept DPAPI-encrypted for this
+    Windows user (never in plain text in the registry)."""
+    if not tok:
+        return ""
+    from gambit import secrets_store
+    return secrets_store.seal(tok)
+
+
+def _open_token(stored: str) -> str:
+    from gambit import secrets_store
+    if stored and not stored.startswith(secrets_store.PREFIX):
+        return stored              # saved in plain text by an older Builder – re-saved sealed
+    return secrets_store.unseal(stored) or ""
+
 class GitHub:
     def __init__(self, repo: str, token: str, log):
         self.repo, self.token, self.log = repo, token, log
@@ -302,6 +319,13 @@ class BuildJob(QObject):
         self.step(f"1. Set version to {ver}")
         write_version(ver)
         self.say("gambit/version.py updated.")
+        rel_priv, rel_pub = release_key.load_or_create()
+        release_key.write_keys_module(rel_pub, o["sign"].get("thumbprint", "")
+                                      if self._signing() and o["sign"].get("mode") == "store"
+                                      else "")
+        self.say("Release key " + release_key.fingerprint() + " written to "
+                 "gambit/release_keys.py (installed copies only accept updates it signs). "
+                 f"Keep a backup of {release_key.key_path()}.")
 
         if o["build_exe"]:
             self.step("2. Build exe with PyInstaller")
@@ -338,7 +362,16 @@ class BuildJob(QObject):
         latest = {"version": ver, "url": release_download_url(repo, ver),
                   "notes": o["notes"],
                   "released": datetime.date.today().isoformat()}
+        if os.path.isfile(installer):
+            latest = release_key.signed_release(latest, installer, rel_priv)
+        else:
+            self.say("No installer was built, so latest.json has no checksum or signature – "
+                     "installed copies won't take this update automatically.", "#f2cc60")
         latest_bytes = (json.dumps(latest, indent=2) + "\n").encode()
+        release_json = os.path.join(ROOT, "dist", "release.json")
+        os.makedirs(os.path.dirname(release_json), exist_ok=True)
+        with open(release_json, "wb") as fh:
+            fh.write(latest_bytes)          # also attached to the release (for rollbacks)
         with open(json_path, "wb") as fh:
             fh.write(latest_bytes)
         self.say(json.dumps(latest, indent=2))
@@ -384,6 +417,7 @@ class BuildJob(QObject):
         release = gh.create_release(f"v{ver}", msg + (" (beta)" if beta else ""), o["notes"],
                                     target, prerelease=beta)
         gh.upload_asset(release, installer)
+        gh.upload_asset(release, release_json)
 
         # latest.json goes last, so clients never see an update before the file exists.
         self.step(f"5c. Publish {json_name}")
@@ -551,7 +585,8 @@ class BuilderWindow(QMainWindow):
         self.publish.setChecked(self.store.value("publish", "false") == "true")
         self.repo = QLineEdit(info["repo"])
         self.branch = QLineEdit(info["branch"])
-        self.token = QLineEdit(self.store.value("token", "") or os.environ.get("GITHUB_TOKEN", ""))
+        self.token = QLineEdit(_open_token(self.store.value("token", "") or "")
+                               or os.environ.get("GITHUB_TOKEN", ""))
         self.token.setEchoMode(QLineEdit.Password)
         self.token.setPlaceholderText("Fine-grained token with Contents: Read and write")
         self.remember = QCheckBox("Remember token on this PC")
@@ -807,7 +842,8 @@ class BuilderWindow(QMainWindow):
         self.store.setValue("publish_how", "git" if self.via_git.isChecked() else
                             "json" if self.via_api.isChecked() else "source")
         self.store.setValue("pull_first", "true" if self.pull_first.isChecked() else "false")
-        self.store.setValue("token", self.token.text().strip() if self.remember.isChecked() else "")
+        self.store.setValue("token", _seal_token(self.token.text().strip())
+                            if self.remember.isChecked() else "")
 
     def closeEvent(self, event):
         if self.thread and self.thread.isRunning():

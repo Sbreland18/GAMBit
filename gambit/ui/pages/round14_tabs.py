@@ -6,8 +6,8 @@ licenses, public apps list, shared passwords, battery forecast and repeat damage
 
 from __future__ import annotations
 
+from ... import tempfiles as _tf
 import os
-import tempfile
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
@@ -735,7 +735,7 @@ class PublicAppsTab(ToolTab):
         if not self.rows:
             self.info("Build the list first.")
             return
-        path = os.path.join(tempfile.gettempdir(), "student-apps.csv")
+        path = os.path.join(_tf.folder(), "student-apps.csv")
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(ap.to_csv(self.rows))
         Worker(google_io.upload_csv_as_sheet, path, self._opts()["title"],

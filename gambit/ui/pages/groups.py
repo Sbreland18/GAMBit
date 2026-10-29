@@ -429,7 +429,8 @@ class GroupsPage(Page):
         lay.addLayout(self.row(create))
         lay.addStretch(1)
         from ..unsaved import track
-        track(self, w, "a new group", create)
+        # marked saved only once the group really exists (not on the click – it can fail)
+        self._n_tracker = track(self, w, "a new group")
         return scroll
 
     def create_group(self):
@@ -456,6 +457,7 @@ class GroupsPage(Page):
         def created(code, *_):
             if code != 0:
                 return
+            self._n_tracker.clean()
             if people:
                 self.run_many([["update", "group", email, "add", self.n_role.currentText(),
                                 "users", ",".join(people)]], after_members, quiet=False)

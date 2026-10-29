@@ -385,6 +385,16 @@ def move_steps(rows: list[dict]) -> list[tuple[str, list[str]]]:
     return out
 
 
+def _dry_runner(log):
+    """Stands in for run_gam_text in a dry run: lists the command, changes nothing."""
+    import shlex
+
+    def run(args, _timeout=0):
+        log("DRY RUN – would run: gam " + shlex.join([str(a) for a in args]))
+        return 0, ""
+    return run
+
+
 MOVE_TASK = {"name": "GAMbit move Chromebooks to students' schools",
              "args": ["--task", "devicemove"], "freq": "daily", "time": "05:50",
              "what": "Moves each Chromebook to the school org unit of the student who last "
@@ -392,12 +402,13 @@ MOVE_TASK = {"name": "GAMbit move Chromebooks to students' schools",
 
 
 def run_move_task(log=print, run_csv=None, run_text=None, users=None, ous=None,
-                  o: dict | None = None) -> int:
-    """Background task: plan and apply the moves; stops if there are unusually many."""
+                  o: dict | None = None, dry: bool = False) -> int:
+    """Background task: plan and apply the moves; stops if there are unusually many.
+    dry=True plans and lists the commands without changing (or recording) anything."""
     from .. import activity
     from ..directory import load_ous, load_users, run_gam_csv, run_gam_text
     run_csv = run_csv or (lambda a: run_gam_csv(a, 3600))
-    run_text = run_text or run_gam_text
+    run_text = _dry_runner(log) if dry else (run_text or run_gam_text)
     o = {**move_options(), **(o or {})}
     scope = o.get("scope_ous") or []
     cmds = load_args("ou", scope) if scope else load_args("all", [])
@@ -418,14 +429,20 @@ def run_move_task(log=print, run_csv=None, run_text=None, users=None, ous=None,
         log(f"{len(todo)} moves is more than usual – nothing moved. Run it by hand first "
             "(Chromebook fleet → Assigned users).")
         return 1
-    backup(todo, "move")
+    if not dry:
+        backup(todo, "move")
     bad = 0
     for _label, args in move_steps(todo):
         c, _out = run_text(args, 600)
+        if dry:
+            continue
         activity.record(args, c, "done" if c == 0 else "failed", None,
                         settings.get("profile/current", "") or "Default",
                         note="Move Chromebooks to students' schools")
         bad += 1 if c else 0
+    if dry:
+        log(f"DRY RUN – Chromebook moves: {len(todo)} device(s) would move; nothing changed.")
+        return 0
     log(f"Chromebook moves: {len(todo)} device(s) moved in {len(move_steps(todo))} "
         f"command(s), {bad} failed.")
     return 1 if bad else 0
@@ -479,13 +496,14 @@ ASSIGN_TASK = {"name": "GAMbit Chromebook assigned users",
 
 
 def run_assign_task(log=print, run_csv=None, run_text=None, users=None,
-                    o: dict | None = None) -> int:
+                    o: dict | None = None, dry: bool = False) -> int:
     """Background task: blank stale assignments, then fill in / update from the last
-    signed-in student, with the saved settings. Stops if there are unusually many."""
+    signed-in student, with the saved settings. Stops if there are unusually many.
+    dry=True plans and lists the commands without changing (or recording) anything."""
     from .. import activity, ou_map
     from ..directory import load_ous, load_users, run_gam_csv, run_gam_text
     run_csv = run_csv or (lambda a: run_gam_csv(a, 3600))
-    run_text = run_text or run_gam_text
+    run_text = _dry_runner(log) if dry else (run_text or run_gam_text)
     o = {**options(), **(o or {})}
     if not (o.get("sched_set") or o.get("sched_stale")):
         log("Assigned users: nothing is switched on for the morning run.")
@@ -511,16 +529,20 @@ def run_assign_task(log=print, run_csv=None, run_text=None, users=None,
     if o.get("sched_stale") and o.get("stale_days"):
         todo = [r for r in plan_stale(devs, int(o["stale_days"]), o) if r["plan"] == "Blank"]
         if todo and not big(len(todo), "assigned users to blank"):
-            backup(todo, "clear")
+            if not dry:
+                backup(todo, "clear")
             for _l, args in stale_steps(todo):
                 c, _out = run_text(args, 600)
+                if dry:
+                    continue
                 activity.record(args, c, "done" if c == 0 else "failed", None, profile,
                                 note="Blank assigned users on unused Chromebooks")
                 bad += 1 if c else 0
             blanked = {t["deviceId"] for t in todo}
             # the next step sees them as blank
             devs = [{**d, "assigned": ""} if d["deviceId"] in blanked else d for d in devs]
-            log(f"Assigned users: blanked {len(todo)} not used in {o['stale_days']}+ days.")
+            log(("DRY RUN (nothing changed) – " if dry else "") +
+                f"Assigned users: blanked {len(todo)} not used in {o['stale_days']}+ days.")
         elif not todo:
             log("Assigned users: no unused Chromebooks to blank.")
     if o.get("sched_set"):
@@ -529,13 +551,17 @@ def run_assign_task(log=print, run_csv=None, run_text=None, users=None,
         opts = {**o, "stale_on": bool(o.get("sched_stale"))}
         todo = [r for r in plan_set(devs, ulist, roots, opts) if r["plan"] == "Set"]
         if todo and not big(len(todo), "assignments"):
-            backup(todo, "set")
+            if not dry:
+                backup(todo, "set")
             for _l, args in set_steps(todo):
                 c, _out = run_text(args, 300)
+                if dry:
+                    continue
                 activity.record(args, c, "done" if c == 0 else "failed", None, profile,
                                 note="Assigned user = last signed-in student")
                 bad += 1 if c else 0
-            log(f"Assigned users: set {len(todo)} from the last signed-in student.")
+            log(("DRY RUN (nothing changed) – " if dry else "") +
+                f"Assigned users: set {len(todo)} from the last signed-in student.")
         elif not todo:
             log("Assigned users: nothing to set.")
     return 1 if bad else 0

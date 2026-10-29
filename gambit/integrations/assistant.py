@@ -151,9 +151,28 @@ the likely cause and what to try next. Only use what is in the lines; if they do
 the question, say so."""
 
 
+def pseudonymize(text: str) -> str:
+    """People's addresses replaced by stable placeholders (person1@…, person2@…) so log
+    lines can be explained without sending who they are; passwords are always hidden."""
+    from ..gam_runner import hide_text_passwords
+    seen: dict[str, str] = {}
+
+    def sub(m):
+        e = m.group(0).lower()
+        if e not in seen:
+            seen[e] = f"person{len(seen) + 1}@{e.split('@', 1)[1]}"
+        return seen[e]
+    text = "\n".join(hide_text_passwords(ln) for ln in (text or "").splitlines())
+    return re.sub(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+", sub, text)
+
+
 def explain_history(question: str, lines: str, cfg=None, http=None) -> str:
     if not lines.strip():
         return "Nothing in the logs matched, so there's nothing to explain."
+    cfg = cfg or config()
+    if not cfg.get("share_users"):
+        question, _sep, lines = pseudonymize(f"{question}\n\x00\n{lines}").partition(
+            "\n\x00\n")
     return _complete(HISTORY_SYSTEM, f"Question: {question}\n\nLog lines:\n{lines[:60000]}",
                      cfg, http, 900).strip()
 
@@ -255,14 +274,31 @@ TOOLS = [{"name": "run_gam_readonly",
                            "required": ["args"]}}]
 
 
+# Never run for the AI, even as a look-up: anything that reads mail or file *contents*,
+# saves files on this PC, or switches GAM's configuration.
+CONTENT = {"messages", "message", "thread", "threads", "showbody", "saveattachments",
+           "attachments", "attachment", "targetfolder", "targetname", "save", "select",
+           "selectfilter", "showsections", "drivefile", "drivefiles", "filecontent",
+           "fileshare", "verify", "multiprocessexit", "showparticipants", "chatmessages",
+           "chatmessage", "notes", "vault", "vaultholds", "exports", "export"}
+ALLOWED_VERBS = {"print", "show", "info", "report"}
+
+
 def readonly(args: list[str]) -> bool:
-    from ..activity import is_change
+    """Allowlist: a plain print/show/info/report (no wrappers, no GAM settings, no mail or
+    file contents) – the only thing the AI may run without a person."""
+    from ..activity import is_change, verb_index
     low = [str(a).lower() for a in args]
     if low[:1] in (["gam"], ["gam.exe"]):
         low = low[1:]
-    if not low or set(low) & BLOCKED:
+        args = list(args)[1:]
+    if not low or set(low) & (BLOCKED | CONTENT):
         return False
-    if not any(v in low[:5] for v in READ_VERBS):
+    if any(x.startswith(("-", "\\\\", "//")) or ":\\" in x or "/" in x[:1] and
+           x.count("/") > 6 for x in low):
+        return False                  # options or paths a look-up doesn't need
+    vi = verb_index(low)
+    if vi >= len(low) or low[vi] not in ALLOWED_VERBS:
         return False
     return not is_change(list(args))
 

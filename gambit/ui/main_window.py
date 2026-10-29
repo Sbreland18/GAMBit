@@ -401,15 +401,19 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         self._focus_ring = install_focus_ring()
         QTimer.singleShot(0, lambda: name_buttons(self))
         from .table_states import hub as _hub
-        self._loading_cmds: set = set()
+        self._loading_cmds: dict = {}        # command text → how many are loading
 
         def _started(cmd):
             if _hub().begin(cmd):
-                self._loading_cmds.add(cmd)
+                self._loading_cmds[cmd] = self._loading_cmds.get(cmd, 0) + 1
 
         def _finished(_code, cmd):
-            if cmd in self._loading_cmds:
-                self._loading_cmds.discard(cmd)
+            n = self._loading_cmds.get(cmd, 0)
+            if n:
+                if n == 1:
+                    del self._loading_cmds[cmd]
+                else:
+                    self._loading_cmds[cmd] = n - 1
                 _hub().end()
         self.runner.started.connect(_started)
         self.runner.finished.connect(_finished)
@@ -914,7 +918,6 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         from .. import team
         idx = self._row_page[row]
         name = [n for n, _ in PAGES][idx] if idx < len(PAGES) else ""
-        self._current_page_name = name if name and team.page_allowed(name) else "Home"
         from . import theme
         if theme.is_dark() and 0 <= idx < len(PAGES) and self.pages.built(PAGES[idx][0]):
             theme.polish_tree(self.pages[PAGES[idx][0]])
@@ -936,6 +939,9 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         if name and getattr(self, "_nav_ready", False):
             settings.set("ui/last_page", name)
         self.close_details()
+        # only now – after the role check and the unsaved-changes question – is this the
+        # page being shown (role checks for view-only pages read it)
+        self._current_page_name = name or "Home"
         self.stack.setCurrentIndex(self._row_page[row])
         self._remember_back(prev, name)
         self.current_page().on_show()
@@ -957,6 +963,11 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         from .. import team
         from ..gam_runner import helpdesk_on
         if not team.page_allowed(name) or (helpdesk_on() and name in HELPDESK_HIDDEN):
+            return
+        try:
+            if self._user_hidden(name):      # simple mode, hidden or advanced pages
+                return
+        except Exception:  # noqa: BLE001
             return
         self._going_back = True          # don't put Home in the back history
         self.go(name)
@@ -1031,6 +1042,8 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
                 self._going_back = True
                 self.go(name)
                 self._going_back = False
+                if getattr(self, "_current_page_name", "") != name:
+                    back.append(name)      # leaving was refused – keep the way back
                 break
         self._refresh_back()
 

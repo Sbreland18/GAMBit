@@ -124,13 +124,14 @@ def test_email_approvals(qapp, team_dir, monkeypatch):
                                title="Suspend a@s.org")
         assert sent and sent[0][0] == "sendemail" and "boss@s.org" in sent[0]
         rows = [{"id": "m1", "From": "Boss <boss@s.org>",
-                 "Subject": f"Re: [GAMbit approval {req['id']}] Suspend a@s.org",
+                 "Subject": f"Re: {ea.subject(req)}",
                  "Body": "Approve - ok go\\n\\nOn Mon …"},
                 {"id": "m2", "From": "intruder@x.com",
-                 "Subject": f"Re: [GAMbit approval {req['id']}] x", "Body": "approve"}]
-        ran = []
+                 "Subject": f"Re: {ea.subject(req)}", "Body": "approve"}]
+        ran, read = [], []
         lines = ea.process(run_text=lambda a, t: (ran.append(a), (0, ""))[1],
-                           run_csv=lambda a: (0, rows, ""))
+                           run_csv=lambda a: (read.append(a), (0, rows, ""))[1])
+        assert read[0][:2] == ["user", "boss@s.org"] and "in:sent" in read[0][5]
         assert ran == [["update", "user", "a@s.org", "suspended", "on"]]
         assert any("Approved by email" in ln for ln in lines)
         done = next(r for r in team.list_requests() if r["id"] == req["id"])
@@ -205,7 +206,7 @@ def test_update_backup_and_rollback(qapp, monkeypatch):
     path = updaters.prepare_for_update("9.9.9")
     import os
     import zipfile
-    assert os.path.isfile(path) and "settings.json" in zipfile.ZipFile(path).namelist()
+    assert os.path.isfile(path) and "settings.enc" in zipfile.ZipFile(path).namelist()
     assert settings.get("update/previous_version") == __version__
     assert updaters.rollback_target() == ""            # same version → nothing to go back to
     settings.set("update/previous_version", "0.9.0")

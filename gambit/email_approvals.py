@@ -2,8 +2,11 @@
 who reply APPROVE or DENY. The background “staff requests” task (every 15 minutes) reads
 the replies from the sending mailbox and acts on them.
 
-No server is needed – it all goes through Gmail with GAM. Only replies from the approver
-addresses listed in Settings count, and each reply is used once.
+No server is needed – it all goes through Gmail with GAM. Replies are read from each
+approver's own *Sent* mail (so a message that only claims to come from an approver – a
+forged From line – never counts), each reply is used once, and every email carries a
+fingerprint of the exact commands: if the request is changed after the email went out, the
+reply no longer matches and nothing runs.
 """
 
 from __future__ import annotations
@@ -15,13 +18,22 @@ import re
 from .settings import settings
 
 SUBJECT_TAG = "GAMbit approval"
-ID_RE = re.compile(r"\[GAMbit approval ([0-9A-Za-z-]+)\]")
+ID_RE = re.compile(r"\[GAMbit approval ([0-9A-Za-z-]+)(?: ([0-9a-f]{16}))?\]")
 SPECIAL = ("offboard", "selfservice")
 
 
 def approvers() -> list[str]:
+    """Approver addresses. With GAMbit sign-in on, only GAMbit admins count."""
     raw = settings.get("approvals/emails", "") or ""
-    return [e.strip().lower() for e in re.split(r"[,;\s]+", raw) if "@" in e]
+    out = [e.strip().lower() for e in re.split(r"[,;\s]+", raw)
+           if re.fullmatch(r"[\w.+'-]+@[\w-]+(\.[\w-]+)+", e.strip())]
+    from . import seal
+    if seal.signin_required():
+        doc = seal._doc()
+        from .auth import access
+        out = [e for e in out if doc and (access.person(doc, e) or {}).get("role", {})
+               .get("admin")]
+    return out
 
 
 def enabled() -> bool:
@@ -29,16 +41,21 @@ def enabled() -> bool:
 
 
 def subject(req: dict) -> str:
-    return f"[{SUBJECT_TAG} {req['id']}] {req.get('title', '')}"[:200]
+    from . import seal
+    title = re.sub(r"[\r\n]+", " ", str(req.get("title", "")))
+    return (f"[{SUBJECT_TAG} {req['id']} {seal.commands_hash(req.get('commands', []))}] "
+            f"{title}")[:200]
 
 
 def body(req: dict) -> str:
     from .gam_runner import display_command
-    cmds = "\n".join("  " + display_command(c) for c in req.get("commands", [])[:30])
-    more = len(req.get("commands", [])) - 30
+    cmds = "\n".join("  " + display_command(c) for c in req.get("commands", [])[:60])
+    more = len(req.get("commands", [])) - 60
     return (f"{req.get('by', 'Someone')} asked GAMbit for approval:\n\n"
             f"{req.get('title', '')}\n{req.get('reason', '')}\n\n"
-            + (f"Commands:\n{cmds}\n" + (f"  … and {more} more\n" if more > 0 else "")
+            + (f"Commands:\n{cmds}\n" + (f"  … and {more} more – open GAMbit → Approvals "
+                                           "to see them all before approving\n"
+                                           if more > 0 else "")
                if cmds else "")
             + "\nReply to this email with APPROVE or DENY as the first word "
               "(you can add a note after it).\n"
@@ -76,18 +93,28 @@ def _mark(mid: str):
         fh.write(mid + "\n")
 
 
-def replies_args(mailbox: str) -> list[str]:
-    return ["user", mailbox, "print", "messages", "query",
-            f'subject:"{SUBJECT_TAG}" newer_than:14d -from:me',
+def replies_args(approver: str) -> list[str]:
+    """Replies are read from the approver's own Sent mail – only their account can put a
+    message there."""
+    return ["user", approver, "print", "messages", "query",
+            f'in:sent subject:"{SUBJECT_TAG}" newer_than:14d',
             "headers", "from,subject", "showbody", "max_to_print", "200"]
 
 
-def parse_reply(row: dict) -> dict | None:
+def _sender(from_header: str) -> str:
+    from email.utils import getaddresses
+    addrs = [a for _n, a in getaddresses([from_header or ""]) if "@" in a]
+    return addrs[0].strip().lower() if len(addrs) == 1 else ""
+
+
+def parse_reply(row: dict, mailbox: str = "") -> dict | None:
     low = {(k or "").lower(): (v or "") for k, v in row.items()}
     m = ID_RE.search(low.get("subject", ""))
     if not m:
         return None
-    sender = re.search(r"[\w.+'-]+@[\w.-]+", low.get("from", ""))
+    sender = _sender(low.get("from", ""))
+    if mailbox and sender != mailbox.lower():
+        return None                    # in their Sent folder but not from them
     text = (low.get("body", "") or low.get("snippet", "")).replace("\\r\\n", "\n") \
         .replace("\\n", "\n").strip()
     first = text.split("\n", 1)[0].strip()
@@ -96,31 +123,35 @@ def parse_reply(row: dict) -> dict | None:
         return None
     decision = "approve" if word.group(1).lower().startswith(("appro", "yes")) else "deny"
     note = first[word.end():].strip(" -:,.")
-    return {"id": m.group(1), "from": sender.group(0).lower(), "decision": decision,
-            "note": note, "message_id": low.get("id", "")}
+    mid = low.get("id", "")
+    return {"id": m.group(1), "hash": m.group(2) or "", "from": sender,
+            "decision": decision, "note": note,
+            "message_id": f"{sender}:{mid}" if mid else ""}
 
 
 def process(log=print, run_text=None, run_csv=None) -> list[str]:
     """Read replies and act on them. Returns lines for the log."""
-    from . import activity, google_io, team
+    from . import activity, google_io, seal, secret_args, team
     from .directory import run_gam_csv, run_gam_text
     if not enabled() or not team.folder():
         return []
     run_text = run_text or run_gam_text
     run_csv = run_csv or (lambda a: run_gam_csv(a, 300))
-    mailbox = google_io.admin_email()
-    if "@" not in mailbox:
+    if "@" not in google_io.admin_email():
         return ["Email approvals: set the Google account in Settings → Google Sheets and email."]
-    code, rows, err = run_csv(replies_args(mailbox))
-    if code != 0:
-        return [f"Email approvals: couldn't read replies – {(err or '').strip()[-200:]}"]
+    replies, lines = [], []
+    for who in approvers():
+        code, rows, err = run_csv(replies_args(who))
+        if code != 0:
+            lines.append(f"Email approvals: couldn't read {who}'s replies – "
+                         f"{(err or '').strip()[-200:]}")
+            continue
+        replies += [r for r in (parse_reply(row, who) for row in rows) if r]
     done_ids = _processed()
     pending = {r["id"]: r for r in team.list_requests("pending")}
     allowed = set(approvers())
-    lines = []
-    for row in rows:
-        rep = parse_reply(row)
-        if not rep or not rep["message_id"] or rep["message_id"] in done_ids:
+    for rep in replies:
+        if not rep["message_id"] or rep["message_id"] in done_ids:
             continue
         _mark(rep["message_id"])
         req = pending.get(rep["id"])
@@ -129,19 +160,26 @@ def process(log=print, run_text=None, run_csv=None) -> list[str]:
         if rep["from"] not in allowed:
             lines.append(f"Ignored a reply from {rep['from']} – not an approver.")
             continue
+        now_hash = seal.commands_hash(req.get("commands", []))
+        if rep["hash"] != now_hash:
+            lines.append(f"“{req.get('title', '')}”: the reply from {rep['from']} doesn't "
+                         "match the request as it is now (it changed after the email went "
+                         "out, or the email is from an older GAMbit) – nothing was run. "
+                         "Approve it on the Approvals page.")
+            continue
         note = f"by email from {rep['from']}" + (f": {rep['note']}" if rep["note"] else "")
         if rep["decision"] == "deny":
             team.update_request(req, "denied", note=note)
             lines.append(f"Denied “{req['title']}” ({note}).")
             continue
         from . import approval_policy
-        ready, req = approval_policy.record_approval(req, rep["from"])
+        ready, req = approval_policy.record_approval(req, rep["from"], via="email")
         pending[req["id"]] = req            # a second reply in this batch builds on this one
         if not ready:
-            team.update_request(req, "pending", note=f"First approval {note} – waiting for a "
-                                                    "second approver.")
-            lines.append(f"“{req['title']}”: first approval from {rep['from']}; it needs a "
-                         "second person.")
+            team.update_request(req, "pending", note=f"Approval {note} recorded – it needs "
+                                                    "another approver.")
+            lines.append(f"“{req['title']}”: approval from {rep['from']} recorded; it needs "
+                         "a second person.")
             continue
         if req.get("kind") == "ticket_reset":
             from .tools import ticket_auto
@@ -151,10 +189,14 @@ def process(log=print, run_text=None, run_csv=None) -> list[str]:
             lines.append(f"Approved by email: “{req['title']}” – {msg}.")
             pending.pop(req["id"], None)
             continue
-        if req.get("kind") in SPECIAL:
+        new_pw = any(secret_args.has_placeholder(c) for c in req.get("commands", []))
+        if req.get("kind") in SPECIAL or new_pw:
             req["remote_approved_by"] = rep["from"]
             team.update_request(req, "pending", note=f"Approved {note} – open Approvals to "
-                                                    "finish (it needs GAMbit).")
+                                                    "finish" + (" (a new password has to be "
+                                                                "shown to someone)"
+                                                                if new_pw else
+                                                                " (it needs GAMbit)") + ".")
             lines.append(f"“{req['title']}” approved by email – finish it on the Approvals page.")
             continue
         req = team.update_request(req, "approved", note=note)

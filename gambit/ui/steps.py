@@ -20,6 +20,9 @@ class Step:
     required: bool = False          # stop everything after this if it fails
     on_done: Optional[Callable[[int, str, str], None]] = None
     status: str = field(default="pending")
+    # run only if this earlier step worked (e.g. setup steps for one new account) –
+    # otherwise it's skipped and the rest of the list carries on
+    after: Optional["Step"] = field(default=None, repr=False, compare=False)
 
 
 class StepList(QListWidget):
@@ -70,7 +73,12 @@ class StepList(QListWidget):
         self._next(0)
 
     def _next(self, i: int):
+        while i < len(self.steps) and self.steps[i].after is not None and \
+                self.steps[i].after.status not in ("ok", "dry"):
+            self.steps[i].status = "skip"
+            i += 1
         if i >= len(self.steps):
+            self._paint()
             if self._finished:
                 self._finished(self.steps)
             return
@@ -113,5 +121,5 @@ class StepList(QListWidget):
             text += "\n\nThese didn't work (see the Output panel for details):\n• " + \
                     "\n• ".join(bad)
         if skipped:
-            text += f"\n\n{skipped} step(s) were skipped because an earlier required step failed."
+            text += f"\n\n{skipped} step(s) were skipped because an earlier step they needed failed."
         return text

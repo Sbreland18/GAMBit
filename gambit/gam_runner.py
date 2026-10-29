@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signa
 
 from .settings import IS_WINDOWS, settings
 
-SECRET_WORDS = {"password", "newpassword"}
+from .secret_args import SECRET_WORDS  # noqa: E402,F401 – one shared list
 _PW_IN_TEXT = re.compile(r"((?:temporary )?password:\s*)\S+", re.I)
 _PW_IN_JSON = re.compile(r'("(?:passphrase|password|psk|wepKey)"\s*:\s*)"[^"]*"', re.I)
 
@@ -21,6 +21,8 @@ def hide_text_passwords(a: str) -> str:
     """Hide “Temporary password: xyz” inside email bodies, and Wi-Fi passphrases in JSON."""
     if '"' in a and ("phrase" in a or "assword" in a or "psk" in a.lower()):
         a = _PW_IN_JSON.sub(r'\1"********"', a)
+    from .secret_args import hide_known
+    a = hide_known(a)
     return _PW_IN_TEXT.sub(r"\1********", a) if "assword" in a else a
 
 
@@ -99,10 +101,27 @@ def helpdesk_on() -> bool:
     return bool(settings.get("helpdesk/on", False))
 
 
+HELPDESK_BLOCKED = {"delete": "Deleting, wiping and transferring data",
+                    "suspend": "Suspending accounts and disabling Chromebooks",
+                    "everyone": "Commands for a whole org unit or the whole domain",
+                    "other": "Licenses, admin roles, Vault and GAM's own settings"}
+
+
 def blocked_reason(args: list[str]) -> str:
-    """Why help-desk mode refuses this command ('' if allowed)."""
+    """Why help-desk mode refuses this command ('' if allowed). It looks at the real
+    command behind wrappers (redirect, csv … gam) and refuses batch files outright."""
     if not helpdesk_on():
         return ""
+    from . import team
+    from .activity import unwrap
+    _inner, understood, _cfg = unwrap([str(a) for a in args])
+    if not understood:
+        return "Batch files and wrapped commands GAMbit can't check are turned off in " \
+               "help-desk mode."
+    if is_change(args):
+        hit = sorted(team.categorize(args) & set(HELPDESK_BLOCKED))
+        if hit:
+            return f"{HELPDESK_BLOCKED[hit[0]]} is turned off in help-desk mode."
     low = [a.lower() for a in args]
     for i, a in enumerate(low):
         if a in DESTRUCTIVE:
@@ -208,6 +227,7 @@ class GamRunner(QObject):
         self.preflight = None
         self.on_submit = None
         self.on_record = None
+        self.last_job = None          # the Job the last run() call created
 
     @property
     def running(self) -> list[Job]:
@@ -225,7 +245,10 @@ class GamRunner(QObject):
         quiet_stdout=True keeps large CSV output out of the log panel
         (it is still passed to on_done).
         """
-        reason = blocked_reason(args)
+        from .secret_args import masked_secret
+        reason = blocked_reason(args) or (
+            "This saved command's password was removed after it ran, so it can't run "
+            "again. Set a new password instead." if masked_secret(args) else "")
         if reason:
             self.output.emit(f"✖ {reason}\n", True)
             return False
@@ -250,16 +273,34 @@ class GamRunner(QObject):
             return False
         job = Job(list(args), on_done, quiet_stdout)
         job.meta = {}
+        self.last_job = job
         if self.on_submit:
             try:
                 self.on_submit(job)
             except Exception:  # noqa: BLE001
                 pass
         self.jobs.append(job)
-        self.jobs = self.jobs[-200:]   # keep recent history
+        self._trim_history()
         self.job_added.emit(job)
         self._pump()
         return True
+
+    HISTORY = 200
+
+    def _trim_history(self):
+        """Keep the last HISTORY finished jobs. Running and queued jobs are never dropped –
+        dropping them would hide them from the parallel limit and from Stop."""
+        live = [j for j in self.jobs if j.status in ("running", "queued")]
+        if len(self.jobs) - len(live) <= self.HISTORY:
+            return
+        done = [j for j in self.jobs if j.status not in ("running", "queued")]
+        keep = {id(j) for j in done[-self.HISTORY:]} | {id(j) for j in live}
+        self.jobs = [j for j in self.jobs if id(j) in keep]
+
+    def would_hold_back(self, args) -> bool:
+        """True if run(args) would only be listed as a dry run (nothing changed)."""
+        return dry_run_on() and is_change(list(args)) and not (
+            self.practice_ok is not None and self.practice_ok(list(args)))
 
     def rerun(self, job: Job):
         self.run(job.args, None, False)
@@ -304,9 +345,14 @@ class GamRunner(QObject):
         job.proc = proc
         job.status = "running"
         job.started_at = time.time()
-        self.started.emit(self._label(job) + job.display)
+        job.shown = self._label(job) + job.display     # the same text again at the end
+        self.started.emit(job.shown)
         self.job_changed.emit(job)
-        proc.start(gam, gam_prefix() + job.args)
+        from .secret_args import fill
+        if not isinstance(getattr(job, "meta", None), dict):
+            job.meta = {}
+        made = job.meta.setdefault("new_passwords", [])
+        proc.start(gam, gam_prefix() + fill(job.args, made))   # job.args keep the placeholder
 
     def _label(self, job: Job) -> str:
         return f"[#{job.id}] " if len(self.running) > 1 else ""
@@ -357,7 +403,7 @@ class GamRunner(QObject):
             if hint:
                 self.output.emit(f"Tip: {hint}\n", True)
         self.finished.emit(job.code if job.status != "cancelled" else -2,
-                           self._label(job) + job.display)
+                           getattr(job, "shown", "") or self._label(job) + job.display)
         if self.on_record:
             try:
                 self.on_record(job)

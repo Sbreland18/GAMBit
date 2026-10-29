@@ -163,7 +163,9 @@ class GroupRulesTab(QWidget):
         self.list.setCurrentRow(len(self.rules) - 1)
 
     def save(self):
-        if self._collect() is not None:
+        r = self._collect()
+        if r is not None:
+            gr.sign_rule(r)
             gr.save(self.rules)
             self._fill_list()
 
@@ -181,6 +183,7 @@ class GroupRulesTab(QWidget):
         r = self._collect()
         if r is None:
             return
+        gr.sign_rule(r)
         gr.save(self.rules)
         exists = any(g["email"].lower() == r["group"] for g in self.page.directory.groups)
 

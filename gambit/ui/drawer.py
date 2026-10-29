@@ -67,7 +67,9 @@ class DetailDrawer(QFrame):
         tv.setSpacing(2)
         self.title = QLabel("", objectName="DrawerTitle")
         self.title.setWordWrap(True)
+        self.title.setTextFormat(Qt.PlainText)
         self.sub = QLabel("", objectName="Muted")
+        self.sub.setTextFormat(Qt.PlainText)
         self.sub.setWordWrap(True)
         self.sub.setTextInteractionFlags(Qt.TextSelectableByMouse)
         tv.addWidget(self.title)
@@ -166,6 +168,7 @@ class DetailDrawer(QFrame):
         from .theme import is_dark
         bg, fg = (CHIP_DARK if is_dark() else CHIP)[kind]
         lab = QLabel(text)
+        lab.setTextFormat(Qt.PlainText)
         lab.setStyleSheet(f"background:{bg};color:{fg};border-radius:9px;padding:2px 8px;"
                           "font-size:8.5pt;font-weight:600;")
         self.chips.addWidget(lab)
@@ -274,12 +277,14 @@ class DetailDrawer(QFrame):
             form.setContentsMargins(0, 0, 0, 0)
             form.setHorizontalSpacing(14)
             form.setVerticalSpacing(6)
-            from .friendly import friendly
+            from .friendly import enabled, friendly
             from .widgets import ResultsTable as _RT
+            nice = enabled()                  # Settings → Appearance → friendly values
             for k, v in fields[:24]:
                 lab = QLabel(nice_header(k).title(), objectName="Muted")
-                shown = friendly(str(v))
+                shown = friendly(str(v)) if nice else str(v)
                 val = QLabel(shown)
+                val.setTextFormat(Qt.PlainText)   # values come from Google – never markup
                 val.setWordWrap(True)
                 val.setTextInteractionFlags(Qt.TextSelectableByMouse)
                 if shown != str(v):

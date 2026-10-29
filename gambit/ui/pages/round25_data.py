@@ -692,8 +692,14 @@ class SeniorCheckoutPage(Page):
                             f"step(s) (emails and Chromebook notes)\n\nLater (Run later & "
                             f"freezes):\n{later}\n\nContinue?"):
             return
-        for when, title, cmds in p["later"]:
-            cq.add(cmds, when, title, team.me())
+        try:
+            for _w, _t, cmds in p["later"]:
+                cq.check_can_queue(cmds)
+            for when, title, cmds in p["later"]:
+                cq.add(cmds, when, title, team.me())
+        except (cq.QueueRefused, TimeoutError) as exc:
+            self.info(str(exc))
+            return
         if p["devices"] and o["collect_note"]:
             try:
                 sc.start_collection(o["year"], p["devices"])

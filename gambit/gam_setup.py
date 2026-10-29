@@ -80,7 +80,9 @@ def run_gam(args: list[str], timeout: int = 120) -> tuple[int, str]:
         return -1, "GAM is not installed."
     flags = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
     try:
-        p = subprocess.run([gam, *gam_prefix(), *args], capture_output=True, text=True, timeout=timeout,
+        from .secret_args import fill
+        p = subprocess.run([gam, *gam_prefix(), *fill(args)], capture_output=True, text=True,
+                           timeout=timeout,
                            env=gam_environment(), creationflags=flags,
                            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
         return p.returncode, (p.stdout or "") + (p.stderr or "")

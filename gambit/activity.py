@@ -7,6 +7,8 @@ whole tech team can share a log without write conflicts).
 
 from __future__ import annotations
 
+from . import tempfiles as _tf
+from . import csv_safe
 import datetime
 import getpass
 import glob
@@ -29,7 +31,21 @@ MODIFY_VERBS = {"create", "add", "update", "delete", "del", "remove", "sync", "m
                 "forward", "imap", "pop", "issuecommand", "close", "reopen", "sendemail",
                 "csv", "datatransfer", "collect", "process", "copy", "photo", "turnoff2sv",
                 "delegate", "batch", "tbatch", "archive", "label", "filter", "sendas",
-                "forwardingaddress", "suspend", "unsuspend", "claim", "deletephoto"}
+                "forwardingaddress", "suspend", "unsuspend", "claim", "deletephoto",
+                # GAM7 verbs that change things and weren't caught before (QA round 36)
+                "accept", "append", "approve", "block", "cancelwipe", "dedup", "disable",
+                "enable", "hide", "unhide", "import", "importemail", "insert", "insertemail",
+                "language", "modify", "obliterate", "profile", "replace", "replacedomain",
+                "revoke", "rotate", "send", "sendreply", "spam", "draft", "draftemail",
+                "addevent", "deleteevent", "moveevent", "updateevent", "yubikey", "upload"}
+# words that name *what* a command acts on (gam <entity> <value> <verb> …)
+_ENTITY_FIRST = {"user", "users", "user_ns", "users_ns", "group", "groups", "group_ns",
+                 "groups_ns", "group_users", "group_users_ns", "ou", "ou_ns",
+                 "ou_and_children", "ou_and_children_ns", "ous", "ous_ns", "ous_and_children",
+                 "ous_and_children_ns", "cros", "cros_sn", "cros_ou", "cros_ou_and_children",
+                 "cros_ous", "cros_ous_and_children", "courses", "course", "query",
+                 "queries", "domains", "teachers", "students", "file", "csvfile",
+                 "datafile", "croscsvfile", "crosfile", "license", "licenses"}
 ENTITY_KW = {"cros_ou", "cros_ou_and_children", "user", "users", "group", "groups", "ou", "ou_and_children", "ous",
              "ous_and_children", "all", "cros_sn", "courses", "course", "query"}
 
@@ -84,14 +100,111 @@ def strip_config(args: list[str]) -> list[str]:
     return a
 
 
+def verb_index(low: list[str]) -> int:
+    """Where the action word is: 0 for `gam update user …`, 2 for `gam users a,b update …`
+    (after `select <section>`, which strip_config leaves in place)."""
+    i = 0
+    if low[:1] == ["select"]:
+        i = 2
+    if len(low) > i + 1 and (low[i] in _ENTITY_FIRST or low[i] == "all"):
+        return i + 2
+    return i
+
+
+_TF = {"true", "false", "on", "off", "yes", "no", "enabled", "disabled", "1", "0"}
+_REDIRECT_CSV_FLAGS = {"multiprocess": 0, "append": 0, "noheader": 0, "delayopen": 0,
+                       "charset": 1, "columndelimiter": 1, "quotechar": 1, "sortheaders": 1,
+                       "timestampcolumn": 1}
+_FILE_LOOPS = {"csv", "loop", "csvtest"}
+_BATCHES = {"batch", "tbatch"}
+READ_EXTRA = {"whatis", "showsections", "list"}
+
+
+def unwrap(args) -> tuple[list[str], bool, bool]:
+    """The command GAM will really run, behind its wrappers.
+
+    → (inner command, understood, changes GAM's own config). `select <section> [save]`,
+    `config … [save]`, `selectfilter …`, `multiprocessexit …` and `redirect csv|stdout|
+    stderr <file> …` are stepped over; `csv|loop <file> … gam <command>` gives the command
+    after `gam`. A batch file (`batch`, `tbatch`) – or anything GAMbit can't follow, like
+    `todrive` options – is reported as not understood, so callers treat it as the most
+    powerful kind of change."""
+    a = [str(x) for x in args or []]
+    cfg = False
+    while a:
+        w = a[0].lower()
+        if w == "select" and len(a) >= 2:
+            a = a[2:]
+            while a and a[0].lower() in ("save", "verify"):
+                cfg = cfg or a[0].lower() == "save"
+                a = a[1:]
+        elif w in ("selectfilter", "selectoutputfilter", "selectinputfilter") and len(a) >= 2:
+            a = a[2:]
+        elif w == "multiprocessexit" and len(a) >= 2:
+            a = a[2:]
+        elif w == "config":
+            b = strip_config(a)
+            cfg = cfg or any(x.lower() == "save" for x in a[:len(a) - len(b)])
+            if len(b) == len(a):
+                return a, False, cfg
+            a = b
+        elif w == "redirect":
+            if len(a) < 3 or a[1].lower() not in ("csv", "stdout", "stderr"):
+                return a, False, cfg
+            kind = a[1].lower()
+            a = a[3:]
+            if kind == "csv":
+                while a:
+                    f = a[0].lower()
+                    if f in _REDIRECT_CSV_FLAGS:
+                        a = a[1 + _REDIRECT_CSV_FLAGS[f]:]
+                    elif f in ("noescapechar", "transpose"):
+                        a = a[2:] if len(a) > 1 and a[1].lower() in _TF else a[1:]
+                    elif f == "todrive":
+                        return a, False, cfg      # its options can't be followed safely
+                    else:
+                        break
+            else:
+                while a and a[0].lower() in ("multiprocess", "append"):
+                    a = a[1:]
+        else:
+            break
+    if not a:
+        return a, True, cfg
+    w = a[0].lower()
+    if w in _BATCHES:
+        return a, False, cfg
+    if w in _FILE_LOOPS:
+        low = [x.lower() for x in a]
+        if "gam" in low[2:]:
+            inner, ok, c2 = unwrap(a[low.index("gam", 2) + 1:])
+            return inner, ok, cfg or c2
+        return a, False, cfg
+    return a, True, cfg
+
+
 def is_change(args: list[str]) -> bool:
-    args = strip_config(args)
-    low = [a.lower() for a in args[:8]]
-    if "collect" in low and "preview" in (a.lower() for a in args):
+    """True if `gam <args>` changes something. Only the action word of the real command
+    (behind `redirect`, `csv … gam`, `select` …) decides – a group, org unit or file whose
+    *name* is a word like “info” or “print” can't make a change look like a read. Anything
+    GAMbit can't follow (batch files, unknown action words) counts as a change."""
+    inner, ok, cfg = unwrap(args)
+    if not ok or cfg:
+        return True
+    full = [a.lower() for a in inner]
+    if not full:
         return False
-    if any(a in READ_VERBS for a in low[:4]) and not any(a in MODIFY_VERBS for a in low[:2]):
+    if "collect" in full[:8] and "preview" in full:
         return False
-    return any(a in MODIFY_VERBS for a in low)
+    vi = verb_index(full)
+    rest = full[vi:vi + 8]
+    if not rest:
+        return False
+    if rest[0] in MODIFY_VERBS:
+        return True
+    if rest[0] in READ_VERBS or rest[0] in READ_EXTRA:
+        return False
+    return True                    # an action GAMbit doesn't know: assume it changes things
 
 
 def _write(entry: dict):
@@ -329,9 +442,8 @@ def load(days: int = 30, team: bool = False) -> list[dict]:
 
 
 def write_csv(entries: list[dict], path: str):
-    import csv
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
+        w = csv_safe.writer(fh)
         w.writerow(["Time", "Who", "Computer", "Domain", "Command", "Result", "Undone",
                     "Note"])
         for e in entries:
@@ -347,11 +459,10 @@ def sheet_url() -> str:
 
 def push_to_sheet() -> str:
     """Copy the last 365 days of the log to the Google Sheet. Returns the tab name."""
-    import tempfile
     from . import google_io
     team = bool(shared_dir())
     entries = load(365, team=team)
-    path = os.path.join(tempfile.gettempdir(), "GAMbit", "activity-upload.csv")
+    path = os.path.join(_tf.folder(), "activity-upload.csv")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     write_csv(entries, path)
     tab = "Team activity" if team else f"Activity - {who()}"
@@ -364,16 +475,98 @@ def push_to_sheet() -> str:
 FLIP = {"on": "off", "off": "on", "true": "false", "false": "true"}
 FLIP_ATTRS = {"suspended", "suspend", "changepassword", "gal", "includeinglobaladdresslist",
               "archived"}
+# the column `print users fields …` returns for each on/off attribute
+FLIP_COLUMN = {"suspended": "suspended", "suspend": "suspended",
+               "changepassword": "changePasswordAtNextLogin",
+               "gal": "includeInGlobalAddressList",
+               "includeinglobaladdresslist": "includeInGlobalAddressList",
+               "archived": "archived"}
+_FLIP_FIELDS = "primaryemail,orgunitpath,suspended,changepassword,gal,archived"
+UNDO_CHUNK = 200
+
+
+def _truthy(v) -> Optional[bool]:
+    v = str(v if v is not None else "").strip().lower()
+    if v in ("true", "on", "1", "yes"):
+        return True
+    if v in ("false", "off", "0", "no"):
+        return False
+    return None
+
+
+def _flip_pairs(attrs: list[str]) -> tuple[dict, list[str]]:
+    """{attr: wanted bool} for the on/off attributes in `attrs`, plus the other keys."""
+    wanted, other = {}, []
+    i = 0
+    while i < len(attrs):
+        k = attrs[i].lower()
+        v = attrs[i + 1] if i + 1 < len(attrs) else ""
+        if k in FLIP_ATTRS and _truthy(v) is not None:
+            wanted[k] = bool(_truthy(v))
+        else:
+            other.append(k)
+        i += 3 if k == "externalid" else 2
+    return wanted, other
+
+
+def _flip_steps(before: dict[str, dict], wanted: dict) -> list[list[str]]:
+    """Undo steps that put back only what really changed: users whose value was already
+    the new value are left alone. `before` = {email: {attr: bool|None}}; users whose old
+    value isn't known are left out (never guessed)."""
+    groups: dict[tuple, list[str]] = {}
+    for email, vals in before.items():
+        back = []
+        for k, new in wanted.items():
+            old = vals.get(FLIP_COLUMN[k])
+            if old is None or old == new:
+                continue
+            back += [k, "on" if old else "off"]
+        if back:
+            groups.setdefault(tuple(back), []).append(email)
+    steps = []
+    for back, emails in sorted(groups.items()):
+        emails = sorted(emails)
+        for i in range(0, len(emails), UNDO_CHUNK):
+            steps.append(["users", ",".join(emails[i:i + UNDO_CHUNK]), "update", "user",
+                          *back])
+    return steps
+
+
+def _user_update_split(a: list[str]) -> Optional[tuple[list[str], list[str]]]:
+    """(entity args, attrs) for `update user(s) E …` and `<entity> … update user …`."""
+    low = [x.lower() for x in a]
+    if low[:2] in (["update", "user"], ["update", "users"]) and len(a) > 3:
+        return ["users", a[2]], a[3:]
+    if "update" in low and low[0] in ENTITY_KW and low[0] != "update":
+        idx = low.index("update")
+        if low[idx + 1:idx + 2] == ["user"]:
+            return a[:idx], a[idx + 2:]
+    return None
 
 
 def infer_undo(args: list[str], users: list[dict]) -> Optional[dict]:
     """Work out the command that reverses `args`, using the cached 'before' state.
 
     Returns {"args": [...], "label": "..."} or None when it can't be undone safely.
+    On/off attributes are only put back where the cached list shows the value really
+    changed (suspending someone who was already suspended has nothing to undo); values
+    GAMbit doesn't keep a copy of aren't guessed – capture_undo looks those up instead.
     """
     a = list(args)
     low = [x.lower() for x in a]
-    ou_of = {u["email"].lower(): u.get("ou", "") for u in users}
+    if not low:
+        return None
+    by_email = {u["email"].lower(): u for u in users if u.get("email")}
+    ou_of = {e: u.get("ou", "") for e, u in by_email.items()}
+
+    def cached_before(emails: list[str]) -> Optional[dict]:
+        out = {}
+        for e in emails:
+            u = by_email.get(e.strip().lower())
+            if u is None:
+                return None                   # someone we know nothing about – no guess
+            out[e.strip().lower()] = {"suspended": bool(u.get("suspended"))}
+        return out
 
     def inv_user_attrs(attrs: list[str], email: Optional[str]):
         out, skipped = [], []
@@ -381,8 +574,15 @@ def infer_undo(args: list[str], users: list[dict]) -> Optional[dict]:
         while i < len(attrs):
             k = attrs[i].lower()
             v = attrs[i + 1] if i + 1 < len(attrs) else ""
-            if k in FLIP_ATTRS and v.lower() in FLIP:
-                out += [attrs[i], FLIP[v.lower()]]
+            if k in FLIP_ATTRS and _truthy(v) is not None:
+                u = by_email.get((email or "").lower())
+                if FLIP_COLUMN[k] == "suspended" and u is not None:
+                    old = bool(u.get("suspended"))
+                    if old != bool(_truthy(v)):
+                        out += [attrs[i], "on" if old else "off"]
+                    # unchanged → nothing to put back
+                else:
+                    skipped.append(k)          # old value unknown – don't guess
                 i += 2
             elif k in ("ou", "org") and email and ou_of.get(email.lower()):
                 out += ["ou", ou_of[email.lower()]]
@@ -408,14 +608,24 @@ def infer_undo(args: list[str], users: list[dict]) -> Optional[dict]:
                              (f" (can't undo: {', '.join(skipped)})" if skipped else "")}
         return None
     # <entity> … update user attrs  (users a,b / ou X / group G …)
-    if "update" in low and low[low.index("update") + 1:low.index("update") + 2] == ["user"] \
-            and low[0] in ENTITY_KW and low[0] != "update":
-        idx = low.index("update")
-        inv, skipped = inv_user_attrs(a[idx + 2:], None)
-        if inv:
-            return {"args": [*a[:idx], "update", "user", *inv],
-                    "label": "Put back " + ", ".join(inv[::2])}
-        return None
+    split = _user_update_split(a)
+    if split and low[0] != "update":
+        entity, attrs = split
+        wanted, other = _flip_pairs(attrs)
+        if not wanted or other:
+            return None            # OU moves etc. for many people: no safe single undo
+        ent = [x.lower() for x in entity]
+        if ent[:1] in (["user"], ["users"]) and len(entity) == 2:
+            before = cached_before([e for e in entity[1].split(",") if e.strip()])
+            if before is None:
+                return None
+            steps = _flip_steps(before, wanted)
+            if not steps:
+                return None
+            n = sum(len(s[1].split(",")) for s in steps)
+            return {"steps": steps, "args": steps[0],
+                    "label": f"Put back {', '.join(wanted)} for {n} account(s)"}
+        return None               # OUs, groups…: only capture_undo can know who changed
     # groups
     if low[:2] == ["update", "group"] and len(a) > 5:
         g, op = a[2], low[3]
@@ -424,7 +634,10 @@ def infer_undo(args: list[str], users: list[dict]) -> Optional[dict]:
             return {"args": ["update", "group", g, "remove", *rest],
                     "label": f"Remove them from {g} again"}
         if op in ("remove", "delete"):
-            return {"args": ["update", "group", g, "add", "member", *a[4:]],
+            rest = a[5:] if low[4] in ("member", "manager", "owner") else a[4:]
+            if not rest:
+                return None
+            return {"args": ["update", "group", g, "add", "member", *rest],
                     "label": f"Add them back to {g} (as members)"}
         return None
     if low[:2] == ["create", "group"] and len(a) > 2:
@@ -538,6 +751,48 @@ def capture_undo(args: list[str], run_csv) -> Optional[dict]:
     """
     low = [a.lower() for a in args]
     try:
+        # on/off user attributes (suspended, changepassword, gal, archived), for one
+        # person or many: read the real values first so Undo only reverses what changed
+        split = _user_update_split(list(args))
+        if split:
+            entity, attrs = split
+            wanted, other = _flip_pairs(attrs)
+            if wanted:
+                code, rows, _ = run_csv([*entity, "print", "users", "fields", _FLIP_FIELDS])
+                if code != 0:
+                    return None
+                before, ou_before = {}, {}
+                named = None
+                if [x.lower() for x in entity[:1]] in (["user"], ["users"]) and \
+                        len(entity) == 2:
+                    named = {e.strip().lower() for e in entity[1].split(",") if e.strip()}
+                for r in rows:
+                    e = _col(r, "primaryEmail").lower()
+                    if not e or (named is not None and e not in named):
+                        continue
+                    before[e] = {c: _truthy(_col(r, c)) for c in set(FLIP_COLUMN.values())}
+                    ou_before[e] = _col(r, "orgUnitPath")
+                moves_ou = [k for k in other if k in ("ou", "org")]
+                rest = [k for k in other if k not in ("ou", "org")]
+                steps = _flip_steps(before, wanted)
+                if moves_ou:
+                    by_ou: dict[str, list[str]] = {}
+                    for e, o in ou_before.items():
+                        if o:
+                            by_ou.setdefault(o, []).append(e)
+                    for o, es in sorted(by_ou.items()):
+                        es = sorted(es)
+                        for i in range(0, len(es), UNDO_CHUNK):
+                            steps.append(["users", ",".join(es[i:i + UNDO_CHUNK]), "update",
+                                          "user", "ou", o])
+                if not steps:
+                    return {"none": True,
+                            "label": "Nothing to undo – the values were already set"}
+                n = len(before)
+                what = ", ".join([*wanted, *(["ou"] if moves_ou else [])])
+                return {"steps": steps, "args": steps[0],
+                        "label": f"Put back {what} ({n} account(s) checked)" +
+                                 (f" (can't undo: {', '.join(rest)})" if rest else "")}
         # update group G remove|delete|update [role] a,b,c
         if low[:2] == ["update", "group"] and len(args) > 4 and \
                 low[3] in ("remove", "delete", "update"):
@@ -565,36 +820,55 @@ def capture_undo(args: list[str], run_csv) -> Optional[dict]:
             return {"steps": steps, "args": steps[0],
                     "label": (f"Add {n} back to {g} with their old roles" if verb == "add"
                               else f"Put back {n} old role(s) in {g}")}
-        # cros_sn SN update <attrs>   (not actions – those are handled elsewhere)
+        # cros_sn SN[,SN…] update <attrs>   (not actions – those are handled elsewhere)
         if low[0] == "cros_sn" and len(args) > 3 and low[2] == "update" and \
                 "action" not in low:
-            sn = args[1]
-            code, rows, _ = run_csv(["cros_sn", sn, "print", "cros", "fields",
-                                     "orgunitpath,annotateduser,annotatedlocation,"
-                                     "annotatedassetid,notes"])
+            serials = [x.strip() for x in args[1].split(",") if x.strip()]
+            if not serials:
+                return None
+            code, rows, _ = run_csv(["cros_sn", args[1], "print", "cros", "fields",
+                                     "serialnumber,orgunitpath,annotateduser,"
+                                     "annotatedlocation,annotatedassetid,notes"])
             if code != 0 or not rows:
                 return None
-            before = rows[0]
+            by_sn = {_col(r, "serialNumber").upper(): r for r in rows if _col(r, "serialNumber")}
+            if len(serials) == 1 and not by_sn:
+                by_sn = {serials[0].upper(): rows[0]}     # older output without the serial
             keymap = {"ou": "orgUnitPath", "org": "orgUnitPath", "user": "annotatedUser",
                       "location": "annotatedLocation", "asset": "annotatedAssetId",
                       "assetid": "annotatedAssetId", "tag": "annotatedAssetId",
                       "notes": "notes", "updatenotes": "notes"}
-            back = []
+            keys = []
             i = 3
             while i + 1 < len(args):
-                k = low[i]
-                if k in keymap:
-                    out_key = "notes" if k == "updatenotes" else k
-                    back += [out_key, _col(before, keymap[k]) or ("/" if out_key in
-                                                                  ("ou", "org") else "")]
+                if low[i] in keymap:
+                    keys.append(low[i])
                     i += 2
                 else:
                     i += 1
-            if not back:
+            if not keys:
                 return None
-            steps = [["cros_sn", sn, "update", *back]]
-            return {"steps": steps, "args": steps[0],
-                    "label": "Put back the Chromebook's " + ", ".join(back[::2])}
+            steps, missing = [], []
+            for sn in serials:
+                before = by_sn.get(sn.upper())
+                if before is None:
+                    missing.append(sn)          # never guess another device's values
+                    continue
+                back = []
+                for k in keys:
+                    out_key = "notes" if k == "updatenotes" else k
+                    back += [out_key, _col(before, keymap[k]) or ("/" if out_key in
+                                                                  ("ou", "org") else "")]
+                steps.append(["cros_sn", sn, "update", *back])
+            if not steps:
+                return None
+            what = ", ".join(dict.fromkeys("notes" if k == "updatenotes" else k
+                                           for k in keys))
+            label = (f"Put back the Chromebook's {what}" if len(steps) == 1 else
+                     f"Put back {what} on {len(steps)} Chromebooks")
+            if missing:
+                label += f" (not found: {', '.join(missing[:5])})"
+            return {"steps": steps, "args": steps[0], "label": label}
     except Exception:  # noqa: BLE001 – never block a command because undo lookup failed
         return None
     return None

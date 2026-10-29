@@ -172,8 +172,9 @@ def unschedule(job: dict):
 
 # ================================================================ running ===
 def run(job_id: str, log=print, **kw) -> int:
-    """What the Windows task runs (also “Run now”)."""
+    """What the Windows task runs (also “Run now”). dry=True only plans and lists."""
     force = kw.pop("force", False)
+    dry = bool(kw.pop("dry", False))
     job = get(job_id)
     if not job:
         log(f"Saved job {job_id} no longer exists – remove its task on the Schedules page.")
@@ -185,9 +186,11 @@ def run(job_id: str, log=print, **kw) -> int:
     o = {**job.get("opts", {}), "scope_ous": job.get("scope_ous") or []}
     log(f"Saved job “{job['name']}”: {describe(job)}")
     if job["kind"] == "assigned":
-        code = au.run_assign_task(log=log, o=o, **kw)
+        code = au.run_assign_task(log=log, o=o, dry=dry, **kw)
     else:
-        code = au.run_move_task(log=log, o=o, **kw)
+        code = au.run_move_task(log=log, o=o, dry=dry, **kw)
+    if dry:
+        return code                   # a rehearsal isn't a run – keep the real last run
     items = jobs()
     for j in items:
         if j["id"] == job_id:

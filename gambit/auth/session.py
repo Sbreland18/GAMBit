@@ -167,11 +167,12 @@ UNCHECKABLE = {"batch", "tbatch", "csv", "select", "loop", "redirect", "multipro
 
 
 def scope_problem(args: list[str], users_by_email: dict, cros_ou=None,
-                  change: bool = True) -> str:
-    """'' if every target is inside the signed-in person's org units. For someone with a
-    scope, a change GAMbit can't pin to a person, org unit or device is refused."""
+                  change: bool = True, roots: list[str] | None = None) -> str:
+    """'' if every target is inside the signed-in person's org units (or `roots`). For
+    someone with a scope, a change GAMbit can't pin to a person, org unit or device is
+    refused."""
     from ..activity import strip_config
-    roots = scope()
+    roots = scope() if roots is None else [r for r in roots if r]
     if not roots:
         return ""
     low = [x.lower() for x in strip_config(list(args))]

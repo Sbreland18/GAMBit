@@ -49,6 +49,22 @@ def save(rules: list[dict]):
         settings.set("groups/rules", json.dumps(rules))
 
 
+SEAL_FIELDS = ("id", "group", "name", "ous", "children", "title", "department",
+               "exclude_ous", "suspended", "mode", "always", "create", "enabled")
+
+
+def sign_rule(rule: dict) -> dict:
+    """Sign a rule a person just saved – the nightly task only runs signed rules."""
+    from . import seal
+    rule["seal"] = seal.sign("grouprule", rule, SEAL_FIELDS)["seal"]
+    return rule
+
+
+def verify(rule: dict):
+    from . import seal
+    return seal.check("grouprule", rule, SEAL_FIELDS)
+
+
 def new_rule() -> dict:
     return {"id": uuid.uuid4().hex[:8], "group": "", "name": "", "ous": [],
             "children": True, "title": "", "department": "", "exclude_ous": [],
@@ -152,8 +168,17 @@ def run_all(log=print) -> int:
     users = load_users()
     rules = load()
     failed = 0
+    from . import seal
     for rule in rules:
         if not rule.get("enabled", True) or "@" not in rule.get("group", ""):
+            continue
+        why = seal.may_run(verify(rule), [["update", "group", rule["group"], "sync",
+                                           "member", "ou", o] for o in
+                                          (rule.get("ous") or ["/"])], users)
+        if why:
+            failed += 1
+            rule["last_result"] = f"not run – {why}; open the rule and save it again"
+            log(f"{rule['group']}: {rule['last_result']}")
             continue
         code, out = run_gam_text(["print", "group-members", "group", rule["group"]], 300)
         exists = code == 0

@@ -54,29 +54,42 @@ DRIVE = {"drivefile", "drivefileacl", "drivefileacls", "shareddrive", "shareddri
          "drivefileowner", "filelist", "drivesettings", "transferdrive", "teamdrive"}
 
 
+TRUE_WORDS = {"on", "true", "yes", "enabled", "1"}       # every way GAM says “yes”
+# what a command GAMbit can't follow (a batch file, odd wrapper options) needs: everything
+UNKNOWN = {"delete", "everyone", "other", "suspend"}
+
+
 def categorize(args: list[str]) -> set[str]:
-    """Which permission categories a GAM command needs."""
-    low = [a.lower() for a in args]
-    if low[:1] == ["select"]:
-        low = low[2:]
-    from .activity import strip_config
-    low = strip_config(low)
+    """Which permission categories a GAM command needs. The real command behind GAM's
+    wrappers (select, config, redirect, csv … gam) is what counts, and only its action
+    word decides whether it's a look-up – an unknown action counts as a change."""
+    from .activity import (MODIFY_VERBS, READ_EXTRA, READ_VERBS, is_change, unwrap,
+                           verb_index)
+    inner, understood, cfg = unwrap([str(a) for a in args])
+    if not understood:
+        return set(UNKNOWN)
+    low = [a.lower() for a in inner]
     cats: set[str] = set()
+    if cfg:
+        cats.add("other")                      # it rewrites GAM's own settings
     if not low:
-        return {"read"}
+        return cats or {"read"}
+    vi = verb_index(low)
+    verb = low[vi] if vi < len(low) else ""
+    looks_read = (verb in READ_VERBS or verb in READ_EXTRA) and verb not in MODIFY_VERBS \
+        and not is_change(inner)
     # whole domain / whole OU targets
     if (low[0] == "all" and len(low) > 1 and low[1] in ("users", "users_ns", "cros")) or \
             low[0] in ("ou", "ou_and_children", "ous", "ous_and_children", "ou_ns",
                        "ou_and_children_ns"):
-        if not any(a in READ for a in low[:4]) or any(
-                a in ("update", "delete", "add", "remove", "sync", "suspended")
-                for a in low):
+        if not looks_read:
             cats.add("everyone")
     for i, a in enumerate(low):
         nxt = low[i + 1] if i + 1 < len(low) else ""
-        if a in DESTRUCTIVE:
+        if a in DESTRUCTIVE and not looks_read:
             cats.add("delete")
-        if a in ("suspended", "suspend") and nxt in ("on", "true"):
+        if a in ("suspended", "suspend") and (nxt in TRUE_WORDS or (
+                a == "suspend" and i == vi)):
             cats.add("suspend")
         if a == "command" and nxt in ("remote_powerwash", "wipe_users"):
             cats.add("delete")
@@ -84,9 +97,10 @@ def categorize(args: list[str]) -> set[str]:
             cats.add("everyone" if low[0] in ("all", "ou_and_children") else "other")
         if a == "action" and (nxt == "disable" or nxt.startswith("deprovision")):
             cats.add("suspend" if nxt == "disable" else "delete")
-    is_read = any(a in READ for a in low[:4]) and not any(
-        a in ("update", "create", "add", "delete", "remove", "sync") for a in low[:4])
-    if is_read:
+    wrapper = [str(a).lower() for a in args][:max(0, len(args) - len(low))]
+    if not looks_read and any(w in ("csv", "loop", "csvtest") for w in wrapper):
+        cats.add("everyone")                   # once per row of a file: a bulk change
+    if looks_read:
         return cats or {"read"}
     joined = set(low)
     if "password" in joined or "changepassword" in joined or "signout" in joined or \
@@ -150,6 +164,12 @@ BUILTIN_ROLES = {
         "can": ["read", "passwords", "groups"], "ask": ["suspend", "users"],
         "admin": False},
 }
+
+
+LOOKUP_ONLY = "Look things up only"
+LOOKUP_ONLY_ROLE = {"description": "Used when a role can't be found: look-ups only.",
+                    "pages": ["Home", "Student lookup", "Account timeline"], "can": ["read"],
+                    "ask": [], "admin": False}
 
 
 # ----------------------------------------------------------------- folder ---
@@ -243,7 +263,9 @@ def my_role_name(data: Optional[dict] = None) -> str:
         return session.current().get("role_name", "No access")
     data = data or load_roles()
     name = data["people"].get(me()) or data.get("default_role", "Full admin")
-    return name if name in data["roles"] else "Full admin"
+    # a role name that doesn't exist (a typo, or an edited roles file) gets the least,
+    # never the most
+    return name if name in data["roles"] else LOOKUP_ONLY
 
 
 def my_role(data: Optional[dict] = None) -> dict:
@@ -251,7 +273,8 @@ def my_role(data: Optional[dict] = None) -> dict:
     if session.active():
         return session.current().get("role") or {"pages": [], "can": [], "ask": []}
     data = data or load_roles()
-    return data["roles"][my_role_name(data)]
+    name = my_role_name(data)
+    return data["roles"].get(name) or LOOKUP_ONLY_ROLE
 
 
 def is_admin() -> bool:
@@ -288,22 +311,63 @@ def check(args: list[str], role: Optional[dict] = None) -> tuple[bool, set, bool
 
 
 # --------------------------------------------------------------- requests ---
+# Fields that change while a request is handled. Everything else is signed when the
+# request is made, so nobody can edit what it does (or who asked) in the team folder.
+REQUEST_MUTABLE = {"status", "decided_by", "note", "decided", "result", "approvals",
+                   "escalated", "updated", "remote_approved_by", "seal", "tracked"}
+
+
+def _request_body(req: dict, fields=None) -> dict:
+    fields = sorted(k for k in req if k not in REQUEST_MUTABLE) if fields is None else fields
+    return {"fields": list(fields), "values": {k: req.get(k) for k in fields}}
+
+
+def sign_request(req: dict) -> dict:
+    from . import seal
+    body = _request_body(req)
+    req["seal"] = {**seal.seal_for("request", body), "fields": body["fields"]}
+    return req
+
+
+def verify_request(req: dict):
+    """Who really made this request (Verified), or None if it can't be told."""
+    from . import seal
+    s = req.get("seal") if isinstance(req, dict) else None
+    if not isinstance(s, dict) or not isinstance(s.get("fields"), list):
+        return None
+    fields = [str(f) for f in s["fields"]]
+    if set(k for k in req if k not in REQUEST_MUTABLE) != set(fields):
+        return None               # a field was added or removed after signing
+    v = seal.check_seal("request", _request_body(req, fields), s)
+    by = str(req.get("by", "")).lower()
+    if v is not None and v.level != "local" and "@" in by and by != v.who:
+        return None               # signed by someone other than the person named
+    return v
+
+
 def new_request(commands: list[list[str]], reason: str, title: str = "", by: str = "",
                 extra: Optional[dict] = None, notify: bool = True, dedupe: str = "") -> dict:
     """dedupe: nightly jobs pass a key so they refresh their open request instead of
     filing a new one every night."""
     if not folder():
         raise RuntimeError("Approval requests need a team folder (Settings → Team).")
+    from . import secret_args
+    from .activity import mask
     from .gam_runner import display_command
+    # a waiting request never holds a password: a new one is made when it's approved
+    # and shown to whoever runs it
+    commands = [secret_args.without_passwords(c) for c in commands]
+    final = (extra or {}).get("status", "pending") in FINAL_REQUEST_STATES
+    if final:
+        commands = [mask(list(c)) for c in commands]
+    rid = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
     if dedupe:
-        old = next((r for r in list_requests("pending") if r.get("dedupe") == dedupe), None)
+        old = next((r for r in list_requests("pending") if r.get("dedupe") == dedupe and
+                    verify_request(r) is not None), None)
         if old:
-            old.update(commands=commands, reason=reason, title=title or old.get("title"),
-                       updated=datetime.datetime.now().isoformat(timespec="seconds"))
-            old.update(extra or {})
-            _write_json(_path("requests", f"{old['id']}.json"), old)
-            return old
-    req = {"id": datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
+            # rebuilt from scratch – nothing else from the old file is carried over
+            rid = old["id"] if _safe_id(old.get("id", "")) else rid
+    req = {"id": rid,
            "time": datetime.datetime.now().isoformat(timespec="seconds"),
            "by": by or me(), "title": title or (display_command(commands[0]) if commands
                                                 else "Request"),
@@ -312,6 +376,8 @@ def new_request(commands: list[list[str]], reason: str, title: str = "", by: str
     req.update(extra or {})
     if dedupe:
         req["dedupe"] = dedupe
+        req["updated"] = datetime.datetime.now().isoformat(timespec="seconds")
+    sign_request(req)
     _write_json(_path("requests", f"{req['id']}.json"), req)
     if not notify or req.get("status") != "pending":
         return req
@@ -324,6 +390,11 @@ def new_request(commands: list[list[str]], reason: str, title: str = "", by: str
     return req
 
 
+def _safe_id(rid: str) -> bool:
+    import re
+    return bool(re.fullmatch(r"[0-9A-Za-z-]{6,40}", rid or ""))
+
+
 def list_requests(status: str = "") -> list[dict]:
     d = _path("requests")
     if not folder() or not os.path.isdir(d):
@@ -332,16 +403,29 @@ def list_requests(status: str = "") -> list[dict]:
     for name in os.listdir(d):
         if name.endswith(".json"):
             r = _read_json(os.path.join(d, name), None)
-            if r and (not status or r.get("status") == status):
+            if not isinstance(r, dict) or not _safe_id(str(r.get("id", ""))) or \
+                    name != f"{r['id']}.json":
+                continue                      # not a request GAMbit wrote
+            if not isinstance(r.get("commands", []), list):
+                continue
+            if not status or r.get("status") == status:
                 out.append(r)
     out.sort(key=lambda r: r.get("time", ""), reverse=True)
     return out
+
+
+FINAL_REQUEST_STATES = {"done", "failed", "denied", "cancelled", "rejected", "expired"}
 
 
 def update_request(req: dict, status: str, note: str = "", result: str = ""):
     req = dict(req)
     req.update(status=status, decided_by=me(), note=note,
                decided=datetime.datetime.now().isoformat(timespec="seconds"))
+    if status in FINAL_REQUEST_STATES and isinstance(req.get("commands"), list):
+        # finished – the team folder doesn't need to keep any password in it
+        from .activity import mask
+        req["commands"] = [mask([str(a) for a in c]) if isinstance(c, list) else c
+                           for c in req["commands"]]
     if result:
         req["result"] = result
     _write_json(_path("requests", f"{req['id']}.json"), req)
@@ -374,6 +458,30 @@ def write_shared(name: str, data: dict):
     _write_json(p, data)
 
 
+def write_shared_signed(name: str, kind: str, data: dict):
+    """Write a shared settings file signed by whoever is using GAMbit here."""
+    from . import seal
+    write_shared(name, seal.sign(kind, {k: v for k, v in data.items() if k != "seal"}))
+
+
+def read_shared_verified(name: str, kind: str) -> tuple[dict, object]:
+    """(data without its seal, Verified or None). With GAMbit sign-in on, only a GAMbit
+    admin's signature counts; without it, any computer this one trusts."""
+    from . import seal
+    d = read_shared(name)
+    if not d:
+        return {}, None
+    v = seal.check_file_data(kind, d)
+    return {k: x for k, x in d.items() if k != "seal"}, v
+
+
+def can_write_shared() -> bool:
+    """Only GAMbit admins write the shared settings when sign-in is on (anyone else's
+    signature wouldn't be accepted – and would hide the admin-signed values)."""
+    from . import seal
+    return not seal.signin_required() or seal.signer_level() == "admin"
+
+
 # ------------------------------------------------- shared workflow settings ---
 SHARED_KEYS = ("workflow/leaving_ou", "workflow/rollover", "email/signature",
                "safety/threshold")
@@ -386,18 +494,19 @@ def _share_settings() -> bool:
 def setting(key: str, default=""):
     """A workflow setting – from the team folder when sharing is on."""
     if _share_settings() and key in SHARED_KEYS:
-        d = read_shared("workflows.json")
-        if key in d:
+        d, v = read_shared_verified("workflows.json", "workflows")
+        if v is not None and key in d:      # unsigned / edited values are ignored
             return d[key]
     return settings.get(key, default)
 
 
 def set_setting(key: str, value):
     settings.set(key, value)
-    if _share_settings() and key in SHARED_KEYS:
+    if _share_settings() and key in SHARED_KEYS and can_write_shared():
         try:
-            d = read_shared("workflows.json")
+            d, v = read_shared_verified("workflows.json", "workflows")
+            d = d if v is not None else {}  # never carry unverified values forward
             d[key] = value
-            write_shared("workflows.json", d)
+            write_shared_signed("workflows.json", "workflows", d)
         except OSError:
             pass

@@ -123,7 +123,7 @@ class AccessDialog(QDialog):
         self.tabs.addTab(self._signin_tab(), "Sign-in")
         self.tabs.addTab(self._people_tab(), "People")
         self.tabs.addTab(self._roles_tab(), "Roles")
-        self.tabs.addTab(self._keys_tab(), "Admin keys")
+        self.tabs.addTab(self._keys_tab(), "Keys")
         self.tabs.addTab(self._log_tab(), "Sign-in log")
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(self.reject)
@@ -427,7 +427,7 @@ class AccessDialog(QDialog):
         d["default_role"] = self.default_role.currentText()
         if not access.keyed_admins(d):
             QMessageBox.warning(self, "People", "Keep at least one GAMbit admin whose key is "
-                                "trusted (see Admin keys) – otherwise nobody could change "
+                                "trusted (see Keys) – otherwise nobody could change "
                                 "access again.")
             return
         signer = self._signer()
@@ -489,8 +489,10 @@ class AccessDialog(QDialog):
         v = QVBoxLayout(w)
         lab = QLabel("Changes to the access list are signed with a GAMbit admin's key, which "
                      "lives only on that admin's computer. Each tech's GAMbit checks the "
-                     "signature, so nobody can hand-edit the list. A new admin asks for their "
-                     "key to be trusted; an existing admin checks the code with them and "
+                     "signature, so nobody can hand-edit the list. Everyone else's key signs "
+                     "what they ask for (Run later items, requests, approvals), so other "
+                     "computers and the background tasks know who really made it. GAMbit asks "
+                     "for a key when someone signs in; an admin checks the code with them and "
                      "approves it.")
         lab.setWordWrap(True)
         v.addWidget(lab)
@@ -503,7 +505,8 @@ class AccessDialog(QDialog):
         for text, slot in (("Ask to trust my key", self._ask_key),
                            ("Approve selected request", self._approve_key),
                            ("Reject selected request", self._reject_key),
-                           ("Stop trusting selected key", self._remove_key)):
+                           ("Stop trusting selected key", self._remove_key),
+                           ("Lock sign-in on this computer…", self._lock_pc)):
             b = QPushButton(text)
             b.clicked.connect(slot)
             row.addWidget(b)
@@ -516,12 +519,17 @@ class AccessDialog(QDialog):
         for kid, k in (self.doc or {}).get("admin_keys", {}).items():
             rows.append(["trusted", k["email"], crypto.fingerprint(crypto.unb64(k["public"])),
                          k.get("added", ""), kid])
+        for kid, k in (self.doc or {}).get("member_keys", {}).items():
+            rows.append(["trusted (member)", k["email"],
+                         crypto.fingerprint(crypto.unb64(k["public"])), k.get("added", ""),
+                         kid])
         if self.doc:
+            known = set(self.doc.get("admin_keys", {})) | set(self.doc.get("member_keys", {}))
             for r in access.key_requests():
-                if r["key_id"] not in self.doc.get("admin_keys", {}):
+                if r["key_id"] not in known:
                     rows.append(["waiting for approval", r["email"], r["fingerprint"],
                                  r.get("asked", "")[:10], r["key_id"]])
-        self.keys.set_rows(["Status", "Admin", "Code", "Date", "key"], rows)
+        self.keys.set_rows(["Status", "Person", "Code", "Date", "key"], rows)
         self.my_fp.setText(f"Your key code on this computer: <b>{self._my_fingerprint()}</b>"
                            if self._me() else "")
 
@@ -547,7 +555,7 @@ class AccessDialog(QDialog):
         req = next((r for r in access.key_requests() if r["key_id"] == sel["key"]), None)
         if not req:
             return
-        code, ok = QInputDialog.getText(self, "Approve admin key",
+        code, ok = QInputDialog.getText(self, "Approve key",
                                         f"Ask {req['email']} to read you the code GAMbit shows "
                                         "them, and type it here:")
         if not ok:
@@ -578,9 +586,13 @@ class AccessDialog(QDialog):
         if not self._can_edit():
             return
         sel = self._selected_key()
-        if not sel or sel.get("Status") != "trusted":
+        if not sel or not str(sel.get("Status", "")).startswith("trusted"):
             return
         d = copy.deepcopy(self.doc)
+        if sel.get("Status") == "trusted (member)":
+            d.get("member_keys", {}).pop(sel["key"], None)
+            self._save_doc(d, f"stopped trusting a key of {sel['Person']}")
+            return
         d["admin_keys"].pop(sel["key"], None)
         if not access.keyed_admins(d):
             QMessageBox.information(self, "Admin key", "That would leave no GAMbit admin with a "
@@ -590,7 +602,30 @@ class AccessDialog(QDialog):
             QMessageBox.information(self, "Admin key", "You can't stop trusting your own key – "
                                     "ask another GAMbit admin.")
             return
-        self._save_doc(d, f"stopped trusting a key of {sel['Admin']}")
+        self._save_doc(d, f"stopped trusting a key of {sel['Person']}")
+
+    def _lock_pc(self):
+        """Machine-wide: sign-in can't be switched off by clearing settings, and only lists
+        signed by today's admin keys are accepted (asks for Windows admin rights)."""
+        if not self._can_edit():
+            return
+        kids = sorted((self.doc or {}).get("admin_keys", {}))
+        if not kids:
+            return
+        if QMessageBox.question(
+                self, "Lock sign-in", "Keep GAMbit sign-in required on this computer for "
+                "every Windows user, and accept only access lists signed by the current admin "
+                "keys? Windows will ask for administrator rights.\n\nIf the admin keys change "
+                "later, lock again on each computer.") != QMessageBox.Yes:
+            return
+        try:
+            access.write_machine_lock(kids)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.information(self, "Lock sign-in", str(exc))
+            return
+        session.log("locked sign-in on this computer", keys=",".join(kids))
+        QMessageBox.information(self, "Lock sign-in", "Done – sign-in is locked on for this "
+                                "computer.")
 
     # ========================================================== log ===
     def _log_tab(self):

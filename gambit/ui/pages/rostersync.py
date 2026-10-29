@@ -3,7 +3,6 @@ HR export, or a Google Sheet)."""
 
 from __future__ import annotations
 
-import csv
 import dataclasses
 import json
 import os
@@ -332,7 +331,7 @@ class RosterSyncPage(Page):
         for label, val in (("Random, easy to read", "random"), ("Pattern", "pattern"),
                            ("From the SIS file", "column")):
             self.pw_mode.addItem(label, val)
-        self.pw_pattern = QLineEdit("{First}{id4}!")
+        self.pw_pattern = QLineEdit("{First}{id4}{rand4}!")
         self.change_first = QCheckBox("Make students choose a new password at first sign-in")
         self.update_names = QCheckBox("Update names when the SIS changes them")
         self.move_ou = QCheckBox("Move students when their grade or school changes")
@@ -578,8 +577,11 @@ class RosterSyncPage(Page):
                     if code == 0:
                         self._created.append({"name": c.name, "email": c.email,
                                               "password": c.password, "group": ou})
-                steps.append(Step(label, c.commands[0], on_done=done))
-                steps += self._onboard_steps(c)
+                create = Step(label, c.commands[0], on_done=done)
+                steps.append(create)
+                for st in self._onboard_steps(c):
+                    st.after = create            # no setup steps for a create that failed
+                    steps.append(st)
             else:
                 for cmd in c.commands:
                     steps.append(Step(label, cmd))
@@ -591,7 +593,7 @@ class RosterSyncPage(Page):
             if not dry_run_on():
                 for rec in offboards:
                     results = rec.pop("_results", {})
-                    offboard.save(rec)
+                    offboard.save(rec, sign_it=True)
                     offboard.mark(rec, "today", results)
             self.apply_btn.setEnabled(True)
             self.cards_btn.setEnabled(bool(self._created))
@@ -669,8 +671,9 @@ class RosterSyncPage(Page):
         path, _ = QFileDialog.getSaveFileName(self, "Export preview", "roster-sync-preview.csv",
                                               "CSV (*.csv)")
         if path:
+            from ... import csv_safe
             with open(path, "w", newline="", encoding="utf-8") as fh:
-                w = csv.writer(fh)
+                w = csv_safe.writer(fh)
                 w.writerow(["Change", "Account", "Name", "Details"])
                 for c in self.changes:
                     w.writerow([c.action, c.email, c.name, c.details])
@@ -792,7 +795,7 @@ class RosterSyncPage(Page):
         self.w_ou.set_path(r.get("withdrawn_ou", ""))
         self.pw_mode.setCurrentIndex(max(0, self.pw_mode.findData(r.get("password_mode",
                                                                           "random"))))
-        self.pw_pattern.setText(r.get("password_pattern", "{First}{id4}!"))
+        self.pw_pattern.setText(r.get("password_pattern", "{First}{id4}{rand4}!"))
         self.change_first.setChecked(r.get("change_at_first", True))
         self.update_names.setChecked(r.get("update_names", True))
         self.move_ou.setChecked(r.get("move_ou", True))
@@ -815,6 +818,14 @@ class RosterSyncPage(Page):
         data = self._all_profiles()
         if name not in data:
             self.info("Save these settings first (Save settings as…), then schedule them.")
+            return
+        from ... import scheduler
+        clash = [n for n in data if n != name and data[n].get("schedule") and
+                 scheduler.slug(n).lower() == scheduler.slug(name).lower()]
+        if clash:   # both would share one Windows task, and one would silently replace the other
+            self.info(f"“{name}” is too close to the scheduled sync “{clash[0]}” – Windows "
+                      "would treat them as the same task. Save these settings under a more "
+                      "different name first.")
             return
         from .rostersync_schedule import ScheduleDialog
         dlg = ScheduleDialog(self, name, data[name].get("schedule", {}))

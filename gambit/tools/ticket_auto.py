@@ -69,6 +69,16 @@ def candidates(tickets: list[dict], users: list[dict], opts: dict,
         to = recipient(t, email, opts)
         if not why and not to:
             why = "no one to send the new password to (set a fixed address)"
+        fixed = "@" in (opts.get("send_to") or "")
+        if not why and not fixed:
+            # The account comes from the ticket's text, so only send its new password to
+            # the person who asked when they're active *staff* – otherwise a student could
+            # file "forgot the password for classmate@…" and receive the classmate's.
+            asker = by.get((to or "").lower())
+            if not asker or asker.get("suspended") or _under(asker.get("ou"),
+                                                              opts.get("student_root")):
+                why = ("the person who asked isn't active staff – a person must check who "
+                       "the account belongs to")
         out.append({"ticket": t, "email": email, "to": to, "why_not": why})
     return out
 

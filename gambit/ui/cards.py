@@ -7,7 +7,7 @@ from itertools import groupby
 
 from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QTextBrowser,
+    QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QTextBrowser,
     QVBoxLayout,
 )
 
@@ -95,4 +95,5 @@ class CardsDialog(QDialog):
         rows = ["Group\tName\tEmail\tPassword"] + [
             f"{p.get('group', '')}\t{p.get('name', '')}\t{p.get('email', '')}\t"
             f"{p.get('password', '')}" for p in self.people]
-        QApplication.clipboard().setText("\n".join(rows))
+        from .secure_clip import copy_secret
+        copy_secret("\n".join(rows))

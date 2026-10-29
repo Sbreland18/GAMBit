@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from ... import team
 from ...settings import settings
+from ...gam_runner import display_command
 from ..pickers import OUField, OUMultiField, PeoplePicker, PersonField
 from ..steps import Step, StepList
 from ..widgets import Page, ResultsTable, button
@@ -73,7 +74,8 @@ class WelcomeSheet(QDialog):
         row = QHBoxLayout()
         row.addWidget(button("Print…", "primary", self.print_))
         row.addWidget(button("Save as PDF…", slot=self.pdf))
-        row.addWidget(button("Copy text", slot=lambda: QApplication.clipboard().setText(
+        from ..secure_clip import copy_secret
+        row.addWidget(button("Copy text", slot=lambda: copy_secret(
             f"Email: {email}\nTemporary password: {password}\nSign in at accounts.google.com")))
         row.addStretch(1)
         close = QDialogButtonBox(QDialogButtonBox.Close)
@@ -267,7 +269,7 @@ class WorkflowsPage(Page):
         lay.addWidget(self.ns_steps)
         self._ns_last = None
         from ..unsaved import track
-        track(self, self.ns_stepper, "a new staff account", self.ns_stepper.finish_btn)
+        self._ns_tracker = track(self, self.ns_stepper, "a new staff account")
         return w
 
     def _ns_valid_person(self) -> bool:
@@ -336,6 +338,7 @@ class WorkflowsPage(Page):
             if not ok:
                 self.info(self.ns_steps.summary(), "New staff")
             if ok:
+                self._ns_tracker.clean()
                 self.directory.refresh_users()
                 from ..next_steps import NextSteps, for_new_account
                 failed = [s.label for s in _steps if s.status == "fail"]
@@ -463,11 +466,18 @@ class WorkflowsPage(Page):
             self.info("The supervisor can't be the person who is leaving.")
             return None
         opts = self._lv_opts()
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            before = offboard.capture(u, lambda a: run_gam_csv(a, 120))
-        finally:
-            QApplication.restoreOverrideCursor()
+        before = offboard.earlier_before(u)          # starting again keeps the original
+        if before is None:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                before = offboard.capture(u, lambda a: run_gam_csv(a, 120))
+            finally:
+                QApplication.restoreOverrideCursor()
+            if not before.get("complete") and not self.confirm(
+                    f"GAMbit couldn't read all of {u}'s groups and org unit (see the Output "
+                    "panel). Undo won't be able to put back what it couldn't read.\n\n"
+                    "Carry on anyway?", "Staff leaving"):
+                return None
         return offboard.build(u, m, before, opts, random_password)
 
     def lv_preview(self):
@@ -516,7 +526,7 @@ class WorkflowsPage(Page):
             if dry:
                 self.info(self.lv_steps.summary(), "Staff leaving")
                 return
-            offboard.save(rec)
+            offboard.save(rec, sign_it=True)
             offboard.mark(rec, "today", results)
             self._ensure_daily_task()
             self.lv_refresh()
@@ -612,9 +622,18 @@ class WorkflowsPage(Page):
             self.lv_delete()
             return
         todo = [s for s in st["steps"] if s["status"] != "done"]
-        if self.confirm(f"Run “{st['title']}” for {rec['email']} now (due {st['due']})?\n\n" +
-                        "\n".join(f"• {s['label']}" for s in todo)):
+        if self.confirm(self._plan_warning(rec) +
+                        f"Run “{st['title']}” for {rec['email']} now (due {st['due']})?\n\n" +
+                        "\n".join(f"• {s['label']}\n    {display_command(s['args'])}"
+                                  for s in todo)):
             self._lv_run_steps(rec, st["key"], todo, "Staff leaving")
+
+    @staticmethod
+    def _plan_warning(rec) -> str:
+        from ... import offboard
+        return "" if offboard.verify(rec) is not None else (
+            "⚠ This plan isn't signed (made by an older GAMbit, or changed in the team "
+            "folder). Check every command below.\n\n")
 
     def lv_undo(self):
         from ... import offboard
@@ -627,8 +646,9 @@ class WorkflowsPage(Page):
             return
         no = offboard.cannot_undo(rec)
         extra = ("\n\nThese can't be undone:\n• " + "\n• ".join(no)) if no else ""
-        if not self.confirm(f"Put {rec['email']} back?\n\n" +
-                            "\n".join(f"• {s['label']}" for s in steps) + extra +
+        if not self.confirm(self._plan_warning(rec) + f"Put {rec['email']} back?\n\n" +
+                            "\n".join(f"• {s['label']}\n    {display_command(s['args'])}"
+                                      for s in steps) + extra +
                             "\n\nThey'll need a new password from Users → Reset password."):
             return
 
@@ -755,17 +775,24 @@ class WorkflowsPage(Page):
             self.gr_preview()
             return
         opts = self._gr_opts()
+        if not (opts.get("alumni_ou") or "").strip().startswith("/"):
+            self.info("Choose the alumni org unit first (for example /Alumni/Class of {year}).")
+            return
         if not self.confirm(f"Start graduation for {len(studs):,} student(s)?"):
             return
         need_capture = opts["groups"] or opts["licenses"]
-        recs, steps = [], []
+        recs, steps, partial = [], [], []
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             for u in studs:
-                before = (offboard.capture(u["email"], lambda a: run_gam_csv(a, 120))
-                          if need_capture else {"groups": [], "licenses": [],
-                                                "ou": u.get("ou", ""),
-                                                "name": u.get("name", ""), "gal": True})
+                before = offboard.earlier_before(u["email"])
+                if before is None and need_capture:
+                    before = offboard.capture(u["email"], lambda a: run_gam_csv(a, 120))
+                    if not before.get("complete"):
+                        partial.append(u["email"])
+                elif before is None:
+                    before = {"groups": [], "licenses": [], "ou": u.get("ou", ""),
+                              "name": u.get("name", ""), "gal": True}
                 rec = offboard.build_graduate(u["email"], before, opts, self.gr_year.value())
                 recs.append(rec)
                 for st in rec["stages"][0]["steps"]:
@@ -775,13 +802,19 @@ class WorkflowsPage(Page):
                                       on_done=done))
         finally:
             QApplication.restoreOverrideCursor()
+        if partial and not self.confirm(
+                f"GAMbit couldn't read the groups or org unit of {len(partial)} student(s) "
+                f"({', '.join(partial[:5])}{'…' if len(partial) > 5 else ''}). Undo won't be "
+                "able to put back what it couldn't read for them.\n\nCarry on anyway?",
+                "Graduation"):
+            return
         dry = dry_run_on()
 
         def finished(_s):
             if not dry:
                 for rec in recs:
                     res = rec.pop("_results", {})
-                    offboard.save(rec)
+                    offboard.save(rec, sign_it=True)
                     offboard.mark(rec, "today", res)
                 self._ensure_daily_task()
                 self.lv_refresh()
@@ -885,12 +918,21 @@ class WorkflowsPage(Page):
             self.info("That org unit doesn't have at least two sub-units. Refresh the org "
                       "unit list in Settings if you just created them.")
             return
+        from ...next_year import pair_by_grade
+        pairs, odd = pair_by_grade(kids)
+        if not pairs:
+            self.info("GAMbit couldn't tell the grades from those org units' names (like "
+                      "“Grade 5”, “05” or “K”). Add the rows by hand.")
+            return
         self.ro_table.setRowCount(0)
-        for a, b in zip(kids, kids[1:]):
+        for a, b in pairs:
             self.ro_add(a, b)
-        self.ro_add(kids[-1], "")
-        self.info("Check each row. The last row needs a \"To\" org unit for graduates "
-                  "(for example /Students/Graduated), or remove it.")
+        msg = ("Check each row. The last row needs a \"To\" org unit for graduates "
+               "(for example /Students/Graduated), or remove it.")
+        if odd:
+            msg += ("\n\nNot added (no grade in the name, or no next grade): " +
+                    ", ".join(odd))
+        self.info(msg)
 
     def ro_count(self):
         counts: dict[str, int] = {}
@@ -908,17 +950,13 @@ class WorkflowsPage(Page):
         if not pairs:
             self.info("Add at least one row.")
             return
-        bad = [p for p in pairs if not (p[0] and p[1])]
-        if bad:
-            self.info("Every row needs both a From and a To org unit.")
+        from ...next_year import rollover_plan
+        planned, problem = rollover_plan(pairs, self.ro_grad_suspend.isChecked())
+        if problem:
+            self.info(problem)
             return
         team.set_setting("workflow/rollover", json.dumps(pairs))
-        steps = [Step(f"{a}  →  {b}", ["update", "ou", b, "move", "ou", a])
-                 for a, b in reversed(pairs)]
-        if self.ro_grad_suspend.isChecked():
-            grad = pairs[-1][1]
-            steps.append(Step(f"Suspend everyone in {grad}",
-                              ["ou", grad, "update", "user", "suspended", "on"]))
+        steps = [Step(label, args, required=req) for label, args, req in planned]
         plan = "\n".join(f"• {s.label}" for s in steps)
         if self.confirm(f"Run these moves (in this order)?\n\n{plan}", "Year-end rollover"):
             self.ro_steps.run(steps, lambda _s: (self.info(self.ro_steps.summary()),
@@ -930,8 +968,12 @@ class WorkflowsPage(Page):
         if not pairs:
             self.info("Add at least one row with both org units.")
             return
-        practice_run(self, rollover_commands(pairs, self.ro_grad_suspend.isChecked()),
-                     "move students up a grade")
+        try:
+            cmds = rollover_commands(pairs, self.ro_grad_suspend.isChecked())
+        except ValueError as exc:
+            self.info(str(exc))
+            return
+        practice_run(self, cmds, "move students up a grade")
 
     def gr_practice(self):
         from .round10_pages import graduation_commands, practice_run
@@ -939,8 +981,12 @@ class WorkflowsPage(Page):
         if not studs:
             self.info("Choose the seniors' org unit (the user list may need a refresh).")
             return
-        practice_run(self, graduation_commands(studs, self._gr_opts(), self.gr_year.value()),
-                     "graduation (every stage)")
+        try:
+            cmds = graduation_commands(studs, self._gr_opts(), self.gr_year.value())
+        except ValueError as exc:
+            self.info(str(exc))
+            return
+        practice_run(self, cmds, "graduation (every stage)")
 
     def ro_courses(self):
         self.run(["print", "courses", "states", "active", "owneremail", "fields",
@@ -1087,14 +1133,16 @@ class WorkflowsPage(Page):
                 self.info("Choose who the device is going to.")
                 return
             action, detail = "Checked out", who
+            # updatenotes keeps what was already written (#notes# = the old notes)
             args = ["cros_sn", sn, "update", "user", who,
-                    "notes", f"Checked out to {who} on {today}"]
+                    "updatenotes", f"Checked out to {who} on {today}\n#notes#"]
         elif self.co_in.isChecked():
             action, detail = "Checked in", loc or ""
-            args = ["cros_sn", sn, "update", "user", "", "notes", f"Checked in on {today}"]
+            args = ["cros_sn", sn, "update", "user", "", "updatenotes",
+                    f"Checked in on {today}\n#notes#"]
         else:
             action, detail = "Missing", ""
-            args = ["cros_sn", sn, "update", "notes", f"MISSING since {today}"]
+            args = ["cros_sn", sn, "update", "updatenotes", f"MISSING since {today}\n#notes#"]
         if loc:
             args += ["location", loc]
         if ou:

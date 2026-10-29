@@ -73,7 +73,39 @@ def _file(email: str) -> str:
     return os.path.join(folder(), re.sub(r"[^a-z0-9@._-]", "_", email.lower()) + ".json")
 
 
-def save(rec: dict):
+SEAL_KIND = "offboard"
+
+
+def _stable(rec: dict) -> dict:
+    """What a plan *does* – signed when it's made, so editing the steps in the team folder
+    afterwards stops the plan from running by itself. Progress (status, done, results) is
+    left out because it changes as the plan runs."""
+    stages = []
+    for st in rec.get("stages", []) or []:
+        stages.append({k: st.get(k) for k in ("key", "title", "due", "auto")} | {
+            "steps": [{k: step.get(k) for k in ("id", "key", "label", "args", "undo", "note")}
+                      for step in st.get("steps", []) or []]})
+    return {"email": rec.get("email"), "supervisor": rec.get("supervisor"),
+            "by": rec.get("by"), "started": rec.get("started"), "before": rec.get("before"),
+            "options": rec.get("options"), "kind": rec.get("kind", ""), "stages": stages}
+
+
+def verify(rec: dict):
+    from . import seal
+    return seal.check_seal(SEAL_KIND, _stable(rec), rec.get("seal"))
+
+
+def sign(rec: dict) -> dict:
+    from . import seal
+    rec["seal"] = seal.seal_for(SEAL_KIND, _stable(rec))
+    return rec
+
+
+def save(rec: dict, sign_it: bool = False):
+    """Write a plan. sign_it=True only where a person just made (or checked) the plan –
+    never when saving progress, or an edited file would get re-signed."""
+    if sign_it:
+        sign(rec)
     rec["updated"] = datetime.datetime.now().isoformat(timespec="seconds")
     path = _file(rec["email"])
     tmp = path + f".{uuid.uuid4().hex[:6]}.tmp"
@@ -82,13 +114,42 @@ def save(rec: dict):
     os.replace(tmp, path)
 
 
+def _scrub(rec: dict) -> bool:
+    """Plans saved by older versions kept the lock password in plain text. Replace it with
+    the placeholder (and re-save) the first time the plan is read. True if it changed."""
+    from .secret_args import TOKEN
+    changed = False
+    for st in rec.get("stages", []) if isinstance(rec, dict) else []:
+        for step in st.get("steps", []):
+            a = step.get("args") or []
+            low = [str(x).lower() for x in a]
+            for i, x in enumerate(low[:-1]):
+                if x == "password" and str(a[i + 1]) != TOKEN:
+                    a[i + 1] = TOKEN
+                    changed = True
+    return changed
+
+
+def _read(path: str) -> Optional[dict]:
+    with open(path, encoding="utf-8") as fh:
+        rec = json.load(fh)
+    if isinstance(rec, dict) and rec.get("email") and _scrub(rec):
+        try:
+            tmp = path + f".{uuid.uuid4().hex[:6]}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(rec, fh, indent=2)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+    return rec
+
+
 def load_all() -> list[dict]:
     out = []
     for name in os.listdir(folder()):
         if name.endswith(".json"):
             try:
-                with open(os.path.join(folder(), name), encoding="utf-8") as fh:
-                    out.append(json.load(fh))
+                out.append(_read(os.path.join(folder(), name)))
             except (OSError, ValueError):
                 continue
     out.sort(key=lambda r: r.get("started", ""), reverse=True)
@@ -97,8 +158,7 @@ def load_all() -> list[dict]:
 
 def get(email: str) -> Optional[dict]:
     try:
-        with open(_file(email), encoding="utf-8") as fh:
-            return json.load(fh)
+        return _read(_file(email))
     except (OSError, ValueError):
         return None
 
@@ -131,8 +191,10 @@ def _col(row: dict, *names) -> str:
 
 def capture(email: str, run_csv) -> dict:
     """What the account looks like now: groups + roles, licenses, OU, name."""
-    before = {"groups": [], "licenses": [], "ou": "", "name": "", "gal": True}
+    before = {"groups": [], "licenses": [], "ou": "", "name": "", "gal": True,
+              "complete": False}
     code, rows, _ = run_csv(["user", email, "print", "groups"])
+    groups_ok = code == 0
     if code == 0:
         for r in rows:
             g = _col(r, "group", "groupemail", "email")
@@ -153,7 +215,20 @@ def capture(email: str, run_csv) -> dict:
             if kl.startswith("licen") and "display" not in kl and v:
                 skus += [x for x in re.split(r"[\s,;]+", v) if re.fullmatch(r"[\w-]{4,}", x)]
         before["licenses"] = list(dict.fromkeys(skus))
+    # Undo can only put back what GAMbit read: say so when a look-up failed
+    before["complete"] = bool(groups_ok and before["ou"])
     return before
+
+
+def earlier_before(email: str) -> Optional[dict]:
+    """The 'before' snapshot of an earlier plan for this person that hasn't been undone.
+    Starting again must keep it – a fresh look now would only see the half-offboarded
+    account (no groups, the leaving org unit), and Undo would put *that* back."""
+    old = get(email)
+    if old and old.get("status") != "undone" and isinstance(old.get("before"), dict) and \
+            verify(old) is not None:          # a planted 'before' must never be reused
+        return old["before"]
+    return None
 
 
 # -------------------------------------------------------------------- plan ---
@@ -176,8 +251,10 @@ def build(email: str, supervisor: str, before: dict, opts: dict,
     s0, s1, notes = [], [], []
 
     if "lock" in on:
+        from .secret_args import TOKEN
+        # never saved: the placeholder becomes a new random password only when GAM runs
         s0.append(_step("lock", "Change password", ["update", "user", email, "password",
-                                                     random_password(20)],
+                                                     TOKEN],
                         note="can't be undone – set a new password if they come back"))
         s0.append(_step("lock", "Sign out of all devices", ["user", email, "signout"]))
     if "deprov" in on:
@@ -221,7 +298,10 @@ def build(email: str, supervisor: str, before: dict, opts: dict,
     if "ou" in on and opts.get("ou"):
         s0.append(_step("ou", f"Move to {opts['ou']}",
                         ["update", "user", email, "ou", opts["ou"]],
-                        undo=["update", "user", email, "ou", before.get("ou") or "/"]))
+                        undo=(["update", "user", email, "ou", before["ou"]]
+                              if before.get("ou") else None),
+                        note="" if before.get("ou") else
+                        "can't be undone – their old org unit couldn't be read"))
     if not sup and any(k in on for k in ("forward", "delegate", "transfer")):
         notes.append("No supervisor, so forwarding, mailbox access and the Drive/Calendar "
                      "transfer were left out.")
@@ -353,6 +433,17 @@ def _run_one(rec: dict, today: str, run_text, activity, team) -> list[str]:
     st = next_stage(rec)
     if not st or st["due"] > today:
         return lines
+    from . import seal
+    cmds = [step["args"] for step in st["steps"] if step.get("status") == "pending"]
+    v = verify(rec)
+    # automatic stages run as the person who made the plan; a deletion only becomes an
+    # approval request, so a valid signature is enough there
+    why = seal.may_run(v, cmds) if st.get("auto") else (
+        "" if v else seal.may_run(None, cmds))
+    if why:
+        lines.append(f"{rec.get('email', '?')}: {st.get('title', 'next stage')} is due but "
+                     f"wasn't run – {why}. Open Workflows → Staff leaving and check the plan.")
+        return lines
     if st.get("auto"):
         if settings.get("safety/dry_run", False):
             lines.append(f"{rec['email']}: {st['title']} is due (dry run is on – not run).")
@@ -426,11 +517,16 @@ def build_graduate(email: str, before: dict, opts: dict, year: int) -> dict:
     today = datetime.date.today()
     keep = int(opts.get("keep_days", 60))
     close = today + datetime.timedelta(days=keep)
-    ou = opts.get("alumni_ou", GRAD_DEFAULTS["alumni_ou"]).replace("{year}", str(year))
+    ou = (opts.get("alumni_ou") or "").strip().replace("{year}", str(year))
+    if not ou or not ou.startswith("/"):
+        raise ValueError("Choose the alumni org unit (for example /Alumni/Class of {year}).")
     name = before.get("name") or email.split("@")[0]
     s0, s1 = [], []
     s0.append(_step("ou", f"Move to {ou}", ["update", "user", email, "ou", ou],
-                    undo=["update", "user", email, "ou", before.get("ou") or "/"]))
+                    undo=(["update", "user", email, "ou", before["ou"]]
+                          if before.get("ou") else None),
+                    note="" if before.get("ou") else
+                    "can't be undone – their old org unit wasn't known"))
     if opts.get("message"):
         msg = opts["message"].replace("{name}", name).replace("{close}", close.isoformat())
         s0.append(_step("vacation", f"Auto-reply until {close}",

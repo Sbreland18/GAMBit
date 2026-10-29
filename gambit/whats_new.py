@@ -13,7 +13,36 @@ from .settings import settings
 SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
-    # ----- this round
+    # ----- round 38 (security review)
+    {"id": "sec-signed", "title": "Shared items are now signed",
+     "text": "Run later items, offboarding plans, time-limited accounts, policy plans, "
+             "automatic groups and approvals are signed by whoever made them, and background "
+             "tasks skip anything unsigned or changed in the team folder. Open Settings → "
+             "Team → Signatures & trust to check and sign items made before this version.",
+     "page": "Settings & Updates"},
+    {"id": "sec-approvals", "title": "Safer approvals",
+     "text": "An approval covers the exact commands. If a request changes, it needs approving "
+             "again, and nobody can approve their own two-person request. Email approvals "
+             "are read from the approver's Sent mail. Approvals made before this version "
+             "need approving again.", "page": "Approvals"},
+    {"id": "sec-secrets", "title": "Secrets and passwords locked down",
+     "text": "Tokens and the help-desk PIN (now 6+ characters) are stored encrypted, backups "
+             "with secrets need a password, copied passwords clear from the clipboard after "
+             "a minute, and passwords can't wait in Run later.", "page": ""},
+    {"id": "sec-updates", "title": "Verified updates and deploy files",
+     "text": "Updates to GAMbit, GAM and the local AI are checked before they install. Shared "
+             "deploy files must be signed by a GAMbit admin or protected so only "
+             "administrators can change them.", "page": ""},
+    # ----- round 37 (QA review fixes)
+    {"id": "qa-safety", "title": "Safety fixes from a full review",
+     "text": "Practice mode is stricter (group changes and anyone outside the test org unit "
+             "stay dry runs), saved Chromebook jobs and background tasks respect Dry run, "
+             "Undo only puts back what really changed, and the year-end rollover pairs "
+             "grades by number and stops if a move fails.", "page": ""},
+    {"id": "qa-passwords", "title": "Fewer passwords kept on disk",
+     "text": "The offboarding lock password is never saved, and passwords are removed from "
+             "Run later items and approval requests once they've run.", "page": ""},
+    # ----- round 36
     {"id": "first-day", "title": "First-day checklist",
      "text": "Home shows a short checklist for a new PC or a new tech – connect GAM, map "
              "schools, set a test account, try a dry run, pin pages, background tasks. Each "

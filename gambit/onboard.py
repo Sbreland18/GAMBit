@@ -103,6 +103,8 @@ def welcome_email(email: str, password: str, person: dict, opts: dict,
     to = welcome_to(person, opts)
     if not opts.get("welcome") or "@" not in to:
         return None
+    from .secret_args import remember
+    remember(password)          # hidden in logs whatever the email's wording
     vals = {"name": f"{person.get('first', '')} {person.get('last', '')}".strip(),
             "first": person.get("first", ""), "last": person.get("last", ""),
             "email": email, "password": password, "title": person.get("title", ""),

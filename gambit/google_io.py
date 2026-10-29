@@ -14,9 +14,9 @@ Commands used (GAM7):
 
 from __future__ import annotations
 
+from . import tempfiles as _tf
 import os
 import re
-import tempfile
 
 from . import profiles
 from .directory import run_gam_text
@@ -81,7 +81,7 @@ def download_sheet(url_or_id: str, tab: str = "", user: str = "") -> str:
     fid = file_id(url_or_id)
     if not fid:
         raise RuntimeError("Paste the Google Sheet link first.")
-    folder = os.path.join(tempfile.gettempdir(), "GAMbit")
+    folder = _tf.folder()
     os.makedirs(folder, exist_ok=True)
     name = f"sheet_{fid[:12]}.csv"
     target = os.path.join(folder, name)

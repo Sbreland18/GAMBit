@@ -8,7 +8,8 @@ formatting. Counselors can bookmark the sheet; nobody exports anything by hand.
 
 from __future__ import annotations
 
-import csv
+from . import tempfiles as _tf
+from . import csv_safe
 import datetime
 import os
 import tempfile
@@ -56,9 +57,9 @@ def _write(url: str, tab: str, headers: list[str], rows: list[list[str]]):
     body = [list(headers)] + [list(r) for r in rows]
     if google_io.write_tab_in_place(url, tab, body):
         return
-    path = os.path.join(tempfile.gettempdir(), f"gambit-sheet-{stamp[:10]}.csv")
+    path = os.path.join(_tf.folder(), f"gambit-sheet-{stamp[:10]}.csv")
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerows(body)
+        csv_safe.writer(fh).writerows(body)
     google_io.replace_sheet_tab(url, tab, path)
 
 
@@ -78,7 +79,7 @@ def create_sheet(fav: dict, title: str = "") -> str:
     folder = tempfile.mkdtemp(prefix="gambit_sheet_")
     path = os.path.join(folder, "GAMbit.csv")   # Google names the first tab after the file
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
+        w = csv_safe.writer(fh)
         w.writerow(headers)
         w.writerows(rows)
     return google_io.upload_csv_as_sheet(path, title or f"GAMbit – {fav['label']}")

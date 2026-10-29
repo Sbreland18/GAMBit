@@ -8,11 +8,12 @@ mark them passed or failed.
 
 from __future__ import annotations
 
+from . import tempfiles as _tf
+from . import queries as _q
 import datetime
 import json
 import os
 import secrets
-import tempfile
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -54,7 +55,7 @@ ITEMS = [
          "Runs `gam info domain`.", lambda c: [["info", "domain"]], _all_ok, needs_user=False),
     Item("users", "Basics", "Read the user list",
          "Runs `gam print users` for the test org unit.",
-         lambda c: [["print", "users", "query", f"orgUnitPath='{c['ou']}'", "fields",
+         lambda c: [["print", "users", "query", _q.ou(c["ou"]), "fields",
                      "primaryemail"]], _has_rows),
     Item("testuser", "Basics", "The test account exists",
          "Looks the test account up.",
@@ -148,7 +149,7 @@ def run_item(item: Item, ctx: dict) -> tuple[str, str]:
         return "skipped", "Set a test account in Settings & Updates → Testing."
     if item.extra.get("special") == "sheet":
         from . import google_io
-        path = os.path.join(tempfile.gettempdir(), "GAMbit", "livetest.csv")
+        path = os.path.join(_tf.folder(), "livetest.csv")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("check,result\nGAMbit live test,ok\n")

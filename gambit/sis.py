@@ -198,7 +198,7 @@ class Rules:
     withdrawn_ou: str = "/Students/Withdrawn"
     missing_means_withdrawn: bool = True
     password_mode: str = "random"                # random | pattern | column
-    password_pattern: str = "{First}{id4}!"
+    password_pattern: str = "{First}{id4}{rand4}!"
     change_at_first: bool = True
     update_names: bool = True
     move_ou: bool = True
@@ -214,7 +214,7 @@ class Rules:
         base = dict(kind="staff", email_template="{f}{last}@{domain}",
                     ou_template="/Staff/{school}", managed_root="/Staff",
                     withdrawn_ou="/Former Staff", missing_means_withdrawn=False,
-                    roles=STAFF_ROLES, password_pattern="{First}{id4}!", move_ou=False)
+                    roles=STAFF_ROLES, password_pattern="{First}{id4}{rand4}!", move_ou=False)
         base.update(kw)
         return cls(**base)
 
@@ -394,8 +394,11 @@ def plan(people: list[Person], accounts: list[dict], rules: Rules) -> list[Chang
                 cmd += ["externalid", "organization", p.sis_id]
             if rules.kind == "staff" and rules.update_job and (p.title or p.department):
                 cmd += _org_attrs(p)
+            weak = rules.password_mode == "pattern" and "{rand" not in \
+                (rules.password_pattern or "").lower()
             changes.append(Change("create", email, name,
-                                  f"New account in {target_ou}" +
+                                  ("⚠ guessable password pattern (add {rand4}) · "
+                                   if weak else "") + f"New account in {target_ou}" +
                                   (" (renamed to avoid a duplicate)" if email != target_email
                                    else ""), [cmd], password=pw,
                                   supervisor=p.manager,
@@ -407,9 +410,7 @@ def plan(people: list[Person], accounts: list[dict], rules: Rules) -> list[Chang
             continue
         matched.add(acct["email"].lower())
         attrs, notes, action = [], [], "update"
-        if not _under(acct.get("ou"), rules.managed_root):
-            notes.append(f"⚠ account is currently outside {rules.managed_root} – check it's "
-                         f"really this {rules.who}")
+        outside = not _under(acct.get("ou"), rules.managed_root)
         if acct.get("suspended"):
             attrs += ["suspended", "off"]
             notes.append("re-enrolled – unsuspend" if rules.kind == "students" else
@@ -424,15 +425,34 @@ def plan(people: list[Person], accounts: list[dict], rules: Rules) -> list[Chang
             attrs += ["firstname", p.first, "lastname", p.last]
             notes.append(f"name “{acct.get('name', '')}” → “{name}”")
         if rules.store_sis_id and p.sis_id and str(acct.get("sis_id") or "") != p.sis_id:
-            attrs += ["externalid", "organization", p.sis_id]
-            notes.append("save ID")
+            ext = merged_external_ids(acct, p.sis_id)
+            if ext is None:
+                notes.append("⚠ ID not saved – refresh the user list first (so their other "
+                             "IDs are kept)")
+            else:
+                attrs += ext
+                notes.append("save ID")
         if rules.kind == "staff" and rules.update_job and (p.title or p.department) and (
                 (acct.get("title") or "") != p.title or
                 (acct.get("department") or "") != p.department):
-            attrs += _org_attrs(p)
-            notes.append(f"job “{acct.get('title') or '–'} / {acct.get('department') or '–'}” → "
-                         f"“{p.title or '–'} / {p.department or '–'}”")
-        if attrs:
+            orgs = merged_organizations(acct, p)
+            if orgs is None:
+                notes.append("⚠ job not updated – refresh the user list first (so their "
+                             "other organization details are kept)")
+            else:
+                attrs += orgs
+                notes.append(f"job “{acct.get('title') or '–'} / "
+                             f"{acct.get('department') or '–'}” → "
+                             f"“{p.title or '–'} / {p.department or '–'}”")
+        if attrs and outside:
+            # An account outside the org units this sync manages (an admin, a staff member
+            # who left…) is never changed by it – an SIS email edit mustn't be enough to
+            # move, rename or unsuspend it. A person checks it instead.
+            changes.append(Change("info", acct["email"], name,
+                                  f"⚠ outside {rules.managed_root} ({acct.get('ou') or '/'}) "
+                                  "– not changed by the sync; check it's really this "
+                                  f"{rules.who}: " + "; ".join(notes), []))
+        elif attrs:
             changes.append(Change(action, acct["email"], name, "; ".join(notes),
                                   [["update", "user", acct["email"], *attrs]]))
 
@@ -478,6 +498,65 @@ def plan(people: list[Person], accounts: list[dict], rules: Rules) -> list[Chang
     return changes
 
 
+_EXT_TYPES = {"account", "customer", "login_id", "network", "organization"}
+
+
+def merged_external_ids(acct: dict, sis_id: str):
+    """`externalid …` arguments that set the organization ID and keep every other ID the
+    account has (GAM replaces the whole list). None when the saved list predates GAMbit
+    keeping IDs – then nothing is changed rather than wiping IDs it can't see."""
+    if "ext_ids" not in acct:
+        return None
+    out = []
+    for e in acct.get("ext_ids") or []:
+        t = (e.get("type") or "").lower()
+        if t == "organization" or not e.get("value"):
+            continue
+        if t in _EXT_TYPES:
+            out += ["externalid", t, e["value"]]
+        else:
+            out += ["externalid", "custom", e.get("customType") or t or "other", e["value"]]
+    return out + ["externalid", "organization", sis_id]
+
+
+_ORG_ARGS = (("name", "name"), ("title", "title"), ("department", "department"),
+             ("location", "location"), ("costCenter", "costcenter"),
+             ("description", "description"), ("domain", "domain"), ("symbol", "symbol"),
+             ("fullTimeEquivalent", "fulltimeequivalent"))
+_ORG_TYPES = {"domain_only", "school", "unknown", "work"}
+
+
+def merged_organizations(acct: dict, p: Person):
+    """`organization …` arguments that change the title/department of the primary (or
+    first) organization and keep everything else – its other details and any other
+    organizations. None when the saved list predates GAMbit keeping them."""
+    if "orgs" not in acct:
+        return None
+    orgs = [dict(o) for o in acct.get("orgs") or []]
+    if not orgs:
+        return _org_attrs(p)
+    main = next((i for i, o in enumerate(orgs) if str(o.get("primary", "")).lower() == "true"),
+                0)
+    if p.title:
+        orgs[main]["title"] = p.title
+    if p.department:
+        orgs[main]["department"] = p.department
+    out = []
+    for i, o in enumerate(orgs):
+        out.append("organization")
+        t = (o.get("type") or "").lower()
+        if o.get("customType"):
+            out += ["customtype", o["customType"]]
+        elif t in _ORG_TYPES:
+            out += ["type", t]
+        for key, arg in _ORG_ARGS:
+            v = str(o.get(key) or "").strip()
+            if v:
+                out += [arg, v]
+        out.append("primary" if i == main else "notprimary")
+    return out
+
+
 def _org_attrs(p: Person) -> list[str]:
     out = ["organization"]
     if p.title:
@@ -497,14 +576,22 @@ def limit_to_test_ou(changes: list[Change], accounts: list[dict], test_ou: str,
             if new >= max_new:
                 continue
             new += 1
-            cmds = []
-            for cmd in c.commands:
+            cmds, left_out = [], 0
+            for i, cmd in enumerate(c.commands):
                 cmd = list(cmd)
+                low = [str(x).lower() for x in cmd]
+                # a test account mustn't reach real people: no welcome email to their
+                # supervisor and no joining real groups
+                if i > 0 and (low[:1] == ["sendemail"] or low[:2] == ["update", "group"]):
+                    left_out += 1
+                    continue
                 if "ou" in cmd:
                     cmd[cmd.index("ou") + 1] = test_ou
                 cmds.append(cmd)
-            out.append(dataclasses.replace(c, commands=cmds,
-                                           details=f"TEST: new account in {test_ou}"))
+            out.append(dataclasses.replace(
+                c, commands=cmds, details=f"TEST: new account in {test_ou}" + (
+                    f" (left out in test mode: {left_out} group/email step(s))"
+                    if left_out else "")))
         elif _under(ou_of.get(c.email.lower(), ""), test_ou):
             cmds = []
             for cmd in c.commands:   # keep test accounts inside the test OU

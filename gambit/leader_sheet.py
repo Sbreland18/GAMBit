@@ -4,10 +4,10 @@ director and principals can look any time without GAMbit."""
 
 from __future__ import annotations
 
-import csv
+from . import tempfiles as _tf
+from . import csv_safe
 import datetime
 import os
-import tempfile
 
 from .settings import settings
 
@@ -73,7 +73,7 @@ def push(log=print, upload=None, tickets=None, findings=None) -> list[str]:
         findings = watchdog.load_findings()
     in_place = upload is None
     upload = upload or google_io.replace_sheet_tab
-    d = os.path.join(tempfile.gettempdir(), "GAMbit")
+    d = _tf.folder()
     os.makedirs(d, exist_ok=True)
     done = []
     for name, rows in tabs(tickets, findings).items():
@@ -82,7 +82,7 @@ def push(log=print, upload=None, tickets=None, findings=None) -> list[str]:
             continue
         path = os.path.join(d, f"leader_{abs(hash(name))}.csv")
         with open(path, "w", newline="", encoding="utf-8") as fh:
-            csv.writer(fh).writerows(rows)
+            csv_safe.writer(fh).writerows(rows)
         upload(url, name, path)
         done.append(name)
     settings.set("leadersheet/last", datetime.datetime.now().isoformat(timespec="minutes"))
@@ -93,11 +93,11 @@ def push(log=print, upload=None, tickets=None, findings=None) -> list[str]:
 def create(title: str = "GAMbit leadership dashboard") -> str:
     """Make a new sheet with the scorecard tab and remember it."""
     from . import google_io
-    d = os.path.join(tempfile.gettempdir(), "GAMbit")
+    d = _tf.folder()
     os.makedirs(d, exist_ok=True)
     path = os.path.join(d, "leader_new.csv")
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerows(tabs()["Scorecard"])
+        csv_safe.writer(fh).writerows(tabs()["Scorecard"])
     link = google_io.upload_csv_as_sheet(path, title)
     settings.set("leadersheet/url", link)
     return link

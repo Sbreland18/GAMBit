@@ -351,6 +351,14 @@ def create(d: dict):
 
 
 def run_here(args: list[str]) -> int:
-    """Run a background task inside this GAMbit (useful when testing)."""
+    """Run a background task inside this GAMbit (useful when testing). A task can switch
+    domain profiles for its own run (headless.use_profile); that switch must never leak
+    into the open GAMbit window, so the in-memory overrides are put back afterwards."""
     from .headless import main
-    return main(args)
+    from .settings import settings
+    saved = dict(settings.override)
+    try:
+        return main(args)
+    finally:
+        settings.override.clear()
+        settings.override.update(saved)

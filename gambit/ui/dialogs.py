@@ -71,16 +71,21 @@ class ModernMessage(QDialog):
         bl.addWidget(badge, 0, Qt.AlignTop)
         col = QVBoxLayout()
         col.setSpacing(8)
+        from .safe_html import open_link, set_label
         if (title or "").strip().lower() not in GENERIC_TITLES:
-            head = QLabel(title, objectName="MsgTitle")
+            head = QLabel(objectName="MsgTitle")
+            head.setTextFormat(Qt.PlainText)
+            head.setText(title)
             head.setWordWrap(True)
             col.addWidget(head)
-        self.text_label = QLabel(text)
+        self.text_label = QLabel()
+        set_label(self.text_label, text)        # values from Google can't inject markup
         self.text_label.setObjectName("MsgText")
         self.text_label.setWordWrap(True)
         self.text_label.setTextInteractionFlags(Qt.TextSelectableByMouse |
                                                 Qt.LinksAccessibleByMouse)
-        self.text_label.setOpenExternalLinks(True)
+        self.text_label.setOpenExternalLinks(False)
+        self.text_label.linkActivated.connect(open_link)
         if len(plain) > 900 or plain.count("\n") > 16:
             sc = QScrollArea()
             sc.setWidgetResizable(True)
@@ -128,8 +133,11 @@ class ModernMessage(QDialog):
         super().reject()
 
     def run(self):
-        self.exec()
-        return self.result_button if self.result_button != SB.NoButton else self._escape
+        try:
+            self.exec()
+            return self.result_button if self.result_button != SB.NoButton else self._escape
+        finally:
+            self.deleteLater()      # messages can hold passwords – don't keep them around
 
 
 def _make(kind, default_buttons):

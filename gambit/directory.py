@@ -25,7 +25,20 @@ from .settings import IS_WINDOWS, settings
 LOW_LEVEL_GUARD = None
 
 
+# True inside the GAMbit window (not the background tasks): help-desk mode applies to
+# GAM calls made by background workers too, not just to the runner.
+INTERACTIVE = False
+
+
 def _refused(args: list[str]) -> str:
+    from .secret_args import masked_secret
+    if masked_secret(args):
+        return "the saved password was removed after it ran – set a new one instead"
+    if INTERACTIVE:
+        from .gam_runner import blocked_reason
+        why = blocked_reason(list(args))
+        if why:
+            return why[0].lower() + why[1:].rstrip(".")
     g = LOW_LEVEL_GUARD
     if g is None:
         return ""
@@ -68,7 +81,8 @@ def run_gam_csv(args: list[str], timeout: int = 900) -> tuple[int, list[dict], s
 
 def _run(gam: str, args: list[str], timeout: int):
     flags = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
-    return subprocess.run([gam, *gam_prefix(), *args], capture_output=True, text=True,
+    from .secret_args import fill_here
+    return subprocess.run([gam, *gam_prefix(), *fill_here(args)], capture_output=True, text=True,
                           timeout=timeout, env=gam_environment(), creationflags=flags,
                           encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
 
@@ -124,6 +138,21 @@ def _org(row: dict, field: str) -> str:
     return first
 
 
+_ORG_FIELDS = ("name", "title", "department", "location", "costCenter", "description",
+               "domain", "symbol", "fullTimeEquivalent", "type", "customType", "primary")
+
+
+def _multi(row: dict, prefix: str, fields) -> list[dict]:
+    """[{field: value}] from flattened CSV columns like organizations.0.title."""
+    by_n: dict[int, dict] = {}
+    low = {f.lower(): f for f in fields}
+    for k, v in row.items():
+        m = re.match(rf"{prefix}\.(\d+)\.(\w+)$", k or "", re.I)
+        if m and m.group(2).lower() in low and v not in (None, ""):
+            by_n.setdefault(int(m.group(1)), {})[low[m.group(2).lower()]] = v
+    return [by_n[n] for n in sorted(by_n)]
+
+
 def load_users() -> list[dict]:
     code, rows, err = run_gam_csv(["print", "users", "fields",
                                    "primaryemail,name,suspended,ou,lastlogintime,externalids,"
@@ -145,7 +174,11 @@ def load_users() -> list[dict]:
         out.append({"email": email, "name": name, "ou": _pick(r, "orgUnitPath"),
                     "suspended": _pick(r, "suspended").lower() == "true",
                     "last_login": _pick(r, "lastLoginTime"), "sis_id": sis_id,
-                    "title": _org(r, "title"), "department": _org(r, "department")})
+                    "title": _org(r, "title"), "department": _org(r, "department"),
+                    # every ID and organization, so updates can keep the ones GAMbit
+                    # doesn't manage (GAM replaces the whole list)
+                    "ext_ids": _multi(r, "externalIds", ("type", "customType", "value")),
+                    "orgs": _multi(r, "organizations", _ORG_FIELDS)})
     return out
 
 

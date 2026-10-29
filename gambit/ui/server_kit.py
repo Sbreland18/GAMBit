@@ -5,6 +5,7 @@ tasks under a service account, and step-by-step instructions."""
 from __future__ import annotations
 
 import json
+import re
 import os
 
 from PySide6.QtCore import QUrl
@@ -52,17 +53,22 @@ Tasks included:
 
 
 def ps1(exe: str, account: str, tasks: list[dict]) -> str:
+    def q(v: str) -> str:              # a PowerShell single-quoted string
+        return "'" + str(v).replace("\r", " ").replace("\n", " ").replace("'", "''") + "'"
     lines = [
         "# GAMbit server kit – registers GAMbit's background tasks (run as administrator)",
         "$ErrorActionPreference = 'Stop'",
-        f"$Exe = '{exe}'",
-        f"$Account = '{account}'",
+        f"$Exe = {q(exe)}",
+        f"$Account = {q(account)}",
         "if (-not (Test-Path $Exe)) { throw \"GAMbit isn't at $Exe – edit `$Exe at the top "
         "of this script.\" }",
         "$Here = Split-Path -Parent $MyInvocation.MyCommand.Path",
         "New-Item -ItemType Directory -Force -Path \"$env:ProgramData\\GAMbit\" | Out-Null",
         "Copy-Item -Force (Join-Path $Here 'gambit-deploy.json') "
         "\"$env:ProgramData\\GAMbit\\gambit-deploy.json\"",
+        "# only administrators may change the settings file the tasks read",
+        "icacls \"$env:ProgramData\\GAMbit\\gambit-deploy.json\" /inheritance:r /grant:r "
+        "'*S-1-5-32-544:F' '*S-1-5-18:F' '*S-1-5-32-545:R' | Out-Null",
         "$Cred = Get-Credential -UserName $Account -Message 'Password for the account the "
         "GAMbit tasks run as'",
         "$Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit "
@@ -82,7 +88,7 @@ def ps1(exe: str, account: str, tasks: list[dict]) -> str:
             trig = f"New-ScheduledTaskTrigger -Daily -At '{at}'"
         name = t["name"].replace("'", "''")
         lines += [
-            f"# {t['what']}",
+            "# " + re.sub(r"[\r\n]+", " ", str(t["what"])),
             f"$Action = New-ScheduledTaskAction -Execute $Exe -Argument '{arg}'",
             f"Register-ScheduledTask -TaskPath '\\GAMbit\\' -TaskName '{name}' -Action $Action "
             f"-Trigger ({trig}) -Settings $Settings -User $Cred.UserName "

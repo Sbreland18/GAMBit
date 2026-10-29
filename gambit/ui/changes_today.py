@@ -108,9 +108,13 @@ class ChangesToday(QDialog):
 
     def _undo(self, e, b):
         from PySide6.QtWidgets import QMessageBox
+        from ..gam_runner import display_command
+        steps = e["undo"].get("steps") or [e["undo"]["args"]]
+        # the exact commands – log entries can come from other computers' log files
+        cmds = "\n".join("    " + display_command(c) for c in steps)
         if QMessageBox.question(self, "Undo this change?",
-                                f"Undo: {e.get('what') or e.get('command')}?") != \
-                QMessageBox.Yes:
+                                f"Undo: {e.get('what') or e.get('command')}?\n\n"
+                                f"GAMbit will run:\n{cmds}") != QMessageBox.Yes:
             return
         self.win.run_undo(e)
         b.setEnabled(False)

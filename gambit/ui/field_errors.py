@@ -43,6 +43,7 @@ class _Note(QLabel):
         self.setText(text)
         self.setWordWrap(False)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        field.destroyed.connect(self.deleteLater)    # its field went away – so does it
         self.adjustSize()
         self.place()
         self.show()

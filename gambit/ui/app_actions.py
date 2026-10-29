@@ -418,9 +418,23 @@ class AppActions:
         favs = [f for f in self.favorites() if not (f["kind"] == "view" and
                                                     f.get("view") == v["id"])]
         favs.insert(0, {"kind": "view", "value": v["page"], "label": v["name"],
-                        "view": v["id"], "table": v.get("table", 0)})
+                        "view": v["id"], "table": v.get("table", 0),
+                        "scope": v.get("scope") or v["page"]})
         self._save_favorites(favs[:40])
         self.statusBar().showMessage(f"Added the view {v['name']} to Home favorites", 5000)
+
+    @staticmethod
+    def _reveal(w):
+        """Switch every tab between the page and `w` so it's on screen."""
+        from PySide6.QtWidgets import QStackedWidget, QTabWidget
+        child, par = w, w.parentWidget()
+        while par is not None:
+            if isinstance(par, QStackedWidget) and isinstance(par.parentWidget(), QTabWidget):
+                tabs = par.parentWidget()
+                i = tabs.indexOf(child)
+                if i >= 0:
+                    tabs.setCurrentIndex(i)
+            child, par = par, par.parentWidget()
 
     def open_view_favorite(self, f: dict):
         page = f.get("value", "")
@@ -428,15 +442,15 @@ class AppActions:
         p = self.pages.get(page)
         if p is None:
             return
-        tables = p.findChildren(ResultsTable)
-        t = tables[f.get("table", 0)] if f.get("table", 0) < len(tables) else \
-            (tables[0] if tables else None)
-        if t is None:
-            return
-        v = next((x for x in t._all_views() if x.get("id") == f.get("view")), None)
+        scope = f.get("scope") or page
+        tables = [t for t in p.findChildren(ResultsTable) if t._title() == scope]
+        t = next((t for t in tables if t._table_index() == f.get("table", 0)), None)
+        v = next((x for x in t._all_views() if x.get("id") == f.get("view")), None) \
+            if t is not None else None
         if v is None:
             self.statusBar().showMessage("That saved view was deleted.", 5000)
             return
+        self._reveal(t)
         t.apply_view(v)
         self.statusBar().showMessage(f"View “{v['name']}” – run the search to fill it if "
                                      "the table is empty.", 6000)
@@ -725,51 +739,116 @@ class AppActions:
                              remember=False)
 
     def quick_reset(self, emails):
+        from ..gam_runner import dry_run_on
         from .pages.users import random_password
+        seen, todo = set(), []
+        for e in emails or []:                  # one password per person, not one per row
+            e = (e or "").strip()
+            if "@" in e and e.lower() not in seen:
+                seen.add(e.lower())
+                todo.append(e)
+        if not todo:
+            return
         if QMessageBox.question(self, "Reset password",
-                                f"Give {len(emails)} person(s) a new temporary password? "
+                                f"Give {len(todo)} person(s) a new temporary password? "
                                 "They'll choose their own at next sign-in.") != QMessageBox.Yes:
             return
         results = []
+        dry = dry_run_on()
+
+        def add(e, pw):
+            results.append((e, pw))
+            if len(results) == len(todo):
+                self._show_pw(results, dry)
 
         def one(e):
             pw = random_password()
-            self.runner.run(["update", "user", e, "password", pw, "changepassword", "on"],
-                            lambda c, *_: (results.append((e, pw if c == 0 else "FAILED")),
-                                           len(results) == len(emails) and self._show_pw(results)))
-        for e in emails:
+            args = ["update", "user", e, "password", pw, "changepassword", "on"]
+            really = not self.runner.would_hold_back(args)
+            ok = self.runner.run(args, lambda c, *_: add(
+                e, (pw if really else "(dry run – not changed)") if c == 0 else "FAILED"))
+            if not ok:
+                add(e, "NOT RUN")
+        for e in todo:
             one(e)
 
-    def _show_pw(self, results):
+    def _show_pw(self, results, dry=False):
+        if dry and all(not pw or pw.startswith("(") or pw in ("FAILED", "NOT RUN")
+                       for _e, pw in results):
+            QMessageBox.information(self, "New passwords", "Dry run – no passwords were "
+                                    "changed. Turn off Dry run to reset them for real.")
+            return
         text = "\n".join(f"{e}\t{pw}" for e, pw in results)
         box = QMessageBox(self)
         box.setWindowTitle("New passwords")
-        box.setText("New temporary passwords (copied to the clipboard):\n\n" + text)
-        self._copy(text)
+        box.setText("New temporary passwords (copied to the clipboard – it's cleared again in "
+                    "a minute and kept out of clipboard history):\n\n" + text)
+        from .secure_clip import copy_secret
+        copy_secret(text)
         box.exec()
 
     # ========================================================== help-desk ===
     @staticmethod
     def _hash(pin: str) -> str:
+        """Old (unsalted) PIN hash – only used to recognise PINs saved by older versions."""
         return hashlib.sha256(("gambit:" + pin).encode()).hexdigest()
+
+    @staticmethod
+    def pin_record(pin: str) -> str:
+        import json as _j
+        from ..auth import crypto
+        return _j.dumps(crypto.hash_password(pin))
+
+    def pin_ok(self, pin: str) -> bool:
+        """Check the help-desk PIN (scrypt, salted); old SHA-256 PINs are upgraded."""
+        import hmac
+        import json as _j
+        from ..auth import crypto
+        saved = settings.get("helpdesk/pin", "") or ""
+        if len(saved) == 64 and all(c in "0123456789abcdef" for c in saved):
+            ok = hmac.compare_digest(saved, self._hash(pin))
+            if ok:
+                settings.set("helpdesk/pin", self.pin_record(pin))
+            return ok
+        try:
+            return crypto.check_password(pin, _j.loads(saved))
+        except (ValueError, TypeError):
+            return False
 
     def enter_helpdesk(self):
         pin, ok = QInputDialog.getText(self, "Help-desk mode",
-                                       "Choose a PIN (you'll need it to leave help-desk mode):",
-                                       QLineEdit.Password)
+                                       "Choose a PIN of at least 6 characters (you'll need it "
+                                       "to leave help-desk mode):", QLineEdit.Password)
         if not ok or not pin.strip():
             return
-        settings.set("helpdesk/pin", self._hash(pin.strip()))
+        if len(pin.strip()) < 6:
+            QMessageBox.information(self, "Help-desk mode", "Use at least 6 characters.")
+            return
+        settings.set("helpdesk/pin", self.pin_record(pin.strip()))
+        settings.set("helpdesk/fails", 0)
         settings.set("helpdesk/on", True)
         self.apply_helpdesk_mode()
 
     def leave_helpdesk(self):
+        import time as _t
+        locked = float(settings.get("helpdesk/locked_until", 0) or 0)
+        if _t.time() < locked:
+            QMessageBox.warning(self, "Help-desk mode", "Too many wrong PINs – try again in "
+                                f"{int(locked - _t.time()) // 60 + 1} minute(s).")
+            return
         pin, ok = QInputDialog.getText(self, "Leave help-desk mode", "PIN:", QLineEdit.Password)
         if not ok:
             return
-        if self._hash(pin.strip()) != settings.get("helpdesk/pin", ""):
+        if not self.pin_ok(pin.strip()):
+            fails = int(settings.get("helpdesk/fails", 0) or 0) + 1
+            settings.set("helpdesk/fails", fails)
+            if fails >= 5:          # 5, then 10, 20… minutes
+                settings.set("helpdesk/locked_until",
+                             _t.time() + 300 * 2 ** min(fails - 5, 6))
             QMessageBox.warning(self, "Help-desk mode", "That PIN isn't right.")
             return
+        settings.set("helpdesk/fails", 0)
+        settings.set("helpdesk/locked_until", 0)
         settings.set("helpdesk/on", False)
         self.apply_helpdesk_mode()
 
@@ -900,6 +979,7 @@ class MoreActions:
         self.runner.guard = self._guard
         from .. import directory as _dir
         _dir.LOW_LEVEL_GUARD = self._low_level_guard
+        _dir.INTERACTIVE = True
         self.runner.preflight = self._preflight
         self.runner.on_submit = self._on_submit
         self.runner.on_record = self._on_record
@@ -910,8 +990,11 @@ class MoreActions:
         from ..directory import run_gam_csv
         job.meta["undo"] = None
         if not self._pending_undo_of:
-            job.meta["undo"] = (activity.capture_undo(job.args, lambda a: run_gam_csv(a, 60))
-                                or activity.infer_undo(job.args, self.directory.users))
+            cap = activity.capture_undo(job.args, lambda a: run_gam_csv(a, 60))
+            if cap and cap.get("none"):
+                job.meta["undo"] = None          # looked: nothing would really change
+            else:
+                job.meta["undo"] = cap or activity.infer_undo(job.args, self.directory.users)
         if self._approved_request:
             job.meta["note"] = f"approved request {self._approved_request}"
         if self._pending_undo_of:
@@ -951,12 +1034,31 @@ class MoreActions:
                 u["suspended"] = low[i + 1] in ("on", "true")
 
     def run_undo(self, entry: dict):
+        prof = (entry.get("profile") or "").strip()
+        here = profiles.current_name() or "Default"
+        known = {p["name"].lower() for p in profiles.profiles()}
+        if prof and prof.lower() != here.lower() and prof.lower() in known:
+            msg = (f"That change was made in the “{prof}” domain, but GAMbit is using "
+                   f"“{here}” now. Switch to “{prof}” (top bar) and undo it from there.")
+            self.log_line(f"✖ Undo not run – {msg}", "#ff8a80")
+            try:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(self, "Undo", msg)
+            except Exception:  # noqa: BLE001
+                pass
+            return False
         steps = entry["undo"].get("steps") or [entry["undo"]["args"]]
         for args in steps:
             self._pending_undo_of = entry["id"]
-            if not self.runner.run(args):
+            try:
+                ok = self.runner.run(args)
+            finally:
+                # run() hands it to on_submit synchronously; if nothing was submitted (dry
+                # run, refused, cancelled) it must not stick to the next, unrelated job
                 self._pending_undo_of = ""
-                break
+            if not ok:
+                return False
+        return True
 
     # -- roles and approvals ---------------------------------------------------
     def _guard(self, args) -> bool:
@@ -1031,6 +1133,14 @@ class MoreActions:
             if profiles.current_name() != prof:
                 return (f"your GAMbit role must use the GAM profile “{prof}”, which isn't set "
                         "up on this computer (ask a GAMbit admin).")
+            want = (role.get("gam_cfg_dir") or "").strip()
+            if want:
+                import os as _os
+                have = settings.gam_cfg_dir or ""
+                if _os.path.normcase(_os.path.abspath(have or ".")) != \
+                        _os.path.normcase(_os.path.abspath(want)):
+                    return (f"the GAM profile “{prof}” on this computer doesn't point at the "
+                            "GAM settings folder your role requires (ask a GAMbit admin).")
             if first in ("select", "config") or (args and str(args[0]).lower() in
                                                  ("select", "config")):
                 return "your GAMbit role can't switch GAM settings or profiles."
@@ -1178,7 +1288,11 @@ class MoreActions:
         from .. import activity, change_queue
         when = change_queue.tonight(hour)
         title = activity.describe_any(list(args)) or " ".join(args[:4])
-        change_queue.add([list(args)], when, title, team.me())
+        try:
+            change_queue.add([list(args)], when, title, team.me())
+        except (change_queue.QueueRefused, TimeoutError) as exc:
+            QMessageBox.information(self, "Run later", str(exc))
+            return
         day = "tonight" if when[:10] == __import__("datetime").date.today().isoformat() \
             else "tomorrow evening"
         msg = f"Queued for {day} at {hour - 12 if hour > 12 else hour} " \

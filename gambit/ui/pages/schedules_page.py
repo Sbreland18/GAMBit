@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import saved_jobs
-from ...settings import IS_WINDOWS
+from ...settings import IS_WINDOWS, settings
 from ..pickers import OUField, OUMultiField
 from ..schedule_edit import ScheduleEdit, describe
 from ..widgets import Page, Worker, button
@@ -598,14 +598,22 @@ class SchedulesPage(Page):
             if r:
                 self.info("This task runs a template – run it from Scheduled jobs.")
             return
-        if not self.confirm(f"Run “{r['name']}” now, here?"):
+        from ... import user_prefs
+        dry = bool(settings.get("safety/dry_run", False)) or user_prefs.practice_on()
+        if dry and r["kind"] != "job":
+            self.info("Dry run or Practice mode is on. Background tasks make real changes, so "
+                      "they don't run from here until both are off.")
+            return
+        if not self.confirm(f"Run “{r['name']}” now, here?" + (
+                "\n\nDry run / Practice is on – GAMbit will only list what it would change."
+                if dry else "")):
             return
         self.status.setText(f"Running {r['name']}…")
         lines: list[str] = []
 
         def work(log=None):
             if r["kind"] == "job":
-                return saved_jobs.run(r["job"]["id"], log=log, force=True)
+                return saved_jobs.run(r["job"]["id"], log=log, force=True, dry=dry)
             from ... import tasks_health
             return tasks_health.run_here(r["args"])
 

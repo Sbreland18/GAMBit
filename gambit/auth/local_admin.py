@@ -68,6 +68,7 @@ def setup(password: str, totp_secret: str, code: str, by: str) -> None:
     _store({"pw": crypto.hash_password(password), "totp": totp_secret, "last_step": step,
             "fails": 0, "locked_until": 0, "set_by": by,
             "set": time.strftime("%Y-%m-%d %H:%M")})
+    _set_mirror({"fails": 0, "locked_until": 0, "last_step": step})
 
 
 def remove():
@@ -77,11 +78,42 @@ def remove():
         pass
 
 
+# The failure count is also kept outside the emergency-admin file (in this user's
+# settings, with the time last step used), so putting back an old copy of the file doesn't
+# reset the lockout or allow a used code again – GAMbit takes the stricter of the two.
+_MIRROR = "auth/emergency_tries"
+
+
+def _mirror() -> dict:
+    import json
+    from ..settings import settings
+    try:
+        d = json.loads(settings.get(_MIRROR, "") or "{}")
+        return d if isinstance(d, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _set_mirror(rec: dict):
+    import json
+    from ..settings import settings
+    settings.set(_MIRROR, json.dumps({k: rec.get(k, 0) for k in ("fails", "locked_until",
+                                                                 "last_step")}))
+
+
+def _merged(rec: dict) -> dict:
+    m = _mirror()
+    for k in ("fails", "locked_until", "last_step"):
+        rec[k] = max(float(rec.get(k, 0) or 0), float(m.get(k, 0) or 0)) \
+            if k != "last_step" else max(int(rec.get(k, -1)), int(m.get(k, -1) or -1))
+    return rec
+
+
 def locked_for() -> int:
     if not configured():
         return 0
     try:
-        return max(0, int(_load().get("locked_until", 0) - time.time()))
+        return max(0, int(_merged(_load()).get("locked_until", 0) - time.time()))
     except ValueError:
         return 0
 
@@ -89,7 +121,7 @@ def locked_for() -> int:
 def check(username: str, password: str, code: str, expected: str = "") -> bool:
     if not configured():
         raise ValueError("No emergency admin is set up on this computer.")
-    rec = _load()
+    rec = _merged(_load())
     if not expected or fingerprint(rec) != expected:
         raise ValueError("This computer's emergency admin isn't registered in the GAMbit "
                          "access list (or was changed by hand). A GAMbit admin must set it up "
@@ -102,9 +134,11 @@ def check(username: str, password: str, code: str, expected: str = "") -> bool:
     if username.strip().lower() == USER and ok_pw and step >= 0:
         rec.update(fails=0, locked_until=0, last_step=step)
         _store(rec)
+        _set_mirror(rec)
         return True
     rec["fails"] = int(rec.get("fails", 0)) + 1
     if rec["fails"] >= MAX_FAILS:
-        rec["locked_until"] = time.time() + 15 * 60 * 2 ** min(rec["fails"] - MAX_FAILS, 5)
+        rec["locked_until"] = time.time() + 15 * 60 * 2 ** min(int(rec["fails"]) - MAX_FAILS, 5)
     _store(rec)
+    _set_mirror(rec)
     return False

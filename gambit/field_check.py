@@ -12,6 +12,7 @@ lists every field that would change; a background task can keep them in step eac
 
 from __future__ import annotations
 
+from . import queries as _q
 import difflib
 import json
 import re
@@ -346,7 +347,7 @@ def fill_commands(plan: list[dict]) -> list[tuple[str, list]]:
 def users_args(cols: list[str], root: str = "") -> list[str]:
     a = ["print", "users"]
     if root and root != "/":
-        a += ["query", f"orgUnitPath='{root}'"]
+        a += ["query", _q.ou(root)]
     return a + ["fields", "primaryemail,name,ou,suspended",
                 "custom", ",".join(cf.schema_names(cols))]
 

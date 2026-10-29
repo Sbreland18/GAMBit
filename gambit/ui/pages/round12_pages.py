@@ -4,6 +4,7 @@ catalog and the release check."""
 
 from __future__ import annotations
 
+from ... import tempfiles as _tf
 import datetime
 import os
 
@@ -698,9 +699,8 @@ class LostDevicesTab(ToolTab):
             save_and_open()
 
     def _open(self, rec):
-        import tempfile
         from ...tools import lost_devices as ld
-        p = os.path.join(tempfile.gettempdir(), f"chromebook_{rec['serial']}_report.html")
+        p = os.path.join(_tf.folder(), f"chromebook_{rec['serial']}_report.html")
         with open(p, "w", encoding="utf-8") as fh:
             fh.write(ld.report_html(rec, settings.get("auditreport/district", "") or ""))
         QDesktopServices.openUrl(QUrl.fromLocalFile(p))
@@ -749,6 +749,7 @@ class ChangeCalendarPage(Page):
         q = ToolTab(self)
         q.lay.addLayout(self.row(button("Queue a command…", "primary", self.queue_cmd),
                                  button("Run selected now", slot=self.run_now),
+                                 button("Check and sign…", slot=self.sign_selected),
                                  button("Cancel selected", "danger", self.cancel)))
         self.qtable = ResultsTable()
         q.lay.addWidget(self.qtable, 1)
@@ -777,10 +778,19 @@ class ChangeCalendarPage(Page):
 
     def refresh(self):
         from ... import change_queue as cq
+        from ... import seal
         self.items = cq.queue()
-        self.qtable.set_rows(["When", "What", "Commands", "By", "Status", "Result", "id"],
+
+        def signed(i):
+            if i.get("status") != "waiting":
+                return ""
+            v = cq.verify(i)
+            return ("✔ " + seal.describe(v)) if v else "⚠ not signed – won't run by itself"
+        self.qtable.set_rows(["When", "What", "Commands", "By", "Status", "Signed", "Result",
+                              "id"],
                              [[i["when"].replace("T", " "), i["title"], str(len(i["commands"])),
-                               i["by"], i["status"], i.get("result", ""), i["id"]]
+                               i["by"], i["status"], signed(i),
+                               i.get("blocked") or i.get("result", ""), i["id"]]
                               for i in sorted(self.items, key=lambda x: x["when"],
                                               reverse=True)])
         self.qtable.hidden_columns = {"id"}
@@ -801,7 +811,10 @@ class ChangeCalendarPage(Page):
                 for ln in text.splitlines() if ln.strip()]
         when = ask_when(self)
         if when:
-            cq.add(cmds, when, cmds[0][0] + " " + " ".join(cmds[0][1:4]), team.me())
+            try:
+                cq.add(cmds, when, cmds[0][0] + " " + " ".join(cmds[0][1:4]), team.me())
+            except (cq.QueueRefused, TimeoutError) as exc:
+                self.info(str(exc))
             self.refresh()
 
     def _sel(self):
@@ -813,24 +826,71 @@ class ChangeCalendarPage(Page):
         sel = [i for i in self._sel() if i["status"] == "waiting"]
         if not sel:
             return
-
-        def finished(_s):
-            items = cq.queue()
-            for it in items:
-                if it["id"] in {x["id"] for x in sel}:
-                    it["status"], it["result"] = "done", self.steps.summary()
-            cq.save_queue(items)
+        prof = profiles_now()
+        other = [i for i in sel if (i.get("profile") or prof).lower() != prof.lower()]
+        if other:
+            self.info("Some of these were queued in another domain profile (" +
+                      ", ".join(sorted({i['profile'] for i in other})) + "). Switch to it "
+                      "first, or let the background task run them.")
+            return
+        try:
+            mine = cq.claim([i["id"] for i in sel])      # nothing runs twice
+        except TimeoutError as exc:
+            self.info(str(exc))
+            return
+        if not mine:
+            self.info("Those already started somewhere else (or were cancelled).")
             self.refresh()
-        self.steps.run([Step(i["title"], c) for i in sel for c in i["commands"]], finished)
+            return
+
+        def finished(steps):
+            for it in mine:
+                own = [s for s in steps if getattr(s, "_cq", "") == it["id"]]
+                if own and all(s.status == "dry" for s in own):
+                    def rearm(items, i=it["id"]):     # a dry run didn't run it – keep it
+                        for x in items:
+                            if x.get("id") == i and x.get("status") == "running":
+                                x["status"] = "waiting"
+                                x.pop("claimed", None)
+                    cq.update(rearm)
+                    continue
+                bad = sum(1 for s in own if s.status != "ok")
+                cq.finish(it["id"], "done" if not bad else "failed",
+                          f"{len(own) - bad} ok, {bad} failed or skipped (run by hand)")
+            self.refresh()
+        steps = []
+        for i in mine:
+            for c in i["commands"]:
+                st = Step(i["title"], c)
+                st._cq = i["id"]
+                steps.append(st)
+        self.steps.run(steps, finished)
+
+    def sign_selected(self):
+        """Check a waiting item's exact commands and sign it (so it can run by itself)."""
+        from ... import change_queue as cq
+        from ...gam_runner import display_command
+        sel = [i for i in self._sel() if i["status"] == "waiting"]
+        if not sel:
+            self.info("Select a waiting item.")
+            return
+        for it in sel:
+            cmds = "\n".join(display_command(c) for c in it["commands"])
+            if not self.confirm(f"Sign “{it['title']}”? It will run at "
+                                f"{it['when'].replace('T', ' ')} exactly as listed:\n\n{cmds}"):
+                continue
+            try:
+                cq.resign(it["id"])
+            except (cq.QueueRefused, TimeoutError) as exc:
+                self.info(str(exc))
+        self.refresh()
 
     def cancel(self):
         from ... import change_queue as cq
-        ids = {i["id"] for i in self._sel()}
-        items = cq.queue()
-        for it in items:
-            if it["id"] in ids and it["status"] == "waiting":
-                it["status"] = "cancelled"
-        cq.save_queue(items)
+        try:
+            cq.cancel([i["id"] for i in self._sel()])
+        except TimeoutError as exc:
+            self.info(str(exc))
         self.refresh()
 
     def new_freeze(self):
@@ -962,3 +1022,8 @@ def release_check_dialog(page):
 
 __all__ = ["BaselinePage", "ClassroomSyncTab", "RecordsPage", "ReadinessTab",
            "LostDevicesTab", "ChangeCalendarPage", "ask_when", "release_check_dialog"]
+
+
+def profiles_now() -> str:
+    from ... import profiles
+    return profiles.current_name() or "Default"

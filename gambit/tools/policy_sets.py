@@ -44,13 +44,45 @@ def save(plans: list[dict]):
     settings.set("policyplans/plans", json.dumps(plans))
 
 
+SEAL_FIELDS = ("id", "kind", "name", "targets", "template_ou", "policies", "start", "end",
+               "watch_days")
+STATE_FIELDS = ("id", "before", "applied", "schemas")
+
+
+class StateUnverified(RuntimeError):
+    """The saved 'before' policies can't be verified – a person must check them first."""
+
+
 def new_plan(kind: str, name: str, targets: list[str], template_ou: str = "",
              policies: list[dict] | None = None, start: str = "", end: str = "",
              watch_days: int = 5) -> dict:
-    return {"id": uuid.uuid4().hex[:8], "kind": kind, "name": name, "targets": targets,
-            "template_ou": template_ou, "policies": policies or [], "start": start,
-            "end": end, "watch_days": watch_days, "state": "scheduled", "before": {},
-            "applied": [], "log": [], "baseline": {}, "watch": []}
+    """A plan made by the person using GAMbit now – signed, so the daily task only acts on
+    plans nobody has edited in the team folder since."""
+    from .. import seal
+    p = {"id": uuid.uuid4().hex[:8], "kind": kind, "name": name, "targets": targets,
+         "template_ou": template_ou, "policies": policies or [], "start": start,
+         "end": end, "watch_days": watch_days, "state": "scheduled", "before": {},
+         "applied": [], "log": [], "baseline": {}, "watch": []}
+    return seal.sign("policyplan", p, SEAL_FIELDS)
+
+
+def verify(plan: dict):
+    from .. import seal
+    return seal.check("policyplan", plan, SEAL_FIELDS)
+
+
+def _seal_state(plan: dict):
+    from .. import seal
+    plan["state_seal"] = seal.seal_for("policyplan-state",
+                                       {k: plan.get(k) for k in STATE_FIELDS})
+
+
+def state_ok(plan: dict) -> bool:
+    from .. import seal
+    if not plan.get("before") and not plan.get("applied"):
+        return True
+    return seal.check_seal("policyplan-state", {k: plan.get(k) for k in STATE_FIELDS},
+                           plan.get("state_seal")) is not None
 
 
 def parse_policies(text: str) -> list[dict]:
@@ -123,6 +155,9 @@ def apply(plan: dict, ous: list[str], run_csv, run_text, log=print) -> int:
         if c != 0:
             raise RuntimeError(f"Couldn't read the template org unit: {(e or '')[-200:]}")
     bad = 0
+    trusted = state_ok(plan)       # never keep 'before' values someone may have planted
+    if not trusted:
+        plan["before"], plan["applied"], plan["schemas"] = {}, [], {}
     for ou in ous:
         c, rows, e = run_csv(direct_policies_args(ou))
         if c != 0:
@@ -138,11 +173,18 @@ def apply(plan: dict, ous: list[str], run_csv, run_text, log=print) -> int:
         plan.setdefault("schemas", {})[ou] = schemas_in(cmds)
         plan["log"].append(f"{datetime.datetime.now():%Y-%m-%d %H:%M} applied to {ou}"
                            + (f" ({bad} failed)" if bad else ""))
+        _seal_state(plan)            # what to put back – signed as soon as it's known
         log(f"“{plan['name']}”: applied {len(cmds)} polic(ies) to {ou}")
     return bad
 
 
-def revert(plan: dict, run_text, log=print, ous: list[str] | None = None) -> int:
+def revert(plan: dict, run_text, log=print, ous: list[str] | None = None,
+           confirmed: bool = False) -> int:
+    """Put the saved policies back. The saved values are only used when their signature
+    checks out – or when a person looked at the exact commands (confirmed=True)."""
+    if not confirmed and not state_ok(plan):
+        raise StateUnverified("The policies saved before this plan was applied were changed "
+                              "(or were saved on a computer this one doesn't trust).")
     bad = 0
     for ou in ous or list(plan.get("applied", [])):
         cmds = revert_commands(plan["before"].get(ou, []),
@@ -154,6 +196,7 @@ def revert(plan: dict, run_text, log=print, ous: list[str] | None = None) -> int
         plan["applied"] = [x for x in plan.get("applied", []) if x != ou]
         plan["log"].append(f"{datetime.datetime.now():%Y-%m-%d %H:%M} put back {ou}"
                            + (f" ({bad} failed)" if bad else ""))
+        _seal_state(plan)
         log(f"“{plan['name']}”: put back {ou}")
     return bad
 
@@ -167,8 +210,16 @@ def run_due(log=print, run_csv=None, run_text=None, today=None) -> list[str]:
     lines = []
     if settings.get("safety/dry_run", False):
         return lines
+    from .. import seal
     for p in plans:
         act = due(p, today)
+        if act:
+            why = seal.may_run(verify(p), [["update", "chromepolicy", "ou", t]
+                                           for t in p.get("targets", [])])
+            if why:
+                lines.append(f"Testing mode “{p.get('name', '?')}” wasn't changed – {why}. "
+                             "Check it in Chromebook fleet → Testing mode.")
+                continue
         try:
             if act == "apply":
                 bad = apply(p, p["targets"], run_csv, run_text, log)

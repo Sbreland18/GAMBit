@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from . import tempfiles as _tf
 import datetime
 import html
 import os
-import tempfile
 
 from .settings import settings
 
@@ -160,7 +160,7 @@ def send(to: str = "", log=print) -> str:
     if "@" not in to:
         raise RuntimeError("Set who gets the weekly digest first.")
     subject, body = render(build())
-    path = os.path.join(tempfile.gettempdir(), "GAMbit", "digest.html")
+    path = os.path.join(_tf.folder(), "digest.html")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(body)

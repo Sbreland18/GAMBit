@@ -3,10 +3,10 @@ anything that's missing. Every check is read-only."""
 
 from __future__ import annotations
 
+from . import tempfiles as _tf
 import datetime
 import os
 import re
-import tempfile
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -245,7 +245,7 @@ def check_scheduler(_admin) -> Result:
 def check_temp(_admin) -> Result:
     r = Result("temp", "GAMbit", "Temporary folder (downloads, uploads)")
     try:
-        d = os.path.join(tempfile.gettempdir(), "GAMbit")
+        d = _tf.folder()
         os.makedirs(d, exist_ok=True)
         r.status, r.detail = OK, d
     except OSError as exc:

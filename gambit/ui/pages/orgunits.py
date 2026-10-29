@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ... import queries as _q
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QLabel, QLineEdit, QSplitter, QTreeWidget, QTreeWidgetItem,
@@ -155,7 +156,7 @@ class OrgUnitsPage(Page):
     def list_users(self):
         q = ["print", "users"]
         if self.path != "/":
-            q += ["query", f"orgUnitPath='{self.path}'"]
+            q += ["query", _q.ou(self.path)]
         from ... import custom_fields
         self.run(custom_fields.with_custom(q + ["fields", USER_FIELDS]),
                  lambda c, out, _e: self.results.load_csv(out) if c == 0 else None, quiet=True)

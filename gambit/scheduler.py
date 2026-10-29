@@ -39,11 +39,34 @@ def slug(name: str) -> str:
 
 
 def cmd_quote(arg: str) -> str:
-    """Quote one argument for a .cmd file (CreateProcess rules + %% for batch)."""
-    a = arg.replace("%", "%%")
-    if a == "" or re.search(r'[\s"&|<>^(),;=]', a):
-        a = '"' + a.replace('"', '\\"') + '"'
-    return a
+    """Quote one argument for a .cmd file.
+
+    Two parsers read it: cmd.exe (which only counts quote characters – a backslash doesn't
+    escape anything, so `\\"` would end the quoted part and let `&`, `|`, `>` run as
+    commands) and the C runtime that splits gam.exe's arguments. Inner quotes are written
+    as `""` (both read that as a literal quote while staying inside the quotes), the
+    backslashes in front of any quote are doubled for the C runtime, `%` becomes `%%` for
+    batch, and line breaks – which would end the .cmd line – become spaces."""
+    a = str(arg).replace("\r", " ").replace("\n", " ").replace("%", "%%")
+    if a and not re.search(r'[\s"&|<>^(),;=!]', a):
+        return a
+    out, slashes = [], 0
+    for ch in a:
+        if ch == "\\":
+            slashes += 1
+            continue
+        if ch == '"':
+            out.append("\\" * (slashes * 2) + '""')
+        else:
+            out.append("\\" * slashes + ch)
+        slashes = 0
+    out.append("\\" * (slashes * 2))          # before the closing quote
+    return '"' + "".join(out) + '"'
+
+
+def _plain(text: str) -> str:
+    """Text for a .cmd line that sits inside quotes we wrote: no quotes or line breaks."""
+    return re.sub(r"[\r\n]+", " ", str(text)).replace('"', "’")
 
 
 def _sendemail(to: str, subject: str, message: str, attach: list[str], sender: str) -> str:
@@ -76,7 +99,7 @@ def build_script(name: str, lines: list[str], out_dir: str, email_to: str = "",
     body = [
         "@echo off",
         "chcp 65001 >nul",
-        f"rem GAMbit scheduled job: {name}",
+        "rem GAMbit scheduled job: " + re.sub(r"[^\w .,'’()\-]", "_", _plain(name)),
     ]
     if settings.gam_cfg_dir:
         body.append(f'set "GAMCFGDIR={settings.gam_cfg_dir}"')
@@ -115,7 +138,7 @@ def build_script(name: str, lines: list[str], out_dir: str, email_to: str = "",
     if email_to and csvs:
         line = gam_q + " " + _sendemail(
             email_to, f"{name} – \x00date\x00",
-            f"Attached: the latest results of the GAMbit scheduled job \"{name}\" "
+            f"Attached: the latest results of the GAMbit scheduled job “{_plain(name)}” "
             "(\x00ROWS\x00 rows).", csvs, sender) + ' >> "%LOG%" 2>&1'
         if email_when == "rows":
             body.append(f'if %ROWS% GTR 0 {line}')
@@ -125,13 +148,13 @@ def build_script(name: str, lines: list[str], out_dir: str, email_to: str = "",
         body.append('if "%FAILED%"=="1" copy /y "%LOG%" "%LOG%.txt" >nul')
         body.append('if "%FAILED%"=="1" ' + gam_q + " " + _sendemail(
             alert_to, f"GAMbit job failed: {name}",
-            f"The scheduled job \"{name}\" had a failed step on \x00COMPUTERNAME\x00. "
+            f"The scheduled job “{_plain(name)}” had a failed step on \x00COMPUTERNAME\x00. "
             "The log is attached.", ["%LOG%.txt"], sender) + ' >> "%LOG%" 2>&1')
     if webhook:
         from .alerts import powershell_post
         body.append('if "%FAILED%"=="1" ' + powershell_post(
             webhook, f"The scheduled job {name} had a failed step on %COMPUTERNAME%. "
-                     "See the log in " + out_dir.replace("%", "%%"),
+                     "See the log in " + out_dir,
             "GAMbit job failed"))
     body.append("exit /b %FAILED%")
     path = os.path.join(scripts_dir(), f"{s}.cmd")
@@ -155,7 +178,8 @@ def app_command(*args: str) -> str:
 def build_app_task_script(name: str, args: list[str]) -> str:
     """A .cmd that runs `GAMbit --task …` (roster sync, daily follow-ups, requests)."""
     path = os.path.join(scripts_dir(), f"{slug(name)}.cmd")
-    body = ["@echo off", "chcp 65001 >nul", f"rem GAMbit background task: {name}",
+    body = ["@echo off", "chcp 65001 >nul",
+            "rem GAMbit background task: " + re.sub(r"[^\w .,'’()\-]", "_", _plain(name)),
             app_command(*args), "exit /b %errorlevel%"]
     with open(path, "w", encoding="utf-8", newline="\r\n") as fh:
         fh.write("\n".join(body) + "\n")

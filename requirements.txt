@@ -1,4 +1,5 @@
-PySide6>=6.6
-truststore>=0.9   # use the Windows certificate store for HTTPS (works behind school web filters)
-cryptography>=42  # GAMbit sign-in: signed access list, Google ID token check
-qrcode>=7.4  # authenticator QR code for the emergency admin
+# Tested versions. The Builder installs exactly these, hash-checked, from requirements-lock.txt.
+PySide6==6.12.0
+truststore==0.10.4   # use the Windows certificate store for HTTPS (works behind school web filters)
+cryptography==50.0.1  # GAMbit sign-in, signed records and releases, Google ID token check
+qrcode==7.4.2  # authenticator QR code for the emergency admin

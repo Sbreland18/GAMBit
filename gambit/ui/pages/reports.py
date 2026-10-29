@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ... import queries as _q
 import datetime
 
 from PySide6.QtWidgets import (
@@ -109,7 +110,7 @@ class ReportsPage(Page):
         for ou in (ous or [None]):
             q = list(susp)
             if ou and ou != "/":
-                q.append(f"orgUnitPath='{ou}'")
+                q.append(_q.ou(ou))
             from ... import custom_fields
             cmds.append(custom_fields.with_custom(base + (["query", " ".join(q)] if q else []) +
                                                   fields))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from . import queries as _q
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -13,7 +14,7 @@ def _entity(scope: str) -> list[str]:
 
 def _ou_query(scope: str) -> str:
     s = (scope or "/").strip()
-    return "" if s in ("", "/") else f" orgUnitPath='{s}'"
+    return "" if s in ("", "/") else " " + _q.ou(s)
 
 
 def _has_license(row: dict) -> bool:

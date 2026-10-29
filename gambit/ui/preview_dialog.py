@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import csv
+from .. import csv_safe
 
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QLabel, QLineEdit, QListWidget, QVBoxLayout,
@@ -77,6 +77,6 @@ class BigChangeDialog(QDialog):
                                               "CSV (*.csv)")
         if path:
             with open(path, "w", newline="", encoding="utf-8") as fh:
-                w = csv.writer(fh)
+                w = csv_safe.writer(fh)
                 w.writerow(["email"])
                 w.writerows([e] for e in self.emails)

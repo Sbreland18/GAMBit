@@ -165,3 +165,83 @@ def licenses(rows: list[dict], opts: dict) -> dict:
     have = int(opts.get("student_licenses", 0) or 0)
     return {"students_next_year": total, "licenses_on_hand": have,
             "licenses_short": max(total - have, 0) if have else 0}
+
+
+# ================================================ year-end rollover plan ===
+def rollover_grade(ou: str):
+    """The grade a rollover org unit holds ('Grade 5', '05', 'K'…), or None. 'Class of 2031'
+    style names don't count – their students don't move between org units each year."""
+    last = [p for p in (ou or "").split("/") if p]
+    if not last or re.search(r"(?:19|20)\d\d", last[-1]):
+        return None
+    return grade_of("/" + last[-1], school_year_end())
+
+
+def pair_by_grade(kids: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """Pair sibling grade org units by grade number (K→1, 1→2 … 9→10, never alphabetically,
+    where '10' sorts before '9'). Returns (pairs, org units it couldn't place). The top grade
+    gets an empty 'To' for the graduates' org unit."""
+    by_grade: dict[int, str] = {}
+    odd: list[str] = []
+    for k in kids:
+        g = rollover_grade(k)
+        if g is None or g in by_grade:
+            odd.append(k)
+        else:
+            by_grade[g] = k
+    grades = sorted(by_grade)
+    pairs = []
+    for g in grades:
+        if g + 1 in by_grade:
+            pairs.append((by_grade[g], by_grade[g + 1]))
+        elif g == grades[-1]:
+            pairs.append((by_grade[g], ""))
+        else:
+            odd.append(by_grade[g])         # a gap (no grade g+1) – the tech decides
+    return pairs, odd
+
+
+def rollover_plan(pairs: list[tuple[str, str]], suspend_last: bool):
+    """Turn From → To rows into ordered steps: [(label, args, required)], problem.
+
+    Safe by construction:
+      • rows between two grade org units must go up exactly one grade;
+      • a destination is emptied before anyone moves into it (so nobody moves twice) –
+        a loop of moves is refused;
+      • every move is required: if one fails, nothing after it runs (a half-done rollover
+        must never go on to suspend the wrong people);
+      • “suspend graduates” only targets the one destination that isn't a grade."""
+    norm = [((a or "").rstrip("/") or "/", (b or "").rstrip("/") or "/") for a, b in pairs
+            if a and b]
+    if len(norm) != len([p for p in pairs if p[0] or p[1]]):
+        return [], "Every row needs both a From and a To org unit."
+    srcs = [a for a, _b in norm]
+    if len(set(x.lower() for x in srcs)) != len(srcs):
+        return [], "The same From org unit is on more than one row."
+    for a, b in norm:
+        if a.lower() == b.lower():
+            return [], f"{a} is moved into itself."
+        ga, gb = rollover_grade(a), rollover_grade(b)
+        if ga is not None and gb is not None and gb != ga + 1:
+            return [], (f"{a} → {b} doesn't go up exactly one grade. Check the rows "
+                        "(students would skip or repeat a grade).")
+    # order: a move whose destination is still someone's source must wait
+    todo, order = list(norm), []
+    while todo:
+        pending = {a.lower() for a, _b in todo}
+        ready = [p for p in todo if p[1].lower() not in pending]
+        if not ready:
+            return [], "These rows move students in a circle – remove one of them."
+        for p in ready:
+            order.append(p)
+            todo.remove(p)
+    steps = [(f"{a}  →  {b}", ["update", "ou", b, "move", "ou", a], True) for a, b in order]
+    if suspend_last:
+        sinks = [b for _a, b in norm if b.lower() not in {s.lower() for s in srcs}]
+        grads = [b for b in sinks if rollover_grade(b) is None]
+        if len(grads) != 1:
+            return [], ("“Suspend graduates” needs exactly one row that moves the top grade "
+                        "into a graduates org unit (for example /Students/Graduated).")
+        steps.append((f"Suspend everyone in {grads[0]}",
+                      ["ou", grads[0], "update", "user", "suspended", "on"], True))
+    return steps, ""

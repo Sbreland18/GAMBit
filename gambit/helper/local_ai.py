@@ -134,9 +134,14 @@ def download_server(progress=None, log=print) -> str:
     asset = _pick_llama_asset(rel.get("assets", []))
     if not asset:
         raise RuntimeError("Couldn't find a llama.cpp download for this computer.")
-    dest = os.path.join(folder(), asset["name"])
+    url = str(asset.get("browser_download_url", ""))
+    if not url.lower().startswith("https://github.com/ggml-org/llama.cpp/releases/download/"):
+        raise RuntimeError("The llama.cpp download link isn't from its GitHub releases.")
+    dest = os.path.join(folder(), os.path.basename(asset["name"]))
     log(f"Downloading {asset['name']} ({asset.get('size', 0) // 1_000_000} MB) …")
-    net.download(asset["browser_download_url"], dest, progress)
+    digest = str(asset.get("digest") or "")
+    net.download(url, dest, progress,
+                 sha256=digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
     out = os.path.join(folder(), "llama")
     os.makedirs(out, exist_ok=True)
     root = os.path.realpath(out)
@@ -163,7 +168,9 @@ def download_model(which: str = "standard", progress=None, log=print,
     dest = os.path.join(folder(), m["file"])
     part = dest + ".part"
     log(f"Downloading the {which} model ({m['file']}) – this is a big file …")
-    net.download(m["url"], part, progress, cancelled)
+    # Hugging Face publishes each file's SHA-256 with the download (X-Linked-Etag)
+    net.download(m["url"], part, progress, cancelled, sha256=m.get("sha256", ""),
+                 sha256_from_header="x-linked-etag")
     if os.path.getsize(part) < m["min_mb"] * 1_000_000 or not is_gguf(part):
         os.remove(part)
         raise RuntimeError("The model download was incomplete – try again.")
@@ -176,6 +183,7 @@ def download_model(which: str = "standard", progress=None, log=print,
 class Server:
     _proc: subprocess.Popen | None = None
     _port = 0
+    _key = ""          # a fresh secret each start: other users on this PC can't use it
     _lock = threading.Lock()
 
     @classmethod
@@ -201,9 +209,14 @@ class Server:
             args = [exe, "-m", model, "--host", "127.0.0.1", "--port", str(cls._port),
                     "-c", "4096", "-t", str(threads), "-ngl", "0"]
             flags = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
+            import secrets
+            cls._key = secrets.token_urlsafe(32)
+            # passed in the environment, not on the command line (others can list those)
+            env = {**os.environ, "LLAMA_ARG_API_KEY": cls._key, "LLAMA_API_KEY": cls._key}
             cls._proc = subprocess.Popen(args, stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                         creationflags=flags, cwd=os.path.dirname(exe))
+                                         creationflags=flags, cwd=os.path.dirname(exe),
+                                         env=env)
         end = time.time() + wait
         while time.time() < end:
             if not cls.running():
@@ -242,9 +255,12 @@ def ollama_models(base: str = "http://127.0.0.1:11434") -> list[str]:
 
 
 # ================================================================= chat ===
-def _post(url: str, body: dict, timeout: float) -> dict:
+def _post(url: str, body: dict, timeout: float, key: str = "") -> dict:
+    h = {"Content-Type": "application/json"}
+    if key:
+        h["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
-                                 headers={"Content-Type": "application/json"})
+                                 headers=h)
     # local only – never through a proxy
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with opener.open(req, timeout=timeout) as r:
@@ -264,7 +280,7 @@ def chat(messages: list[dict], max_tokens: int = 700, timeout: float = 240) -> s
         base = Server.start()
         res = _post(base + "/v1/chat/completions",
                     {"messages": messages, "temperature": 0.2, "max_tokens": max_tokens,
-                     "stream": False}, timeout)
+                     "stream": False}, timeout, Server._key)
     return (res.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
 
 

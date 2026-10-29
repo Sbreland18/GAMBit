@@ -3,6 +3,7 @@ repair hotspots and loaner needs, the monthly audit report and teacher follow-up
 
 from __future__ import annotations
 
+from ... import tempfiles as _tf
 import datetime
 import os
 
@@ -79,10 +80,11 @@ def practice_run(page, commands: list[list[str]], title: str, devices: bool = Tr
 
 
 def rollover_commands(pairs, suspend_last: bool) -> list[list[str]]:
-    cmds = [["update", "ou", b, "move", "ou", a] for a, b in reversed(pairs)]
-    if suspend_last and pairs:
-        cmds.append(["ou", pairs[-1][1], "update", "user", "suspended", "on"])
-    return cmds
+    from ...next_year import rollover_plan
+    steps, problem = rollover_plan(pairs, suspend_last)
+    if problem:
+        raise ValueError(problem)
+    return [args for _label, args, _req in steps]
 
 
 def graduation_commands(students: list[dict], opts: dict, year: int) -> list[list[str]]:
@@ -403,14 +405,13 @@ class TeacherListsPage(Page):
                on_error=lambda e: (self.status.setText(""), self.info(str(e))))
 
     def preview(self):
-        import tempfile
         from ... import teacher_lists as tl
         sel = self.table.selected_dicts()
         if not sel or sel[0]["Teacher"] not in self.lists:
             self.info("Build the lists and select a teacher first.")
             return
         _s, body = tl.render(sel[0]["Teacher"], self.lists[sel[0]["Teacher"]], self._opts())
-        path = os.path.join(tempfile.gettempdir(), "gambit_teacher_preview.html")
+        path = os.path.join(_tf.folder(), "gambit_teacher_preview.html")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(body)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))

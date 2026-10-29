@@ -32,8 +32,10 @@ class ApprovalsPage(Page):
         bar.addWidget(self.show_what)
         bar.addWidget(button("Refresh", slot=self.refresh))
         bar.addWidget(button("Check email replies", slot=self.check_email))
-        bar.addWidget(button("Email approvals…", slot=self.email_setup))
-        bar.addWidget(button("Approval rules…", slot=self.rules_setup))
+        self.email_btn = button("Email approvals…", slot=self.email_setup)
+        self.rules_btn = button("Approval rules…", slot=self.rules_setup)
+        bar.addWidget(self.email_btn)
+        bar.addWidget(self.rules_btn)
         self.body.addLayout(bar)
 
         self.table = QTableWidget(0, 6)
@@ -167,6 +169,8 @@ class ApprovalsPage(Page):
         self.approve_btn.setVisible(admin)
         self.later_btn.setVisible(admin)
         self.deny_btn.setVisible(admin)
+        self.email_btn.setVisible(admin)          # who approves and how: admins only
+        self.rules_btn.setVisible(admin)
         if hasattr(self, "form_box"):
             self.form_box.setVisible(admin)
         self.reqs = team.list_requests(self.show_what.currentData())
@@ -209,8 +213,13 @@ class ApprovalsPage(Page):
             self.detail.setPlainText("")
             return
         r = sel[0]
+        from ... import seal
+        v = team.verify_request(r)
         lines = [f"Requested by {r.get('by')} on {r.get('time', '').replace('T', ' ')} "
-                 f"(domain: {r.get('profile', '')})", f"Why: {r.get('reason', '')}", ""]
+                 f"(domain: {r.get('profile', '')})",
+                 ("✔ " if v else "⚠ ") + seal.describe(v) + (
+                     "" if v else " – check the commands carefully before approving"),
+                 f"Why: {r.get('reason', '')}", ""]
         lines += [display_command(c) for c in r.get("commands", [])]
         if r.get("note"):
             lines += ["", f"Admin note: {r['note']}"]
@@ -228,9 +237,17 @@ class ApprovalsPage(Page):
                                       self.info("\n".join(lines) or "No new replies.")),
                on_error=lambda e: self.info(f"Couldn't read replies:\n{e}"))
 
+    def _admin_only(self) -> bool:
+        if team.is_admin():
+            return True
+        self.info("Only a GAMbit admin can change how requests are approved.")
+        return False
+
     def email_setup(self):
         from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit
         from ...settings import settings
+        if not self._admin_only():
+            return
         dlg = QDialog(self)
         dlg.setWindowTitle("Approve by email")
         f = QFormLayout(dlg)
@@ -268,6 +285,8 @@ class ApprovalsPage(Page):
                                        QLineEdit, QSpinBox)
         from ... import approval_policy as policy
         from ..pickers import OUField
+        if not self._admin_only():
+            return
         p = policy.load()
         dlg = QDialog(self)
         dlg.setWindowTitle("Approval rules")
@@ -312,6 +331,11 @@ class ApprovalsPage(Page):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         f.addRow(bb)
+        if p.get("unverified"):
+            f.insertRow(1, QLabel("⚠ The saved rules couldn't be verified (changed in the team "
+                                  "folder, or not signed by a GAMbit admin), so strict rules "
+                                  "apply until an admin saves them again.",
+                                  objectName="Muted", wordWrap=True))
         if dlg.exec():
             policy.save({"on": on.isChecked(), "student_root": root.path() or "/Students",
                          "auto": [{"category": c, "students_only": students_only.isChecked()}
@@ -327,7 +351,14 @@ class ApprovalsPage(Page):
             return
         cmds = [c for r in sel for c in r["commands"]]
         special = [r for r in sel if r.get("kind") in ("offboard", "selfservice")]
-        listing = "\n".join(display_command(c) for c in cmds[:20])
+        unsigned = [r for r in sel if team.verify_request(r) is None]
+        # every command is listed – a long request can't hide one at the end
+        listing = (f"{len(cmds)} command(s):\n" if cmds else "") + \
+            "\n".join(display_command(c) for c in cmds)
+        if unsigned:
+            listing = (f"⚠ {len(unsigned)} of these can't be verified as made by the person "
+                       "named (changed in the team folder, or made on a computer this one "
+                       "doesn't trust).\n\n") + listing
         for r in special:
             listing += "\n" + self._special_summary(r)
         if not self.confirm(f"Approve {len(sel)} request(s)?\n\n{listing}"):
@@ -355,12 +386,16 @@ class ApprovalsPage(Page):
         sel = [r for r in sel if r.get("commands")]
         for r in sel:
             r = team.update_request(r, "approved")
-            results = []
+            results, jobs = [], []
 
-            def done(code, _o, err, r=r, results=results, total=len(r["commands"])):
+            def done(code, _o, err, r=r, results=results, jobs=jobs,
+                     total=len(r["commands"])):
                 results.append(code)
                 if len(results) == total:
                     ok = all(c == 0 for c in results)
+                    made = [pw for j in jobs for pw in (j.meta or {}).get("new_passwords", [])]
+                    if made:
+                        self._show_new_passwords(r, made)
                     team.update_request(r, "done" if ok else "failed",
                                         result="all commands worked" if ok else
                                         f"{sum(c != 0 for c in results)} command(s) failed: "
@@ -375,10 +410,23 @@ class ApprovalsPage(Page):
                     self.refresh()
             for c in r["commands"]:
                 self.app._approved_request = r["id"]
+                self.runner.last_job = None
                 if not self.runner.run(c, on_done=done):
                     done(1, "", "Not started")
+                elif getattr(self.runner, "last_job", None) is not None:
+                    jobs.append(self.runner.last_job)
                 self.app._approved_request = ""
         self.refresh()
+
+    def _show_new_passwords(self, r, made):
+        """New passwords made when the request ran – shown once, to the approver."""
+        from ...gam_runner import dry_run_on
+        if dry_run_on():
+            return
+        text = "\n".join(f"{who or '(account)'}\t{pw}" for who, pw in made)
+        self.info(f"New password(s) for “{r.get('title', '')}” – give them to "
+                  f"{r.get('by', 'the person who asked')} securely. GAMbit doesn't keep "
+                  f"them:\n\n{text}", "New passwords")
 
     def approve_later(self):
         """Approve now; the 15-minute background task runs it at the chosen time."""
@@ -395,12 +443,22 @@ class ApprovalsPage(Page):
             return
         queued, waiting = 0, []
         for r in sel:
+            try:
+                change_queue.check_can_queue(r["commands"])
+            except change_queue.QueueRefused as exc:
+                self.info(f"“{r.get('title', '')}”: {exc}")
+                continue
             ready, r2 = approval_policy.record_approval(r, team.me())
             if not ready:
                 waiting.append(r2)
                 continue
-            r2 = team.update_request(r2, "approved", result=f"runs {when.replace('T', ' ')}")
-            change_queue.add(r2["commands"], when, r2.get("title", ""), team.me(), r2["id"])
+            try:
+                change_queue.add(r2["commands"], when, r2.get("title", ""), team.me(),
+                                 r2["id"])
+            except (change_queue.QueueRefused, TimeoutError) as exc:
+                self.info(f"“{r.get('title', '')}”: {exc}")
+                continue
+            team.update_request(r2, "approved", result=f"runs {when.replace('T', ' ')}")
             queued += 1
         msg = f"{queued} request(s) will run at {when.replace('T', ' ')}."
         if waiting:
@@ -464,7 +522,7 @@ class ApprovalsPage(Page):
                 for rec in recs:
                     res = rec.pop("_results", {})
                     bad += sum(1 for c in res.values() if c)
-                    offboard.save(rec)
+                    offboard.save(rec, sign_it=True)
                     offboard.mark(rec, "today", res)
                 team.update_request(r, "done" if not bad else "failed",
                                     result=f"offboarding started for {len(recs)} "

@@ -53,6 +53,12 @@ def columns(headers: list[str]) -> dict:
     for key, cands in COLS.items():
         for h in headers:
             nh = _norm(h)
+            if key == "requester":
+                # only the address Google Forms collects and verifies – never a column
+                # someone types into (or anyone could ask in a principal's name)
+                if nh == "email address":
+                    out.setdefault(key, h)
+                continue
             if any(nh == c or nh.startswith(c) for c in cands):
                 out.setdefault(key, h)
     if "requester" in out and out.get("requester") == out.get("teacher"):

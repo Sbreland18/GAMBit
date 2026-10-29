@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import tempfiles as _tf
 import re
 
 import csv
@@ -310,6 +311,12 @@ class _RowsModel(QAbstractTableModel):
                            reverse=(order == Qt.DescendingOrder))
         self.rows = [self.rows[i] for i in order_idx]
         self.lower = [self.lower[i] for i in order_idx]
+        # selections and the current row follow their rows to the new positions
+        new_pos = {old: new for new, old in enumerate(order_idx)}
+        olds = self.persistentIndexList()
+        if olds:
+            self.changePersistentIndexList(
+                olds, [self.index(new_pos.get(i.row(), i.row()), i.column()) for i in olds])
         self.layoutChanged.emit()
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -525,6 +532,10 @@ class ResultsTable(QWidget):
         self.selbar = None
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self._copy_btn = None
+        # Buttons that float over a row act on that row's data: whenever the rows under them
+        # change (set_rows, filter, sort – the only ways they change) they're hidden, or a
+        # click would act on someone no longer shown there. Called directly rather than
+        # from model signals, which also fire while a table is being destroyed.
         self.table.viewport().installEventFilter(self)
         self.table.installEventFilter(self)
         self.empty_text = None
@@ -604,6 +615,8 @@ class ResultsTable(QWidget):
             self.states.loaded_once = True
         self.states.loading(False)
         self._apply_filter(self.filter.text())
+        self._hide_hover()
+        self._selection_changed()
 
     # ---- density and columns ----
     DENSITY_KEY = "ui/density"
@@ -654,6 +667,13 @@ class ResultsTable(QWidget):
         pref = self._cols_pref()
         hh = self.table.horizontalHeader()
         hh.setSectionsMovable(True)
+        # start from the natural order: a column order dragged for the last results must
+        # not carry over to different columns
+        hh.blockSignals(True)
+        for logical in range(hh.count()):
+            if hh.visualIndex(logical) != logical:
+                hh.moveSection(hh.visualIndex(logical), logical)
+        hh.blockSignals(False)
         hidden = {h.lower() for h in pref.get("hidden", [])}
         for c, h in enumerate(self._headers):
             if h.lower() in hidden:
@@ -753,7 +773,10 @@ class ResultsTable(QWidget):
         hidden = [h for c, h in enumerate(self._headers) if self.table.isColumnHidden(c)]
         col, ordr = self._sort
         v = {"id": uuid.uuid4().hex[:8], "name": name.strip(), "table": self._table_index(),
-             "page": self._title(), "filter": self.filter.text(), "order": order,
+             # page = the sidebar page to open; scope = the (possibly nested) page that
+             # owns the table – they differ for tables inside a tab of another page
+             "page": self._outer_title(), "scope": self._title(),
+             "filter": self.filter.text(), "order": order,
              "hidden": hidden,
              "sort": [self._headers[col] if 0 <= col < len(self._headers) else "",
                       "desc" if ordr == Qt.DescendingOrder else "asc"]}
@@ -786,8 +809,9 @@ class ResultsTable(QWidget):
         hidden = [h for h in v.get("hidden", []) if h.lower() in low]
         if order or hidden:
             self._save_cols(order or list(self._headers), hidden)
+            off = {h.lower() for h in hidden} | {h.lower() for h in self.hidden_columns}
             for c, h in enumerate(self._headers):
-                self.table.setColumnHidden(c, h in hidden)
+                self.table.setColumnHidden(c, h.lower() in off)   # never shows internal ones
             self._apply_columns()
         name, how = (v.get("sort") or ["", "asc"])[:2]
         if name and name.lower() in low:
@@ -916,6 +940,19 @@ class ResultsTable(QWidget):
                 break
         return out
 
+    def _hide_hover(self):
+        bar = getattr(self, "_row_bar", None)
+        if bar is not None:
+            bar.hide()
+        self._bar_row = -1
+        if self._copy_btn is not None:
+            self._copy_btn.hide()
+            self._copy_btn.setProperty("value", "")
+
+    def _rows_moved(self, *_):
+        self._hide_hover()
+        self._selection_changed()
+
     def _hover_row(self, pos):
         """Small buttons at the end of the row under the mouse (Open, Reset password…)."""
         if getattr(self, "no_row_actions", False):
@@ -1026,6 +1063,7 @@ class ResultsTable(QWidget):
         self.model.sort(col, order)
         self._rows = self.model.rows
         self.proxy.refilter()
+        self._rows_moved()
 
     def row_count(self) -> int:
         """Rows currently shown (after the filter)."""
@@ -1065,7 +1103,9 @@ class ResultsTable(QWidget):
             idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
 
     def _apply_filter(self, text: str):
+        self._hide_hover()
         self.proxy.set_text(text)
+        self._selection_changed()
         shown, total = self.proxy.rowCount(), self.model.rowCount()
         self.count.setText(f"{shown:,} of {total:,} rows" if text.strip() else f"{total:,} rows")
         if hasattr(self, "states"):
@@ -1203,6 +1243,15 @@ class ResultsTable(QWidget):
         if path:
             self._write_csv(path)
 
+    def _outer_title(self) -> str:
+        """The title of the outermost page this table is on (the one in the sidebar)."""
+        found, w = "", self.parentWidget()
+        while w is not None:
+            if isinstance(w, Page) and w.title:
+                found = w.title
+            w = w.parentWidget()
+        return found or "Results"
+
     def _title(self) -> str:
         w = self.parentWidget()
         while w is not None:
@@ -1215,13 +1264,12 @@ class ResultsTable(QWidget):
         """Upload the visible rows as a new Google Sheet and open it."""
         import datetime
         import os
-        import tempfile
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
         from .. import google_io
         if not self._headers:
             return
-        folder = os.path.join(tempfile.gettempdir(), "GAMbit")
+        folder = _tf.folder()
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, "to-sheet.csv")
         self._write_csv(path)
@@ -1245,8 +1293,9 @@ class ResultsTable(QWidget):
         Worker(google_io.upload_csv_as_sheet, path, title, on_done=done, on_error=failed)
 
     def _write_csv(self, path):
+        from .. import csv_safe
         with open(path, "w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh)
+            w = csv_safe.writer(fh)             # no formulas from Google data
             w.writerow(self._headers)
             w.writerows(self.visible_rows())
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ... import tempfiles as _tf
 import csv
 import os
 
@@ -371,9 +372,8 @@ class FleetPage(Page):
                                       text=settings.get("alerts/email", "") or "")
         if not ok or "@" not in to:
             return
-        import tempfile
         from ... import google_io
-        path = os.path.join(tempfile.gettempdir(), "GAMbit", "not-returned.csv")
+        path = os.path.join(_tf.folder(), "not-returned.csv")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", newline="", encoding="utf-8") as fh:
             fh.write(fleet.to_csv(fleet.not_returned(self.coll)))

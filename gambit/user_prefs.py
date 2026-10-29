@@ -133,27 +133,63 @@ def practice_target() -> tuple[str, str]:
             (settings.get("safety/test_user", "") or "").strip().lower())
 
 
+_GROUPISH = ("group", "groups", "cigroup", "cigroups", "group_ns", "groups_ns")
+
+
 def practice_allows(args: list[str], users_by_email: dict | None = None) -> bool:
     """In practice mode, a change runs for real only when everything it touches is the test
-    account or inside the test org unit. Anything else stays a dry run."""
+    account or inside the test org unit. Anything else stays a dry run.
+
+    Deliberately strict – when in doubt the answer is False (a dry run), never True:
+    group changes (a sync can remove everyone else), adding or moving things into an org
+    unit, and any other account named anywhere in the command (a Drive transfer, a
+    delegate, a forward…) all stay dry runs unless that account is the test account or
+    already lives inside the test org unit."""
+    from .activity import strip_config
     from .auth import session
     ou, user = practice_target()
     if not ou and not user:
         return False
-    found = session.targets(args)
+    a = strip_config([str(x) for x in args])
+    low = [x.lower() for x in a]
+    if not low or low[0] in session.UNCHECKABLE:
+        return False
+    if any(x in _GROUPISH for x in low[:2]) or (len(low) > 2 and low[1] in _GROUPISH):
+        return False                          # group membership is shared by everyone
+    if len(low) > 3 and low[0] == "update" and low[1] in ("ou", "org", "ous") and \
+            low[3] in ("add", "move", "sync"):
+        return False                          # pulls other things into the test OU
+    found = session.targets(a)
     if not found:
         return False
-    users_by_email = users_by_email or {}
+    users_by_email = {str(k).lower(): v for k, v in (users_by_email or {}).items()}
+
+    def user_ok(email: str) -> bool:
+        email = email.strip().lower()
+        if user and email == user:
+            return True
+        u = users_by_email.get(email)
+        return bool(ou) and u is not None and session.in_scope(u.get("ou", ""), [ou])
+
     for kind, v in found:
         if kind in ("ou", "dest"):
             if not ou or not session.in_scope(v, [ou]):
                 return False
         elif kind == "user":
-            if user and v.lower() == user:
-                continue
-            u = users_by_email.get(v.lower())
-            if not ou or u is None or not session.in_scope(u.get("ou", ""), [ou]):
+            if not user_ok(v):
                 return False
         else:                       # Chromebooks, the whole domain…
             return False
+    # every other account mentioned anywhere (transfer drive boss@…, delegate…)
+    locals_ = {e.split("@")[0]: e for e in users_by_email if "@" in e}
+    for x in a[1:]:
+        for tok in str(x).split(","):
+            t = tok.strip().lower()
+            if not t:
+                continue
+            if "@" in t:
+                if not user_ok(t):
+                    return False
+            elif t in locals_ and not user_ok(locals_[t]):
+                return False          # a bare username GAM would complete with the domain
     return True

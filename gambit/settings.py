@@ -32,11 +32,17 @@ class Settings:
     # --- generic -----------------------------------------------------
     def get(self, key: str, default=None):
         val = self.override[key] if key in self.override else self._s.value(key, default)
+        if isinstance(val, str) and val.startswith("enc:v1:"):
+            from .secrets_store import unseal
+            val = unseal(val)
         if isinstance(default, bool) and isinstance(val, str):
             return val.lower() in ("1", "true", "yes")
         return val
 
     def set(self, key: str, value):
+        from .secrets_store import is_secret, seal
+        if is_secret(key) and isinstance(value, str) and value:
+            value = seal(value)          # encrypted for this Windows user (DPAPI)
         self._s.setValue(key, value)
         self._s.sync()
 

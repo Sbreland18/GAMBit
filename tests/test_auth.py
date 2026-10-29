@@ -115,8 +115,10 @@ def test_people_roles_and_keys(auth_env):
     fp = access.request_admin_key("tech@d.org")
     req = access.key_requests()[0]
     assert req["fingerprint"] == fp
-    with pytest.raises(access.AccessError, match="admin role"):
-        access.approve_key(doc, req)
+    d1 = access.approve_key(doc, req)          # a non-admin's key: a member key only
+    assert req["key_id"] in d1["member_keys"] and req["key_id"] not in d1["admin_keys"]
+    with pytest.raises(access.AccessError, match="access list"):
+        access.approve_key(doc, {**req, "email": "stranger@d.org"})
     doc["people"]["tech@d.org"]["role"] = "Full admin"
     d2 = access.approve_key(doc, req)
     assert req["key_id"] in d2["admin_keys"]

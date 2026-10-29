@@ -35,6 +35,12 @@ def main():
     step("Getting ready…", 10)
     from gambit import support
     support.install_crash_handler()
+    try:                                # secrets saved by older versions → encrypted
+        from gambit import secrets_store
+        from gambit.settings import settings as _settings
+        secrets_store.migrate(_settings)
+    except Exception:  # noqa: BLE001
+        pass
     from PySide6.QtGui import QIcon
     from gambit.resources import resource_path
     app.setWindowIcon(QIcon(resource_path("assets/gambit.ico")))   # every window + taskbar

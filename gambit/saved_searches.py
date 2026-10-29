@@ -8,6 +8,7 @@ Users page gives exactly the same list. They're stored with the other favorites
 
 from __future__ import annotations
 
+from . import queries as _q
 import json
 import uuid
 
@@ -80,12 +81,12 @@ def build(spec: dict, fields: str = USER_FIELDS):
         schemas = cf.schema_names((cf.columns() if cf.active() else []) + [col])
         cmds = []
         for ou in (ous or [None]):
-            q = [x for x in (f"orgUnitPath='{ou}'" if ou and ou != "/" else "", sq) if x]
+            q = [x for x in (_q.ou(ou) if ou and ou != "/" else "", sq) if x]
             cmds.append(["print", "users"] + (["query", " ".join(q)] if q else []) +
                         ["fields", fields, "custom", ",".join(schemas)])
         return cmds, (lambda r: in_ous(r) and cf.matches(r, col, op, val))
     if m == "In org unit(s)":
-        cmds = [cf.with_custom(["print", "users"] + (["query", f"orgUnitPath='{ou}'"]
+        cmds = [cf.with_custom(["print", "users"] + (["query", _q.ou(ou)]
                                                      if ou != "/" else []) +
                                ["fields", fields]) for ou in ous]
         return cmds, (in_ous if direct else None)

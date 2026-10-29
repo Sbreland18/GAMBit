@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ... import scheduler, tasks_health
-from ...settings import IS_WINDOWS
+from ...settings import IS_WINDOWS, settings
 from ..widgets import Page, Worker, button
 
 LOOK = {"ok": ("✔ Working", "#137333"), "failed": ("✖ Failed", "#b42318"),
@@ -147,6 +147,11 @@ class TasksPage(Page):
             self.info("Select a GAMbit task (scheduled report jobs run from Task Scheduler).")
             return
         d = sel[0]
+        from ... import user_prefs
+        if settings.get("safety/dry_run", False) or user_prefs.practice_on():
+            self.info("Dry run or Practice mode is on. Background tasks make real changes, so "
+                      "they don't run from here until both are off.")
+            return
         if not self.confirm(f"Run “{d['name']}” now, inside GAMbit?"):
             return
         self.log.setPlainText("Running…")

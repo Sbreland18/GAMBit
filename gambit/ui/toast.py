@@ -73,7 +73,17 @@ class Toast(QFrame):
         lay.addWidget(lab, 1)
         if action and fn:
             b = QPushButton(action)
-            b.clicked.connect(lambda: (fn(), self.close_now()))
+
+            def act(_=False, b=b):
+                if getattr(self, "_acted", False):
+                    return                 # a double-click must not Undo twice
+                self._acted = True
+                b.setEnabled(False)
+                try:
+                    fn()
+                finally:
+                    self.close_now()
+            b.clicked.connect(act)
             lay.addWidget(b)
         x = QPushButton("✕")
         x.setToolTip("Dismiss")

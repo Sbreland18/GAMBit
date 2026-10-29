@@ -305,6 +305,9 @@ class _PlansTab(ToolTab):
         from ...tools import policy_sets as ps
         from ...tools.chrome import direct_policies_args
 
+        if not ps.state_ok(p):     # saved 'before' values can't be trusted – start fresh
+            p["before"], p["applied"], p["schemas"] = {}, [], {}
+
         def work():
             run = _csv()
             tpl = None
@@ -332,6 +335,7 @@ class _PlansTab(ToolTab):
             def finished(_s):
                 p["applied"] = sorted(set(p.get("applied", [])) | set(ous))
                 p["state"] = new_state
+                ps._seal_state(p)
                 p["log"].append(f"{datetime.datetime.now():%Y-%m-%d %H:%M} applied to "
                                 f"{', '.join(ous)} by {team.me()}")
                 self._save_plan(p)
@@ -358,10 +362,15 @@ class _PlansTab(ToolTab):
             p["state"] = new_state
             p["log"].append(f"{datetime.datetime.now():%Y-%m-%d %H:%M} put back "
                             f"{', '.join(ous)} by {team.me()}")
+            ps._seal_state(p)
             self._save_plan(p)
             self.info(self.steps.summary())
-        if self.confirm("Put these settings back?\n\n" + "\n".join(f"• {s[0]}"
-                                                                    for s in steps[:20])):
+        from ...gam_runner import display_command
+        warn = "" if ps.state_ok(p) else (
+            "⚠ The saved settings can't be verified (changed in the team folder, or saved on "
+            "a computer this one doesn't trust). Check every command below.\n\n")
+        if self.confirm(warn + "Put these settings back?\n\n" + "\n".join(
+                f"• {display_command(s[1])}" for s in steps)):
             self.steps.run([Step(lab, a) for lab, a in steps], finished)
 
     def _show_detail(self):

@@ -80,7 +80,7 @@ def save(items: list[dict]):
 def mark_commands(f: dict, how: str, opts: dict) -> list[list[str]]:
     sn = f["serial"]
     note = f"{how.upper()} {datetime.date.today()} – last user {f['last_user'] or f['user'] or '?'}"
-    cmds = [["cros_sn", sn, "update", "notes", note[:500]]]
+    cmds = [["cros_sn", sn, "update", "updatenotes", note[:400] + "\n#notes#"]]
     if f["status"].upper() != "DISABLED":
         cmds.append(["cros_sn", sn, "update", "action", "disable"])
     if opts.get("lost_ou"):

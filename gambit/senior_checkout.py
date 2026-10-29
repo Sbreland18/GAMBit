@@ -80,7 +80,8 @@ def plan(students: list[dict], devices_by_user: dict[str, list[dict]], o: dict) 
             for d in devices_by_user.get(e.lower(), []):
                 devs.append(d)
                 now.append((f"Note on {d['serial']} ({e}): {note}",
-                            ["cros_sn", d["serial"], "update", "notes", note]))
+                            ["cros_sn", d["serial"], "update", "updatenotes",
+                             note + "\n#notes#"]))
     if o.get("grad_ou") and o.get("move_on") and emails:
         later.append((o["move_on"] + "T06:00", f"Class of {year}: move {len(emails)} to "
                       f"{o['grad_ou']}", [["update", "user", e, "ou", o["grad_ou"]]

@@ -28,6 +28,7 @@ class GamRelease:
     asset_name: str
     download_url: str
     notes_url: str
+    sha256: str = ""           # GitHub's published digest of the asset, when it has one
 
 
 def pick_gam_asset(assets: list[dict], system: str = None,
@@ -61,9 +62,17 @@ def latest_gam_release() -> GamRelease:
     asset = pick_gam_asset(data.get("assets", []))
     if not asset:
         raise RuntimeError("No GAM download was found for this computer.")
-    return GamRelease(version=tag.lstrip("v"), asset_name=asset["name"],
-                      download_url=asset["browser_download_url"],
-                      notes_url=data.get("html_url", ""))
+    url = str(asset.get("browser_download_url", ""))
+    from urllib.parse import urlparse
+    from .version import GAM_REPO
+    u = urlparse(url)
+    if u.scheme != "https" or u.hostname != "github.com" or \
+            not u.path.lower().startswith(f"/{GAM_REPO.lower()}/releases/download/"):
+        raise RuntimeError("The GAM download link isn't from the GAM-team GitHub releases.")
+    digest = str(asset.get("digest") or "")
+    return GamRelease(version=tag.lstrip("v"), asset_name=os.path.basename(asset["name"]),
+                      download_url=url, notes_url=data.get("html_url", ""),
+                      sha256=digest.split(":", 1)[1] if digest.startswith("sha256:") else "")
 
 
 def install_gam(release: GamRelease, target_dir: str,
@@ -78,7 +87,9 @@ def install_gam(release: GamRelease, target_dir: str,
     try:
         archive = os.path.join(work, release.asset_name)
         log(f"Downloading {release.asset_name} …")
-        net.download(release.download_url, archive, progress)
+        net.download(release.download_url, archive, progress, sha256=release.sha256)
+        if release.sha256:
+            log("Download checked against GitHub's published SHA-256.")
 
         extract_dir = os.path.join(work, "x")
         os.makedirs(extract_dir)
@@ -88,10 +99,7 @@ def install_gam(release: GamRelease, target_dir: str,
                 _safe_extract_zip(zf, extract_dir)
         else:
             with tarfile.open(archive) as tf:
-                try:
-                    tf.extractall(extract_dir, filter="data")
-                except TypeError:  # Python < 3.12
-                    tf.extractall(extract_dir)
+                _safe_extract_tar(tf, extract_dir)
 
         src = _find_gam_folder(extract_dir)
         if not src:
@@ -211,6 +219,22 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest: str):
     zf.extractall(dest)
 
 
+def _safe_extract_tar(tf: tarfile.TarFile, dest: str):
+    """Only plain files and folders inside dest – no absolute paths, no '..', no links or
+    device files (Python's 'data' filter when there is one, the same checks otherwise)."""
+    root = os.path.realpath(dest)
+    for m in tf.getmembers():
+        path = os.path.realpath(os.path.join(dest, m.name))
+        if os.path.commonpath([root, path]) != root or os.path.isabs(m.name):
+            raise RuntimeError(f"Unsafe path in archive: {m.name}")
+        if not (m.isfile() or m.isdir()):
+            raise RuntimeError(f"Unexpected link or device in archive: {m.name}")
+    try:
+        tf.extractall(dest, filter="data")
+    except TypeError:  # Python < 3.12: every member was checked above
+        tf.extractall(dest)
+
+
 def _find_gam_folder(root: str) -> Optional[str]:
     for dirpath, _dirs, files in os.walk(root):
         if GAM_EXE in files:
@@ -224,6 +248,11 @@ class AppUpdate:
     version: str
     url: str
     notes: str
+    sha256: str = ""
+
+
+class UpdateUnverified(RuntimeError):
+    pass
 
 
 def update_channel() -> str:
@@ -262,14 +291,65 @@ def _check_one(url: str) -> Optional[AppUpdate]:
     if not version or not dl:
         raise RuntimeError("latest.json is missing 'version' or 'url'.")
     if net.is_newer(version, __version__):
-        return AppUpdate(version, dl, str(data.get("notes", "")))
+        from . import release_sign
+        why = release_sign.problem(data)
+        if why:
+            raise UpdateUnverified(f"GAMbit {version} was announced, but it can't be "
+                                   f"verified ({why}), so it isn't offered. If you expected "
+                                   "this version, download it from GitHub yourself.")
+        return AppUpdate(version, dl, str(data.get("notes", "")),
+                         str(data.get("sha256", "")).lower())
     return None
 
 
+def _safe_name(url: str, fallback: str) -> str:
+    import re
+    name = os.path.basename(url.split("?")[0]) or fallback
+    return name if re.fullmatch(r"[\w.-]{1,120}\.exe", name) else fallback
+
+
+def verify_installer(path: str) -> str:
+    """'' if the installer's Windows signature is from a trusted publisher (when this copy
+    knows which publishers to expect), else why not."""
+    try:
+        from .release_keys import TRUSTED_SIGNER_THUMBPRINTS as want
+    except Exception:  # noqa: BLE001
+        want = []
+    want = {t.replace(" ", "").upper() for t in want if t}
+    if not want or not IS_WINDOWS:
+        return ""
+    ps = ("$s = Get-AuthenticodeSignature -LiteralPath $env:GB_FILE; "
+          "\"$($s.Status)|$($s.SignerCertificate.Thumbprint)\"")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                             capture_output=True, text=True, timeout=60,
+                             env={**os.environ, "GB_FILE": path},
+                             creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
+    except Exception as exc:  # noqa: BLE001
+        return f"couldn't check its signature ({exc})"
+    status, _, thumb = out.partition("|")
+    if status != "Valid":
+        return f"its Windows signature isn't valid ({status or 'unsigned'})"
+    if thumb.strip().upper() not in want:
+        return "it's signed by someone other than the GAMbit publisher"
+    return ""
+
+
 def download_app_update(update: AppUpdate, progress: Progress = None) -> str:
+    """Download and check the installer: GitHub only, SHA-256 from the signed release
+    information, and the Windows publisher signature (when known)."""
+    from . import release_sign
+    if not release_sign.url_ok(update.url) or not update.sha256:
+        raise UpdateUnverified("This update can't be verified, so it isn't installed.")
     folder = tempfile.mkdtemp(prefix="gambit_update_")
-    name = os.path.basename(update.url.split("?")[0]) or "GAMbit-Setup.exe"
-    return net.download(update.url, os.path.join(folder, name), progress)
+    path = net.download(update.url, os.path.join(folder, _safe_name(update.url,
+                                                                    "GAMbit-Setup.exe")),
+                        progress, sha256=update.sha256)
+    why = verify_installer(path)
+    if why:
+        os.remove(path)
+        raise UpdateUnverified(f"The downloaded installer was deleted: {why}.")
+    return path
 
 
 APP_ID = "{6F1C2B7E-9A4D-4E1B-8C3F-2D5A7B9E0C41}"       # installer/GAMbit.iss AppId
@@ -385,7 +465,7 @@ def prepare_for_update(new_version: str = "") -> str:
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
     path = os.path.join(backups_dir(), f"before-{new_version or 'update'}-from-{__version__}-"
                                        f"{stamp}.zip")
-    deploy.backup(path, include_secrets=True)
+    deploy.backup(path, include_secrets=True, dpapi=True)   # this user only
     settings.set("update/previous_version", __version__)
     settings.set("update/previous_backup", path)
     # keep the 10 newest backups
@@ -405,10 +485,34 @@ def rollback_target() -> str:
     return prev if prev and prev != __version__ else ""
 
 
+def release_info_url(version: str) -> str:
+    from .version import GITHUB_REPO
+    return f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/release.json"
+
+
 def download_previous(progress: Progress = None) -> str:
+    """The earlier version's installer – checked against that release's signed
+    release.json exactly like an update."""
+    import re
+    from . import release_sign
     ver = rollback_target()
-    if not ver:
+    if not ver or not re.fullmatch(r"[0-9A-Za-z.\-]{1,30}", ver):
         raise RuntimeError("There's no earlier version recorded on this PC.")
+    try:
+        meta = net.get_json(release_info_url(ver))
+    except Exception as exc:  # noqa: BLE001
+        raise UpdateUnverified(f"GAMbit {ver} has no signed release information to check "
+                               f"the download against ({exc}). Download it from GitHub "
+                               "yourself if you need it.") from None
+    why = release_sign.problem(meta) or ("" if str(meta.get("version")) == ver else
+                                         "it's for a different version")
+    if why:
+        raise UpdateUnverified(f"GAMbit {ver} can't be verified ({why}).")
     folder = tempfile.mkdtemp(prefix="gambit_rollback_")
-    return net.download(installer_url(ver), os.path.join(folder, f"GAMbit-Setup-{ver}.exe"),
-                        progress)
+    path = net.download(meta["url"], os.path.join(folder, f"GAMbit-Setup-{ver}.exe"),
+                        progress, sha256=str(meta["sha256"]))
+    why = verify_installer(path)
+    if why:
+        os.remove(path)
+        raise UpdateUnverified(f"The downloaded installer was deleted: {why}.")
+    return path

@@ -220,7 +220,8 @@ def _pw() -> str:
 
 
 def _q(ou: str) -> str:
-    return f"orgUnitPath='{ou}'"
+    from .. import queries
+    return queries.ou(ou)
 
 
 CROS_FIELDS = "serialnumber,annotatedassetid,annotateduser,orgunitpath,status,lastsync,model"
