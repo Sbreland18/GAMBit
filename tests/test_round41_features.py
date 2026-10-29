@@ -298,3 +298,49 @@ def test_rule_dialog_notice_fields(qapp):
     assert r["warn_days"] == 14 and r["warn_also"] == "hr@s.org" and r["warn_message"] == ""
     d.kind.setCurrentIndex(d.kind.findData("delete_old"))
     assert "warn_days" not in d.rule()
+
+
+# ================================================ fixes from the first try ===
+@pytest.mark.parametrize("path,synced", [
+    (r"C:\Users\sb\CodexSandbox\GAM7", False),
+    (r"C:\GAM7", False),
+    (r"C:\Users\sb\OneDrive - Hancock County Schools\GAM", True),
+    (r"C:\Users\sb\OneDrive\GAM", True),
+    (r"C:\Users\sb\Box\gam", True),
+    (r"C:\Users\sb\Dropbox (District)\gam", True),
+    ("//server/share/gam", True),
+])
+def test_synced_folder_matches_whole_names(path, synced):
+    from gambit.private_files import synced_or_shared
+    assert synced_or_shared(path) is synced
+
+
+def test_lock_down_removes_directly_granted_groups(gam_layout):
+    gk, prog, cfg = gam_layout
+    _me, acl, _e = gk.parse_acl_output(
+        f"ME|{ME}\nACE|{cfg}|S-1-5-21-9-9-9-1105|HCSD_SB\\\\CodexSandboxUsers|1179817|Allow|0\n"
+        f"ACE|{cfg}|S-1-5-32-544|Admins|2032127|Allow|0\n"
+        f"ACE|{cfg}|S-1-5-80-1-2|TrustedInstaller|2032127|Allow|0\n"
+        f"ACE|{prog}|S-1-5-11|Auth|1245631|Allow|0\nACE|{prog}|bad;sid|x|1|Allow|0")
+    sids = gk.foreign_sids(ME, acl)
+    assert sids == ["S-1-5-21-9-9-9-1105", "S-1-5-11"]
+    s = gk.lock_script(ME, prog, cfg, [], sids)
+    assert "/remove '*S-1-5-21-9-9-9-1105' '*S-1-5-11'" in s and "bad;sid" not in s
+    assert s.index("/remove") < s.index("/grant:r")          # remove first, then grant
+
+
+def test_home_fix_button_opens_the_page(qapp, fake_gam, monkeypatch):
+    from gambit import gam_keys
+    from gambit.ui.main_window import MainWindow
+    gam_keys.save_last([gam_keys.Finding("bad", "C:\\x", "Users can open oauth2.txt – it's "
+                                         "open.", "fix")])
+    w = MainWindow()
+    home = w.pages["Home"]
+    items = [i for i in home._attention_items() if "GAM's keys" in i[1]]
+    assert items and "&#x27;" not in items[0][1] and "<b>GAM's keys:</b>" in items[0][1]
+    called = []
+    monkeypatch.setattr(type(w.pages["Settings & Updates"]), "_lock_keys",
+                        lambda self: called.append(True))
+    items[0][3](False)                    # what Qt passes when the button is clicked
+    assert w.current_page() is w.pages["Settings & Updates"] and called
+    w.close()

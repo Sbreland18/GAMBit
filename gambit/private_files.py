@@ -47,8 +47,22 @@ def purge_old(folder: str, patterns=PASSWORD_PATTERNS, days: int = KEEP_DAYS) ->
     return n
 
 
+SYNCED_NAMES = ("onedrive", "google drive", "googledrive", "my drive", "dropbox", "box",
+                "icloud drive", "icloudrive", "sharepoint")
+
+
 def synced_or_shared(folder: str) -> bool:
-    """A folder OneDrive/Google Drive syncs, or on a network share."""
-    low = os.path.abspath(folder).lower().replace("\\", "/")
-    return low.startswith("//") or any(w in low for w in ("onedrive", "google drive",
-                                                         "googledrive", "dropbox", "box/"))
+    """A folder OneDrive/Google Drive/Dropbox/Box syncs, or on a network share. Whole folder
+    names are compared – a folder called “CodexSandbox” isn't Box."""
+    raw = str(folder or "")
+    low = os.path.abspath(raw).lower().replace("\\", "/")
+    if raw.startswith(("\\\\", "//")) or low.startswith("//"):
+        return True
+    for part in low.split("/"):
+        p = part.strip()
+        if not p:
+            continue
+        if p in SYNCED_NAMES or p.startswith(("onedrive -", "onedrive-", "dropbox (",
+                                               "box (", "google drive (")):
+            return True
+    return False

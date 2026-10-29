@@ -517,18 +517,22 @@ class HomePage(Page):
                                 "Review", lambda: self.app._go_safe("Approvals")))
         except Exception:  # noqa: BLE001
             pass
-        for src, page, btn in (("gam_keys", "Settings & Updates", "Fix"),
-                               ("sso_watch", "Single sign-on", "Fix"),
-                               ("maildns", "Domain & extras", "Fix"),
-                               ("activity", "Activity log", "Check")):
+        for src, page, btn, head in (("gam_keys", "Settings & Updates", "Fix", "GAM's keys"),
+                                     ("sso_watch", "Single sign-on", "Fix", "Sign-in"),
+                                     ("maildns", "Domain & extras", "Fix", "Email security"),
+                                     ("activity", "Activity log", "Check", "Activity log")):
             try:
+                import html as _h
                 import importlib
                 mod = importlib.import_module(f"gambit.{src}")
                 fn = mod.integrity_attention if src == "activity" else mod.attention
                 for level, text in fn()[:3]:
-                    import html as _h
-                    out.append(("bad" if level == "bad" else "warn", _h.escape(text), btn,
-                                lambda p=page: self.app._go_safe(p)))
+                    # Qt hands a clicked button's `checked` to the slot – never let it land
+                    # in the page name (that was “False is not in list”)
+                    out.append(("bad" if level == "bad" else "warn",
+                                f"<b>{_h.escape(head, quote=False)}:</b> "
+                                f"{_h.escape(text, quote=False)}", btn,
+                                lambda *_a, p=page, s=src: self._attention_fix(p, s)))
             except Exception:  # noqa: BLE001
                 pass
         d = dashboard.load_cached() or {}
@@ -543,6 +547,15 @@ class HomePage(Page):
         except Exception:  # noqa: BLE001
             pass
         return out
+
+    def _attention_fix(self, page: str, src: str = ""):
+        self.app._go_safe(page)
+        if src == "gam_keys":            # straight to the fix, not just the page
+            sp = self.app.pages.get(page) if hasattr(self.app.pages, "get") else None
+            from ... import gam_keys
+            if sp is not None and hasattr(sp, "_lock_keys") and \
+                    any(lvl == "bad" for lvl, _t in gam_keys.attention()):
+                sp._lock_keys()
 
     def _fill_attention(self):
         if not hasattr(self, "att_lay"):

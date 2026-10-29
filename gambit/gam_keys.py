@@ -245,25 +245,57 @@ def attention() -> list[tuple[str, str]]:
 
 
 # -------------------------------------------------------------- lock down ---
-def lock_script(me_sid: str, program: str, config: str, keys: list[str]) -> str:
+_SID_RE = r"S-1-[0-9]+(-[0-9]+)+"
+
+
+def foreign_sids(me: str, acl: dict) -> list[str]:
+    """Every account or group on these ACLs that isn't me, Administrators, SYSTEM, CREATOR
+    OWNER or a Windows service – including ones granted directly, not just inherited."""
+    import re
+    out = []
+    for aces in acl.values():
+        for a in aces:
+            sid = a.sid
+            if sid in OK_ALWAYS or sid == me or sid.startswith("S-1-5-80-") or \
+                    not re.fullmatch(_SID_RE, sid or "") or sid in out:
+                continue
+            out.append(sid)
+    return out
+
+
+def lock_script(me_sid: str, program: str, config: str, keys: list[str],
+                remove: list[str] | None = None) -> str:
     """PowerShell: keys → only me, Administrators, SYSTEM; the program → changeable by me
-    and Administrators, runnable by Users. Inheritance from C:\\ is removed."""
+    and Administrators, runnable by Users. Inheritance from C:\\ is removed, and every
+    other account or group (`remove`, as SIDs) is taken off – also where it was granted
+    directly."""
     import re
     if not re.fullmatch(r"S-1-5-[0-9-]+", me_sid or ""):
         raise ValueError("Couldn't tell who you are on this computer.")
+    remove = [x for x in (remove or []) if re.fullmatch(_SID_RE, x)]
     q = _ps_quote
     full = f"'*{me_sid}:(OI)(CI)F' '*{ADMINS}:(OI)(CI)F' '*{SYSTEM}:(OI)(CI)F'"
     file_full = f"'*{me_sid}:F' '*{ADMINS}:F' '*{SYSTEM}:F'"
+    rm = " ".join(f"'*{x}'" for x in remove)
     parts = []
     if program:
         same = config and os.path.normcase(os.path.abspath(program)) == \
             os.path.normcase(os.path.abspath(config))
         users = "" if same else f" '*{USERS}:(OI)(CI)RX'"
-        parts.append(f"icacls {q(program)} /inheritance:r /grant:r {full}{users} /T /C /Q")
+        parts.append(f"icacls {q(program)} /inheritance:r /T /C /Q")
+        if rm:
+            parts.append(f"icacls {q(program)} /remove {rm} /T /C /Q")
+        parts.append(f"icacls {q(program)} /grant:r {full}{users} /T /C /Q")
     if config:
-        parts.append(f"icacls {q(config)} /inheritance:r /grant:r {full} /T /C /Q")
+        parts.append(f"icacls {q(config)} /inheritance:r /T /C /Q")
+        if rm:
+            parts.append(f"icacls {q(config)} /remove {rm} /T /C /Q")
+        parts.append(f"icacls {q(config)} /grant:r {full} /T /C /Q")
     for k in keys:
-        parts.append(f"icacls {q(k)} /inheritance:r /grant:r {file_full} /C /Q")
+        parts.append(f"icacls {q(k)} /inheritance:r /C /Q")
+        if rm:
+            parts.append(f"icacls {q(k)} /remove {rm} /C /Q")
+        parts.append(f"icacls {q(k)} /grant:r {file_full} /C /Q")
     return "; ".join(parts) + "; exit 0"
 
 
@@ -280,8 +312,11 @@ def lock_down(elevate: bool = True) -> list[Finding]:
         res = check()
         save_last(res)
         return res
-    me, _acl, _e = read_acls([x for x in (p["config"], p["program"]) if x] or ["."])
-    script = lock_script(me, p["program"], p["config"], p["keys"])
+    gam = os.path.join(p["program"], "gam.exe") if p["program"] else ""
+    targets = [x for x in (p["config"], p["program"]) if x] + p["keys"] + \
+        ([gam] if gam and os.path.isfile(gam) else [])
+    me, acl, _e = read_acls(targets or ["."])
+    script = lock_script(me, p["program"], p["config"], p["keys"], foreign_sids(me, acl))
     import base64
     enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
