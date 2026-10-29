@@ -155,6 +155,15 @@ class RuleDialog(QDialog):
         self.exc.setPlaceholderText("accounts to always skip, comma separated")
         self.on = QCheckBox("Rule is on")
         self.on.setChecked(bool(r.get("enabled", True)))
+        self.archive = QLineEdit(r.get("archive_to", ""))
+        self.archive.setPlaceholderText("optional – e.g. records-archive@yourdistrict.org")
+        self.arch_cal = QCheckBox("Archive their Calendar too")
+        self.arch_cal.setChecked("calendar" in (r.get("archive_what") or []))
+        self.arch_note = QLabel("Before deleting, their Drive files go to this account (a "
+                                "folder named after them). GAMbit deletes each account only "
+                                "after Google says the transfer finished. Gmail isn't moved – "
+                                "keep mail with a Vault retention rule if you need it.",
+                                objectName="Muted", wordWrap=True)
         f.addRow("Name", self.name)
         f.addRow("Does", self.kind)
         f.addRow("Accounts under", self.ou)
@@ -162,7 +171,20 @@ class RuleDialog(QDialog):
         f.addRow("", self.never)
         f.addRow("Stop if more than", self.max)
         f.addRow("Never touch", self.exc)
+        f.addRow("Archive first to", self.archive)
+        f.addRow("", self.arch_cal)
+        f.addRow("", self.arch_note)
         f.addRow("", self.on)
+
+        def kind_changed(*_a):
+            dele = self.kind.currentData() == "delete_old"
+            for w in (self.archive, self.arch_cal, self.arch_note):
+                w.setVisible(dele)
+                lab = f.labelForField(w)
+                if lab is not None:
+                    lab.setVisible(dele)
+        self.kind.currentIndexChanged.connect(kind_changed)
+        kind_changed()
         f.addRow("", QLabel("Rules never change anything by themselves – each finding becomes an "
                             "approval request.", objectName="Muted", wordWrap=True))
         bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -175,7 +197,21 @@ class RuleDialog(QDialog):
                 "kind": self.kind.currentData(), "ou": self.ou.path() or "/",
                 "days": self.days.value(), "include_never": self.never.isChecked(),
                 "max": self.max.value(), "except": self.exc.text().strip(),
-                "enabled": self.on.isChecked()}
+                "enabled": self.on.isChecked(),
+                "archive_to": self.archive.text().strip().lower()
+                if self.kind.currentData() == "delete_old" else "",
+                "archive_what": ["drive"] + (["calendar"] if self.arch_cal.isChecked()
+                                             else [])}
+
+    def accept(self):
+        a = self.archive.text().strip()
+        if self.kind.currentData() == "delete_old" and a and \
+                ("@" not in a or " " in a or a.count("@") != 1):
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Clean-up rule",
+                                    "The archive account must be one email address.")
+            return
+        super().accept()
 
 
 class CleanupPage(Page):
@@ -194,6 +230,10 @@ class CleanupPage(Page):
                                      button("Check all rules now (send for approval)",
                                             slot=self.run_now),
                                      button("Every Monday…", slot=self.schedule)))
+        self.body.addLayout(self.row(button("Deletion record…", slot=self.show_record),
+                                     button("Waiting to delete", slot=self.show_pending),
+                                     button("Cancel selected deletions", "danger",
+                                            self.cancel_pending)))
         self.body.addWidget(self.table)
         self.status = QLabel("", objectName="Muted")
         self.body.addWidget(self.status)
@@ -283,6 +323,54 @@ class CleanupPage(Page):
                                       self.app.update_approvals_badge()
                                       if hasattr(self.app, "update_approvals_badge") else None),
                on_error=lambda e: self.info(str(e)))
+
+    def show_record(self):
+        """Every account deletion GAMbit ran – who, when, why, which rule, archived where."""
+        from ... import retention
+        rows = retention.records()
+        self.found.set_rows([h for _k, h in retention.RECORD_COLUMNS],
+                            [[str(r.get(k, "")).replace("T", " ") for k, _h in
+                              retention.RECORD_COLUMNS] for r in rows])
+        bad = sum(1 for r in rows if str(r.get("verified", "")).startswith("NO"))
+        self.status.setText(f"Deletion record: {len(rows)} account(s)."
+                            + (f" ⚠ {bad} line(s) were changed or signed by an unknown key."
+                               if bad else ""))
+        if rows and self.confirm("Save the deletion record as a CSV file too?",
+                                 "Deletion record"):
+            from PySide6.QtWidgets import QFileDialog
+            path, _ = QFileDialog.getSaveFileName(self, "Deletion record",
+                                                  "gambit-deletion-record.csv", "CSV (*.csv)")
+            if path:
+                retention.export_csv(path, rows)
+
+    def show_pending(self):
+        from ... import retention
+        rows = retention.pending()
+        self.found.set_rows(["Account", "Status", "Archive to", "Rule", "Approved by",
+                             "Since", "Note", "id"],
+                            [[r.get("email", ""), r.get("status", ""), r.get("archive_to", ""),
+                              r.get("rule", ""), r.get("approved_by", ""),
+                              r.get("created", "").replace("T", " "), r.get("note", ""),
+                              r.get("id", "")] for r in rows])
+        self.found.hidden_columns = {"id"}
+        waiting = [r for r in rows if r.get("status") in ("transferring", "ready", "blocked")]
+        self.status.setText(f"{len(waiting)} account(s) waiting for their archive transfer "
+                            "to finish (checked by the daily background task). Select any "
+                            "you want to keep and click Cancel selected deletions.")
+
+    def cancel_pending(self):
+        from ... import retention
+        sel = [r for r in self.found.selected_dicts() if r.get("id") and r.get("Status")
+               in ("transferring", "ready", "blocked")]
+        if not sel:
+            self.info("Click Waiting to delete, then select the accounts to keep.")
+            return
+        if not self.confirm("Keep these accounts (suspended) instead of deleting them?\n\n"
+                            + "\n".join(f"• {r['Account']}" for r in sel)):
+            return
+        n = sum(retention.cancel(r["id"]) for r in sel)
+        self.show_pending()
+        self.status.setText(f"{n} deletion(s) cancelled – those accounts stay suspended.")
 
     def schedule(self):
         from ... import tasks_health

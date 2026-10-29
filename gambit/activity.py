@@ -207,19 +207,263 @@ def is_change(args: list[str]) -> bool:
     return True                    # an action GAMbit doesn't know: assume it changes things
 
 
+CHAIN = ("prev", "h", "ch", "sig")          # fingerprint fields – never part of the content
+ANCHOR_KEY = "activity/anchors"              # {file name: {"n": lines, "h": last h}}
+CHAIN_SINCE_KEY = "activity/chain_since"     # when this PC started fingerprinting lines
+
+
+def _canon(obj) -> bytes:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)\
+        .encode("utf-8")
+
+
+def content_hash(entry: dict) -> str:
+    import hashlib
+    return hashlib.sha256(_canon({k: v for k, v in entry.items() if k not in CHAIN}))\
+        .hexdigest()
+
+
+def link_hash(prev: str, ch: str) -> str:
+    import hashlib
+    return hashlib.sha256(f"{prev}|{ch}".encode()).hexdigest()
+
+
+def _last_h(path: str) -> tuple[str, int]:
+    """(fingerprint of the last line, number of lines) of a log file."""
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return "", 0
+    lines = [ln for ln in data.splitlines() if ln.strip()]
+    for ln in reversed(lines):
+        try:
+            return str(json.loads(ln).get("h") or ""), len(lines)
+        except ValueError:
+            return "", len(lines)
+    return "", 0
+
+
+def _anchors() -> dict:
+    try:
+        d = json.loads(settings.fresh(ANCHOR_KEY, "") or "{}")
+        return d if isinstance(d, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _set_anchor(path: str, n: int, h: str):
+    d = _anchors()
+    d[os.path.basename(path)] = {"n": n, "h": h}
+    settings.set(ANCHOR_KEY, json.dumps(d))
+
+
+def _sign_ch(ch: str) -> dict:
+    try:
+        from . import seal
+        return seal.seal_for("activity", ch)
+    except Exception:  # noqa: BLE001 – never lose a log line over a signature
+        return {}
+
+
 def _write(entry: dict):
-    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    """Append one line to each log file. Every line carries a fingerprint of its content
+    (signed with this computer's / person's key) chained to the line before it, so an
+    edited, inserted or deleted line shows up when the log is checked."""
+    from . import file_lock
     month = entry["time"][:7]
-    paths = [os.path.join(local_dir(), f"activity-{month}.jsonl")]
+    paths = [(os.path.join(local_dir(), f"activity-{month}.jsonl"), True)]
     if shared_dir():
-        paths.append(os.path.join(shared_dir(), f"activity-{who()}-{month}.jsonl"))
-    for p in paths:
+        paths.append((os.path.join(shared_dir(), f"activity-{who()}-{month}.jsonl"), False))
+    if not settings.get(CHAIN_SINCE_KEY, ""):
+        settings.set(CHAIN_SINCE_KEY, entry["time"])
+    body = {k: v for k, v in entry.items() if k not in CHAIN}
+    ch = content_hash(body)
+    sig = _sign_ch(ch)
+    for p, local in paths:
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "a", encoding="utf-8") as fh:
-                fh.write(line)
+            try:
+                lock = file_lock.held(p + ".lock", wait=5)
+                lock.__enter__()
+            except Exception:  # noqa: BLE001 – busy: still write (a gap shows as a break)
+                lock = None
+            try:
+                prev, n = _last_h(p)
+                line = dict(body, prev=prev, ch=ch, h=link_hash(prev, ch), sig=sig)
+                with open(p, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+                if local:
+                    _set_anchor(p, n + 1, line["h"])
+            finally:
+                if lock is not None:
+                    lock.__exit__(None, None, None)
         except OSError:
             pass
+
+
+# ------------------------------------------------------------ checking ---
+def verify_lines(lines: list[str], trusted: dict | None = None,
+                 chain_since: str = "") -> list[tuple[str, str]]:
+    """For each line: (state, why). state is ok / legacy (written before fingerprints) /
+    unverified (signed on a computer this one doesn't know) / bad."""
+    from .auth import crypto
+    if trusted is None:
+        from . import seal
+        try:
+            trusted = seal._trusted()
+        except Exception:  # noqa: BLE001
+            trusted = {}
+    out: list[tuple[str, str]] = []
+    expect, chained = "", False
+    for ln in lines:
+        try:
+            e = json.loads(ln)
+            if not isinstance(e, dict):
+                raise ValueError
+        except ValueError:
+            out.append(("bad", "unreadable line"))
+            continue
+        if "h" not in e:
+            late = chain_since and str(e.get("time", "")) >= chain_since
+            if chained or late:
+                out.append(("bad", "a line without a fingerprint, added after fingerprints "
+                                   "started (written or edited by hand)"))
+            else:
+                out.append(("legacy", "written before GAMbit fingerprinted the log"))
+            continue
+        ch = content_hash(e)
+        if ch != e.get("ch") or link_hash(str(e.get("prev", "")), ch) != e.get("h"):
+            out.append(("bad", "changed after GAMbit wrote it"))
+            expect, chained = str(e.get("h", "")), True
+            continue
+        if str(e.get("prev", "")) != expect:
+            out.append(("bad", "lines before this one were removed, added or reordered"))
+            expect, chained = e["h"], True
+            continue
+        expect, chained = e["h"], True
+        s = e.get("sig") or {}
+        if not s:
+            out.append(("ok", "fingerprinted (not signed)"))
+            continue
+        t = trusted.get(str(s.get("kid", "")))
+        if not t:
+            out.append(("unverified", "signed on a computer this one doesn't know"))
+            continue
+        level, _who, pub = t
+        from .seal import _bytes
+        try:
+            good = crypto.verify(pub, crypto.unb64(str(s.get("sig", ""))),
+                                 _bytes("activity", ch))
+        except (ValueError, TypeError):
+            good = False
+        out.append(("ok", "signed") if good else ("bad", "the signature doesn't match"))
+    return out
+
+
+def check_file(path: str, trusted: dict | None = None) -> dict:
+    """{file, lines, ok, legacy, unverified, bad: [(line no, why)], last}"""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+    except OSError as exc:
+        return {"file": path, "lines": 0, "ok": 0, "legacy": 0, "unverified": 0,
+                "bad": [(0, f"can't be read: {exc}")], "last": ""}
+    states = verify_lines(lines, trusted, settings.get(CHAIN_SINCE_KEY, "") or "")
+    rep = {"file": path, "lines": len(lines), "ok": 0, "legacy": 0, "unverified": 0,
+           "bad": [], "last": ""}
+    hs = []
+    for i, (st, why) in enumerate(states, 1):
+        if st == "bad":
+            rep["bad"].append((i, why))
+        else:
+            rep[st] += 1
+        try:
+            hs.append(str(json.loads(lines[i - 1]).get("h") or ""))
+        except ValueError:
+            hs.append("")
+    rep["last"] = next((h for h in reversed(hs) if h), "")
+    a = _anchors().get(os.path.basename(path))
+    if a and os.path.dirname(os.path.abspath(path)) == os.path.abspath(local_dir()):
+        n, h = int(a.get("n", 0) or 0), str(a.get("h", ""))
+        if n > len(lines):
+            rep["bad"].append((len(lines), f"the file is {n - len(lines)} line(s) shorter "
+                                           "than when GAMbit last wrote to it"))
+        elif n and hs[n - 1] != h:
+            rep["bad"].append((n, "the lines GAMbit last wrote were changed or replaced"))
+    return rep
+
+
+def check_all(team: bool = True) -> list[dict]:
+    """Check this computer's log files (and the team's, if shared) – plus files the log
+    should have that are gone."""
+    from . import seal
+    try:
+        trusted = seal._trusted()
+    except Exception:  # noqa: BLE001
+        trusted = {}
+    files = sorted(glob.glob(os.path.join(local_dir(), "activity-*.jsonl")))
+    reps = [check_file(f, trusted) for f in files]
+    have = {os.path.basename(f) for f in files}
+    for name in sorted(_anchors()):
+        if name not in have:
+            reps.append({"file": os.path.join(local_dir(), name), "lines": 0, "ok": 0,
+                         "legacy": 0, "unverified": 0,
+                         "bad": [(0, "this month's log file was deleted")], "last": ""})
+    if team and shared_dir() and os.path.isdir(shared_dir()):
+        for f in sorted(glob.glob(os.path.join(shared_dir(), "activity-*.jsonl"))):
+            reps.append(check_file(f, trusted))
+    return reps
+
+
+INTEGRITY_KEY = "activity/integrity_last"
+
+
+def integrity_summary(reps: list[dict]) -> dict:
+    bad = [(os.path.basename(r["file"]), n, why) for r in reps for n, why in r["bad"]]
+    return {"at": datetime.datetime.now().isoformat(timespec="minutes"),
+            "files": len(reps), "lines": sum(r["lines"] for r in reps),
+            "bad": bad[:200], "bad_count": len(bad)}
+
+
+def run_check(log=print) -> dict:
+    """Daily: check the log and alert when something new looks tampered with."""
+    summ = integrity_summary(check_all())
+    try:
+        before = json.loads(settings.get(INTEGRITY_KEY, "") or "{}")
+    except ValueError:
+        before = {}
+    settings.set(INTEGRITY_KEY, json.dumps(summ))
+    old = {tuple(x) for x in before.get("bad", [])}
+    new = [x for x in summ["bad"] if tuple(x) not in old]
+    log(f"Activity log check: {summ['lines']} line(s) in {summ['files']} file(s), "
+        f"{summ['bad_count']} problem(s).")
+    if new:
+        from . import alerts
+        alerts.notify("GAMbit's activity log looks edited – lines were changed, added or "
+                      "removed outside GAMbit:\n" + "\n".join(
+                          f"• {f}, line {n}: {why}" for f, n, why in new[:20]),
+                      "GAMbit activity log")
+    return summ
+
+
+def integrity_attention() -> list[tuple[str, str]]:
+    try:
+        d = json.loads(settings.get(INTEGRITY_KEY, "") or "{}")
+    except ValueError:
+        return []
+    n = int(d.get("bad_count", 0) or 0)
+    return [("bad", f"The activity log has {n} line(s) that were changed outside "
+                    "GAMbit")] if n else []
+
+
+def undo_allowed(entry: dict) -> tuple[bool, str]:
+    """Undo and re-run read commands from the log – never from a line that was edited."""
+    st = entry.get("integrity")
+    if st == "bad":
+        return False, ("This log entry was changed after GAMbit wrote it, so GAMbit won't "
+                       "run commands from it.")
+    return True, ""
 
 
 # ============================================ plain-English Chromebook changes ===
@@ -403,6 +647,12 @@ def record(args: list[str], code: int, status: str, undo: Optional[dict],
         if t and t[0] != "ou":
             entry["devices"] = device_labels(t[0], t[1])[:500]
     _write(entry)
+    if code == 0 and entry["change"]:
+        try:
+            from . import retention
+            retention.on_activity(entry)          # account deletions → deletion record
+        except Exception:  # noqa: BLE001 – recording must never fail a command
+            pass
     return entry
 
 
@@ -417,24 +667,40 @@ def load(days: int = 30, team: bool = False) -> list[dict]:
     files = glob.glob(os.path.join(local_dir(), "activity-*.jsonl"))
     if team and shared_dir() and os.path.isdir(shared_dir()):
         files = [f for f in files] + glob.glob(os.path.join(shared_dir(), "activity-*.jsonl"))
-    entries, undone, seen = [], set(), set()
+    entries, undone, by_id = [], set(), {}
+    try:
+        from . import seal
+        trusted = seal._trusted()
+    except Exception:  # noqa: BLE001
+        trusted = {}
+    since_chain = settings.get(CHAIN_SINCE_KEY, "") or ""
     for f in files:
         try:
             with open(f, encoding="utf-8") as fh:
-                for ln in fh:
-                    try:
-                        e = json.loads(ln)
-                    except ValueError:
-                        continue
-                    if e.get("type") == "undone":
-                        undone.add(e.get("target"))
-                        continue
-                    if e.get("id") in seen or (since and e.get("time", "") < since):
-                        continue
-                    seen.add(e.get("id"))
-                    entries.append(e)
+                lines = [ln for ln in fh.read().splitlines() if ln.strip()]
         except OSError:
             continue
+        for ln, (state, why) in zip(lines, verify_lines(lines, trusted, since_chain)):
+            try:
+                e = json.loads(ln)
+            except ValueError:
+                continue
+            if not isinstance(e, dict) or not e.get("id"):
+                continue
+            if e.get("type") == "undone":
+                if state != "bad":            # a forged "undone" mark mustn't hide a change
+                    undone.add(e.get("target"))
+                continue
+            if since and e.get("time", "") < since:
+                continue
+            e["integrity"], e["integrity_why"] = state, why
+            prev = by_id.get(e["id"])
+            if prev is not None:              # the same line in the local + team copy
+                if state == "bad":
+                    prev["integrity"], prev["integrity_why"] = state, why
+                continue
+            by_id[e["id"]] = e
+            entries.append(e)
     for e in entries:
         e["undone"] = e["id"] in undone
     entries.sort(key=lambda e: e.get("time", ""), reverse=True)
@@ -445,12 +711,15 @@ def write_csv(entries: list[dict], path: str):
     with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv_safe.writer(fh)
         w.writerow(["Time", "Who", "Computer", "Domain", "Command", "Result", "Undone",
-                    "Note"])
+                    "Note", "Integrity", "Fingerprint"])
+        label = {"ok": "verified", "legacy": "older (not fingerprinted)",
+                 "unverified": "signed on another computer", "bad": "EDITED OUTSIDE GAMBIT"}
         for e in entries:
             res = "OK" if e.get("code") == 0 else (e.get("status") or f"exit {e.get('code')}")
             w.writerow([e.get("time", "").replace("T", " "), e.get("who"), e.get("computer"),
                         e.get("profile"), e.get("command"), res,
-                        "yes" if e.get("undone") else "", e.get("note", "")])
+                        "yes" if e.get("undone") else "", e.get("note", ""),
+                        label.get(e.get("integrity", ""), ""), (e.get("h") or "")[:16]])
 
 
 def sheet_url() -> str:
@@ -467,6 +736,21 @@ def push_to_sheet() -> str:
     write_csv(entries, path)
     tab = "Team activity" if team else f"Activity - {who()}"
     google_io.replace_sheet_tab(sheet_url(), tab, path)
+    # the chain's fingerprints, kept off this PC: the Sheet's version history keeps every
+    # night's copy, so a later edit of the log here can be compared with what was sent
+    fp = os.path.join(_tf.folder(), "activity-fingerprints.csv")
+    with open(fp, "w", newline="", encoding="utf-8") as fh:
+        w = csv_safe.writer(fh)
+        w.writerow(["Checked", "Computer", "File", "Lines", "Last fingerprint", "Problems"])
+        now = datetime.datetime.now().isoformat(timespec="minutes").replace("T", " ")
+        for r in check_all(team=team):
+            w.writerow([now, platform.node(), os.path.basename(r["file"]), r["lines"],
+                        r["last"], "; ".join(f"line {n}: {why}" for n, why in r["bad"][:5])])
+    try:
+        google_io.replace_sheet_tab(sheet_url(), "Log fingerprints"
+                                    + ("" if team else f" - {who()}"), fp)
+    except Exception:  # noqa: BLE001 – the activity copy itself already went through
+        pass
     settings.set("activity/sheet_pushed", datetime.datetime.now().isoformat(timespec="minutes"))
     return tab
 

@@ -294,6 +294,19 @@ def check_seal(kind: str, body, s) -> Optional[Verified]:
     return Verified(level, who, str(s.get("kid")), str(s.get("at", "")))
 
 
+def check_seal_detail(kind: str, body, s) -> tuple[str, Optional[Verified]]:
+    """Like check_seal, but tells 'signed by a key this PC doesn't know' ("unknown") apart
+    from 'the signature doesn't match' ("bad"). → ("ok"|"unknown"|"bad"|"none", Verified)"""
+    if not isinstance(s, dict) or not s:
+        return "none", None
+    if s.get("v") != VERSION:
+        return "bad", None
+    if str(s.get("kid", "")) not in _trusted():
+        return "unknown", None
+    v = check_seal(kind, body, s)
+    return ("ok", v) if v is not None else ("bad", None)
+
+
 def sign(kind: str, rec: dict, fields: Optional[Iterable[str]] = None,
          skip: Iterable[str] = ()) -> dict:
     """Return rec with a fresh seal over its stable fields."""

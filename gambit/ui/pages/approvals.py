@@ -400,6 +400,15 @@ class ApprovalsPage(Page):
                                         result="all commands worked" if ok else
                                         f"{sum(c != 0 for c in results)} command(s) failed: "
                                         f"{(err or '').strip()[-200:]}")
+                    if ok and r.get("kind") == "cleanup-archive":
+                        from ... import retention
+                        try:
+                            n = retention.register(r)
+                            self.app.log_line(f"Archive transfers started – {n} account(s) "
+                                              "will be deleted once Google finishes them "
+                                              "(daily background task).")
+                        except ValueError as exc:
+                            self.info(str(exc))
                     if ok and r.get("kind") == "offboard-delete":
                         from ... import offboard
                         rec = offboard.get(r.get("email", ""))
@@ -433,10 +442,11 @@ class ApprovalsPage(Page):
         from ... import approval_policy, change_queue
         from .round12_pages import ask_when
         sel = [r for r in self._selected() if r.get("status") == "pending" and r.get("commands")
-               and r.get("kind") not in ("offboard", "selfservice", "ticket_reset")]
+               and r.get("kind") not in ("offboard", "selfservice", "ticket_reset",
+                                         "cleanup-archive")]
         if not sel:
-            self.info("Select a request that's waiting for approval (offboarding, self-service "
-                      "and password tickets can only run now).")
+            self.info("Select a request that's waiting for approval (offboarding, self-service, "
+                      "password tickets and archive-then-delete can only run now).")
             return
         when = ask_when(self)
         if not when:

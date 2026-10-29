@@ -19,7 +19,7 @@ from .settings import settings
 
 SUBJECT_TAG = "GAMbit approval"
 ID_RE = re.compile(r"\[GAMbit approval ([0-9A-Za-z-]+)(?: ([0-9a-f]{16}))?\]")
-SPECIAL = ("offboard", "selfservice")
+SPECIAL = ("offboard", "selfservice", "cleanup-archive")   # need the app to finish
 
 
 def approvers() -> list[str]:

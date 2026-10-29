@@ -197,6 +197,18 @@ class SettingsPage(Page):
         self.side_tabs_box.currentIndexChanged.connect(
             lambda i: _tabs.set_side_tabs(i == 0))
         form.addRow("Page tabs", self.side_tabs_box)
+        from ... import printouts as _po
+        self.print_lang = _po.lang_combo()
+        self.print_lang.currentIndexChanged.connect(
+            lambda _i: _po.set_default_lang(self.print_lang.currentData()))
+
+        def _wording():
+            from ..wording_dialog import WordingDialog
+            WordingDialog(self).exec()
+        form.addRow("Printouts", self.row(self.print_lang, button(
+            "Edit wording…", slot=_wording), QLabel(
+            "Account cards and Welcome sheets – each one can still be switched when "
+            "printing.", objectName="Muted")))
         self.friendly_cb = QCheckBox("Show dates as “Oct 12, 2026 (16 days ago)” and True/False "
                                      "as Yes/No (exports keep the exact values)")
         self.friendly_cb.setChecked(bool(settings.get("ui/friendly", True)))

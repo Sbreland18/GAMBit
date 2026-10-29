@@ -53,7 +53,17 @@ def build(days: int = 7) -> dict:
             r["label"] = tasks_health.label_for(r["key"])
     except Exception:  # noqa: BLE001
         bg_failed, bg_ok = [], 0
-    return {"days": days, "created": created, "leaving": leaving, "failed": failed,
+    watch = []
+    for mod, fn in (("sso_watch", "attention"), ("maildns", "attention"),
+                    ("activity", "integrity_attention")):
+        try:
+            import importlib
+            watch += [t for _l, t in getattr(importlib.import_module(f".{mod}", __package__),
+                                             fn)()]
+        except Exception:  # noqa: BLE001
+            pass
+    return {"watch": watch, "days": days, "created": created, "leaving": leaving,
+            "failed": failed,
             "due": due, "pending": pending, "bad_jobs": bad_jobs, "dash": dash,
             "today": today, "by_tech": by_tech, "bg_failed": bg_failed, "bg_ok": bg_ok,
             "low_licenses": low_licenses(dash.get("license_breakdown") or {})}
@@ -92,7 +102,7 @@ def render(d: dict) -> tuple[str, str]:
     dash = d["dash"]
     attention = len(d["failed"]) + len(d["pending"]) + len(d["bad_jobs"]) + \
         int(dash.get("alerts", 0) or 0) + len(d.get("bg_failed", [])) + \
-        len(d.get("low_licenses", []))
+        len(d.get("low_licenses", [])) + len(d.get("watch", []))
     subject = (f"GAMbit weekly digest – {len(d['created'])} new, {len(d['leaving'])} leaving"
                + (f", {attention} to check" if attention else ""))
 
@@ -116,6 +126,9 @@ def render(d: dict) -> tuple[str, str]:
         f"<td style='border:1px solid #d0d7de;text-align:center'><div style='font-size:20px;"
         f"font-weight:bold'>{v}</div><div style='color:#57606a'>{esc(t)}</div></td>"
         for t, v in tiles) + "</tr></table>")
+    if d.get("watch"):
+        parts.append(section("Sign-in, email security and log checks",
+                             [esc(t) for t in d["watch"]]))
     parts.append(section("Waiting for approval",
                          [f"{esc(r.get('title', ''))} – asked by {esc(r.get('by', ''))}"
                           for r in d["pending"]]))

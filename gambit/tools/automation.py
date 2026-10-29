@@ -275,6 +275,28 @@ def run_cleanup(log=print, run_csv=None, users=None) -> list[str]:
             lines.append(f"“{r.get('name')}”: {len(found)} account(s) – set up a team folder so "
                          "clean-up rules can ask for approval.")
             continue
+        archive = (r.get("archive_to") or "").strip().lower()
+        if r.get("kind") == "delete_old" and archive:
+            from .. import retention
+            what = [w for w in (r.get("archive_what") or ["drive"]) if w in retention.WHAT]
+            found = [f for f in found if f["email"] != archive]   # never the archive itself
+            team.new_request(
+                [retention.transfer_args(f["email"], archive, what) for f in found],
+                f"Clean-up rule “{r.get('name')}” found {len(found)} account(s). Approving "
+                f"hands their {' and '.join(retention.WHAT[w] for w in what)} to {archive}; "
+                "GAMbit deletes each account only after Google says that transfer finished "
+                "(and it's still suspended):\n" +
+                "\n".join(f"• {f['email']} – {f['why']}" for f in found[:60]),
+                title=f"Clean-up: archive then delete – {r.get('name')} ({len(found)})",
+                by="clean-up rules",
+                extra={"kind": "cleanup-archive", "rule": r.get("name"),
+                       "archive_to": archive, "what": what,
+                       "delete_after": [f["email"] for f in found],
+                       "why": {f["email"]: f["why"] for f in found}},
+                dedupe=f"cleanup:{r.get('name')}")
+            lines.append(f"“{r.get('name')}”: {len(found)} account(s) sent for approval "
+                         f"(archive to {archive}, then delete).")
+            continue
         team.new_request([f["args"] for f in found],
                          f"Clean-up rule “{r.get('name')}” found {len(found)} account(s):\n" +
                          "\n".join(f"• {f['email']} – {f['why']}" for f in found[:60]),

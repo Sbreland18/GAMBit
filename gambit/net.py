@@ -61,6 +61,21 @@ def get_json(url: str, timeout: int = 15) -> dict:
         return json.loads(resp.read(8 * 1024 * 1024).decode("utf-8-sig"))
 
 
+def get_bytes(url: str, timeout: int = 20, limit: int = 2 * 1024 * 1024) -> bytes:
+    """GET an https:// URL (never file:, ftp: or plain http:) and return at most `limit`
+    bytes – for small documents like a sign-in provider's SAML metadata."""
+    if not str(url or "").lower().startswith("https://"):
+        raise ValueError("Only https:// links can be read.")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
+                                               "Cache-Control": "no-cache"})
+    resp, _r = _open(req, timeout)
+    with resp:
+        data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("That file is too large to be sign-in metadata or a certificate.")
+    return data
+
+
 class IntegrityError(RuntimeError):
     pass
 

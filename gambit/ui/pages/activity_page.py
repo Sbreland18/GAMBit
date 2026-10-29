@@ -64,6 +64,7 @@ class ActivityPage(Page):
         acts.addWidget(button("Explain", slot=self.explain_selected))
         acts.addWidget(button("Copy command", slot=self.copy))
         acts.addWidget(button("Export…", slot=self.export))
+        acts.addWidget(button("Check the log for edits…", slot=self.check_integrity))
         acts.addStretch(1)
         self.count = QLabel("", objectName="Muted")
         acts.addWidget(self.count)
@@ -146,7 +147,9 @@ class ActivityPage(Page):
             res = "✔ Done" if ok else ("■ Cancelled" if e.get("status") == "cancelled"
                                        else f"✖ Failed ({e.get('code')})")
             undo = ""
-            if e.get("undone"):
+            if e.get("integrity") == "bad":
+                undo = "⚠ edited outside GAMbit"
+            elif e.get("undone"):
                 undo = "↩ undone"
             elif e.get("undo"):
                 undo = "↩ " + e["undo"].get("label", "available")
@@ -172,7 +175,8 @@ class ActivityPage(Page):
         return [self.table.item(r, 0).data(Qt.UserRole) for r in rows]
 
     def undo(self):
-        sel = [e for e in self._selected() if e.get("undo") and not e.get("undone")]
+        sel = [e for e in self._selected() if e.get("undo") and not e.get("undone")
+               and e.get("integrity") != "bad"]
         if not sel:
             self.info("Select a change that shows “↩” in the Undo column.")
             return
@@ -186,8 +190,43 @@ class ActivityPage(Page):
             self.app.run_undo(e)
         self.refresh()
 
+    def check_integrity(self):
+        """Every line GAMbit writes is fingerprinted and chained to the one before; show
+        anything that was edited, added or removed outside GAMbit."""
+        import os
+        from ... import activity as _act
+        reps = _act.check_all(team=True)
+        summ = _act.integrity_summary(reps)
+        from ...settings import settings as _s
+        _s.set(_act.INTEGRITY_KEY, __import__("json").dumps(summ))
+        legacy = sum(r["legacy"] for r in reps)
+        unver = sum(r["unverified"] for r in reps)
+        lines = [f"{summ['lines']:,} line(s) in {summ['files']} file(s) checked."]
+        if summ["bad_count"]:
+            lines.append(f"\n⚠ {summ['bad_count']} problem(s) – these were changed outside "
+                         "GAMbit. GAMbit won't undo or re-run edited lines:")
+            lines += [f"• {f}, line {n}: {why}" for f, n, why in summ["bad"][:40]]
+        else:
+            lines.append("\n✔ Nothing was edited, added or removed outside GAMbit.")
+        if legacy:
+            lines.append(f"\n{legacy:,} older line(s) were written before GAMbit "
+                         "fingerprinted the log, so they can't be checked.")
+        if unver:
+            lines.append(f"{unver:,} line(s) are signed on computers this one doesn't know "
+                         "yet (pair them in Settings → Team → Signatures & trust).")
+        files = ", ".join(sorted({os.path.basename(r["file"]) for r in reps})[:6])
+        if files:
+            lines.append(f"\nFiles: {files}{'…' if len(reps) > 6 else ''}")
+        self.info("\n".join(lines), "Activity log check")
+        self.refresh()
+
     def rerun(self):
+        from ... import activity as _act
         for e in self._selected()[:10]:
+            allowed, why = _act.undo_allowed(e)
+            if not allowed:
+                self.info(why)
+                continue
             if "********" in " ".join(e.get("args", [])):
                 self.info("Commands with passwords can't be re-run from the log.")
                 continue

@@ -1047,6 +1047,16 @@ class MoreActions:
             except Exception:  # noqa: BLE001
                 pass
             return False
+        from .. import activity as _act
+        allowed, why = _act.undo_allowed(entry)
+        if not allowed:
+            self.log_line(f"✖ Undo not run – {why}", "#ff8a80")
+            try:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Undo", why)
+            except Exception:  # noqa: BLE001
+                pass
+            return False
         steps = entry["undo"].get("steps") or [entry["undo"]["args"]]
         for args in steps:
             self._pending_undo_of = entry["id"]

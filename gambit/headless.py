@@ -114,6 +114,17 @@ def daily(log) -> int:
         except Exception as exc:  # noqa: BLE001
             log(f"{name} failed: {exc}")
             code = 1
+    for name, fn in (("Archive-then-delete", "retention:run_due"),
+                     ("Sign-in certificates", "sso_watch:run"),
+                     ("Email domain check", "maildns:run"),
+                     ("Activity log check", "activity:run_check")):
+        try:
+            import importlib
+            mod, func = fn.split(":")
+            getattr(importlib.import_module(f".{mod}", __package__), func)(log=log)
+        except Exception as exc:  # noqa: BLE001
+            log(f"{name} failed: {exc}")
+            code = 1
     try:
         from . import yearend
         yearend.send_reminders(log=log)

@@ -517,6 +517,19 @@ class HomePage(Page):
                                 "Review", lambda: self.app._go_safe("Approvals")))
         except Exception:  # noqa: BLE001
             pass
+        for src, page, btn in (("sso_watch", "Single sign-on", "Fix"),
+                               ("maildns", "Domain & extras", "Fix"),
+                               ("activity", "Activity log", "Check")):
+            try:
+                import importlib
+                mod = importlib.import_module(f"gambit.{src}")
+                fn = mod.integrity_attention if src == "activity" else mod.attention
+                for level, text in fn()[:3]:
+                    import html as _h
+                    out.append(("bad" if level == "bad" else "warn", _h.escape(text), btn,
+                                lambda p=page: self.app._go_safe(p)))
+            except Exception:  # noqa: BLE001
+                pass
         d = dashboard.load_cached() or {}
         if d.get("alerts"):
             out.append(("warn", f"<b>{d['alerts']} security alert(s)</b> in the last 7 days",

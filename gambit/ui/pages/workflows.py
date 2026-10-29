@@ -49,28 +49,20 @@ class WelcomeSheet(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"Welcome sheet – {name}")
         self.resize(620, 560)
-        esc = html.escape
-        self.html = f"""
-        <h2 style="margin-bottom:2px">Welcome, {esc(name)}!</h2>
-        <p style="color:#57606a;margin-top:0">Your Google Workspace account is ready.</p>
-        <table cellpadding="6" style="font-size:12pt">
-          <tr><td><b>Email / username</b></td><td>{esc(email)}</td></tr>
-          <tr><td><b>Temporary password</b></td>
-              <td style="font-family:Consolas,monospace;font-size:14pt">{esc(password)}</td></tr>
-          <tr><td><b>Sign in at</b></td><td>https://accounts.google.com</td></tr>
-        </table>
-        <ol>
-          <li>Go to <b>accounts.google.com</b> and sign in with the email above.</li>
-          <li>Type the temporary password.</li>
-          {"<li>Choose a new password you'll remember. Don't share it.</li>" if change else ""}
-          <li>Open Gmail, Drive and Classroom from the app grid (the 9 dots, top right).</li>
-        </ol>
-        <p style="color:#57606a">Keep this sheet somewhere safe, or shred it once you've
-        signed in.</p>"""
-        view = QTextBrowser()
-        view.setHtml(self.html)
+        self._who = (name, email, password, change)
+        from PySide6.QtWidgets import QLabel
+        from ...printouts import lang_combo
         lay = QVBoxLayout(self)
-        lay.addWidget(view, 1)
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Language"))
+        self.lang = lang_combo()
+        top.addWidget(self.lang)
+        top.addStretch(1)
+        lay.addLayout(top)
+        self.view = QTextBrowser()
+        lay.addWidget(self.view, 1)
+        self.lang.currentIndexChanged.connect(self.render)
+        self.render()
         row = QHBoxLayout()
         row.addWidget(button("Print…", "primary", self.print_))
         row.addWidget(button("Save as PDF…", slot=self.pdf))
@@ -83,6 +75,33 @@ class WelcomeSheet(QDialog):
         row.addWidget(close)
         lay.addLayout(row)
         self.email = email
+
+    @staticmethod
+    def sheet_html(name, email, password, change, lang=None) -> str:
+        from ...printouts import default_lang, t
+        lang = lang or default_lang()
+        esc = html.escape
+        choose = f"<li>{t('step_choose', lang)}</li>" if change else ""
+        return f"""
+        <h2 style="margin-bottom:2px">{t('welcome_title', lang, name=name)}</h2>
+        <p style="color:#57606a;margin-top:0">{t('welcome_ready', lang)}</p>
+        <table cellpadding="6" style="font-size:12pt">
+          <tr><td><b>{t('welcome_user', lang)}</b></td><td>{esc(email)}</td></tr>
+          <tr><td><b>{t('temp_password', lang)}</b></td>
+              <td style="font-family:Consolas,monospace;font-size:14pt">{esc(password)}</td></tr>
+          <tr><td><b>{t('welcome_signin_at', lang)}</b></td><td>https://accounts.google.com</td></tr>
+        </table>
+        <ol>
+          <li>{t('step_go', lang)}</li>
+          <li>{t('step_type', lang)}</li>
+          {choose}
+          <li>{t('step_apps', lang)}</li>
+        </ol>
+        <p style="color:#57606a">{t('keep_safe', lang)}</p>"""
+
+    def render(self, *_a):
+        self.html = self.sheet_html(*self._who, self.lang.currentData())
+        self.view.setHtml(self.html)
 
     def _doc(self):
         d = QTextDocument()

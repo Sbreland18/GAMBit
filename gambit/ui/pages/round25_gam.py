@@ -79,6 +79,9 @@ class SSOPage(Page):
         self.prof_t = ResultsTable()
         self.tabs.addTab(self.assign_t, "Assignments")
         self.tabs.addTab(self.prof_t, "Profiles")
+        from .sso_certs import CertificatesTab
+        self.certs = CertificatesTab(self)
+        self.tabs.addTab(self.certs, "Certificates")
         self.body.addLayout(self.row(button("Load assignments and profiles", "primary",
                                             self.load), self.status))
         box, form = self.group("Set sign-in for an org unit or group")
@@ -110,7 +113,14 @@ class SSOPage(Page):
             if code != 0:
                 return
             self.profile.clear()
-            for r in [self.prof_t.row_dict(i) for i in range(self.prof_t.row_count())]:
+            from ... import sso_watch
+            rows = [self.prof_t.row_dict(i) for i in range(self.prof_t.row_count())]
+            self.certs.set_profiles([
+                {"name": sso_watch._pick(r, "name"),
+                 "label": sso_watch._pick(r, "displayName") or sso_watch._pick(r, "name"),
+                 "entity": sso_watch._pick(r, "idpConfig.entityId")}
+                for r in rows if sso_watch._pick(r, "name")])
+            for r in rows:
                 name = r.get("name") or ""
                 if name:
                     self.profile.addItem(f"{r.get('displayName', '')}  ({name})", name)
@@ -651,11 +661,14 @@ class BrowserTokensTab(ToolTab):
 
 class ExtrasPage(Page):
     title = "Domain & extras"
-    subtitle = ("Smaller things GAM can do: domain aliases, contact delegates, Google Tasks, "
-                "Chrome browser profiles and browser enrollment tokens.")
+    subtitle = ("Email security for your domains (SPF, DKIM, DMARC), domain aliases, contact "
+                "delegates, Google Tasks, Chrome browser profiles and browser enrollment "
+                "tokens.")
 
     def build(self):
         tabs = QTabWidget()
+        from .maildns_tab import EmailSecurityTab
+        tabs.addTab(EmailSecurityTab(self), "Email security")
         tabs.addTab(DomainAliasTab(self), "Domain aliases")
         tabs.addTab(ContactDelegatesTab(self), "Contact delegates")
         tabs.addTab(TasksTab(self), "Google Tasks")

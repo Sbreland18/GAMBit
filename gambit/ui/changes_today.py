@@ -97,9 +97,12 @@ class ChangesToday(QDialog):
         v.addWidget(QLabel(" · ".join(b for b in bits if b), objectName="RowSub"))
         h.addLayout(v, 1)
         b = QPushButton("Undo")
-        can = bool(e.get("undo")) and ok and not e.get("undone")
+        can = bool(e.get("undo")) and ok and not e.get("undone") and \
+            e.get("integrity") != "bad"
         b.setEnabled(can)
         b.setToolTip("Put it back the way it was" if can else
+                     "This log entry was changed outside GAMbit" if e.get("integrity") == "bad"
+                     else
                      "Already undone" if e.get("undone") else
                      "GAMbit doesn't know the earlier state for this one")
         b.clicked.connect(lambda _=False, e=e, b=b: self._undo(e, b))

@@ -13,6 +13,29 @@ from .settings import settings
 SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
+    # ----- round 40
+    {"id": "sso-certs", "title": "Sign-in certificate warnings",
+     "text": "Single sign-on → Certificates reads your sign-in provider's certificate "
+             "(ClassLink, Clever, ADFS…) and warns 30, 14 and 3 days before it expires – "
+             "and when the provider starts using one Google doesn't have yet. Add the "
+             "provider's metadata link once.", "page": "Single sign-on"},
+    {"id": "mail-dns", "title": "Email security check",
+     "text": "Domain & extras → Email security checks SPF, DKIM, DMARC and MX for every "
+             "domain and says exactly what to change, so nobody can easily send mail that "
+             "looks like it's from the district.", "page": "Domain & extras"},
+    {"id": "log-seal", "title": "Tamper-evident activity log",
+     "text": "Every line in the activity log is fingerprinted, signed and chained to the one "
+             "before. Activity log → Check the log for edits shows anything changed outside "
+             "GAMbit, and Undo won't run from an edited line.", "page": "Activity log"},
+    {"id": "spanish", "title": "Account cards in Spanish",
+     "text": "Account cards, class card sets and Welcome sheets print in English, Spanish or "
+             "both, with an optional note for families. Change any wording in Settings → "
+             "Appearance and safety → Printouts.", "page": ""},
+    {"id": "archive-delete", "title": "Archive before deleting",
+     "text": "A clean-up rule that deletes old accounts can first hand their Drive files to an "
+             "archive account; each account is deleted only after Google finishes the "
+             "transfer. Every deletion is kept in a signed deletion record (Clean-up rules → "
+             "Deletion record).", "page": "Clean-up rules"},
     # ----- round 39
     {"id": "side-tabs", "title": "Page tabs down the left",
      "text": "Every page's tabs are now a list down the left, like Settings & Updates. "
