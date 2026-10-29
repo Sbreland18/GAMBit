@@ -13,6 +13,15 @@ from .settings import settings
 SEEN_KEY = "whatsnew/seen"
 
 ENTRIES = [
+    # ----- round 39
+    {"id": "side-tabs", "title": "Page tabs down the left",
+     "text": "Every page's tabs are now a list down the left, like Settings & Updates. "
+             "Prefer them across the top? Settings & Updates → Appearance and safety → "
+             "Page tabs.", "page": "Users"},
+    {"id": "update-dot", "title": "Settings & Updates link fixed",
+     "text": "When an update is ready, the dot now goes on Settings & Updates itself – "
+             "it no longer renamed the last page in the sidebar (which opened Ask GAMbit).",
+     "page": ""},
     # ----- round 38 (security review)
     {"id": "sec-signed", "title": "Shared items are now signed",
      "text": "Run later items, offboarding plans, time-limited accounts, policy plans, "

@@ -743,6 +743,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
             item(entry[0], section)
         self.nav.blockSignals(False)
         self._nav_built = True
+        self._mark_settings_dot()
         if hasattr(self, "hd_btn"):            # not during the first build in __init__
             self.apply_helpdesk_mode()
             self.update_approvals_badge()
@@ -1030,7 +1031,7 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
         back = getattr(self, "_back", [])
         btn.setVisible(bool(back))
         if back:
-            btn.setText(f" {back[-1]}")
+            btn.setText(" " + back[-1].replace("&", "&&"))
             btn.setToolTip(f"Back to {back[-1]} (Alt+Left)")
 
     def go_back(self):
@@ -1062,8 +1063,25 @@ class MainWindow(AppActions, MoreActions, SessionActions, QMainWindow):
     def notify(self, text: str):
         self.statusBar().showMessage(text)
         self.pages["Home"].show_banner(text + " — see Settings & Updates.")
-        item = self.nav.item(self.nav.count() - 1)
-        item.setText("Settings & Updates  ●")
+        self._update_dot = True
+        self._mark_settings_dot()
+
+    SETTINGS_PAGE = "Settings & Updates"
+
+    def _mark_settings_dot(self):
+        """The ● on the Settings & Updates item(s) – found by page, never by position
+        (the sidebar order changes with sections, My pages and pins)."""
+        if not hasattr(self, "nav"):
+            return
+        dot = getattr(self, "_update_dot", False)
+        label = self.SETTINGS_PAGE + ("  ●" if dot else "")
+        for row in range(self.nav.count()):
+            it = self.nav.item(row)
+            if it.data(Qt.UserRole + 2) == self.SETTINGS_PAGE:
+                if getattr(self, "rail", False):
+                    it.setToolTip(label)
+                else:
+                    it.setText(label)
 
     def log_line(self, text: str, color: str | None = None):
         self._append(text.rstrip("\n") + "\n", color)

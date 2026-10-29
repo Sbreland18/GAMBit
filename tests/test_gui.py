@@ -21,10 +21,19 @@ def test_every_page_opens(qapp, fake_gam, monkeypatch):
     from gambit.ui.main_window import PAGES, MainWindow
     w = MainWindow()
     w.show()
+    from PySide6.QtWidgets import QTabWidget
+    from gambit.ui import tabs as _tabs
+    side = 0
     for name, _cls in PAGES:
         w.go(name)
         qapp.processEvents()
         assert w.current_page() is w.pages[name]
+        pg = w.pages[name]
+        for t in pg.findChildren(QTabWidget):         # page tabs are down the left
+            if not _tabs._nested(t, pg) and t.count() >= 2:
+                assert t.property("_gb_side"), f"{name}: tabs still across the top"
+                side += 1
+    assert side >= 20
     # page tip: "Try it safely" turns dry run on, and every tip updates
     users = w.pages["Users"]
     assert "Try it safely" in users.help_strip.text()

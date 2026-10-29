@@ -1372,6 +1372,11 @@ class Page(QWidget):
                 unsaved.remember_tabs(self, self.title)
         except Exception:  # noqa: BLE001 – looks only
             pass
+        try:
+            from . import tabs as _tabs
+            _tabs.side_tabs(self)          # page tabs down the left, like Settings
+        except Exception:  # noqa: BLE001 – looks only
+            pass
 
     def build(self):  # override
         pass

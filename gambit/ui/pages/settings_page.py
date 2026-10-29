@@ -190,6 +190,13 @@ class SettingsPage(Page):
         self.density_box.currentIndexChanged.connect(
             lambda i: _RT.set_density("compact" if i else "comfortable"))
         form.addRow("Table rows", self.density_box)
+        from .. import tabs as _tabs
+        self.side_tabs_box = QComboBox()
+        self.side_tabs_box.addItems(["Down the left (like this page)", "Across the top"])
+        self.side_tabs_box.setCurrentIndex(0 if _tabs.side_on() else 1)
+        self.side_tabs_box.currentIndexChanged.connect(
+            lambda i: _tabs.set_side_tabs(i == 0))
+        form.addRow("Page tabs", self.side_tabs_box)
         self.friendly_cb = QCheckBox("Show dates as “Oct 12, 2026 (16 days ago)” and True/False "
                                      "as Yes/No (exports keep the exact values)")
         self.friendly_cb.setChecked(bool(settings.get("ui/friendly", True)))

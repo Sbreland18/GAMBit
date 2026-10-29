@@ -392,3 +392,38 @@ def test_private_temp_folder():
     assert os.path.isdir(d) and os.path.basename(d).startswith("GAMbit-")
     if os.name != "nt":
         assert (os.stat(d).st_mode & 0o077) == 0
+
+
+# ------------------------------------------- update dot in the sidebar ---
+def test_update_dot_marks_settings_not_the_last_item(qapp, fake_gam):
+    from PySide6.QtCore import Qt
+    from gambit.ui.main_window import MainWindow
+    from gambit import user_prefs as up
+    settings.set("connection/auto_test", False)
+    if "Settings & Updates" not in up.pinned():
+        up.toggle_pin("Settings & Updates")      # in My pages → not at the bottom any more
+    w = MainWindow()
+    last = w.nav.item(w.nav.count() - 1)
+    assert last.data(Qt.UserRole + 2) != "Settings & Updates"     # the reported case
+    last_page, last_text = last.data(Qt.UserRole + 2), last.text()
+    w.notify("GAMbit 9.9 is available")
+
+    def rows():
+        return [(w.nav.item(r).data(Qt.UserRole + 2), w.nav.item(r).text())
+                for r in range(w.nav.count())]
+    if last_page != "Settings & Updates":
+        assert (last_page, last_text) in rows()           # untouched
+    sett = [t for p, t in rows() if p == "Settings & Updates"]
+    assert sett and all(t.endswith("●") for t in sett)
+    assert all(not t.startswith("Settings & Updates") for p, t in rows()
+               if p != "Settings & Updates")
+    w.build_nav()                                         # survives a rebuild
+    assert all(t.endswith("●") for p, t in rows() if p == "Settings & Updates")
+    row = next(r for r in range(w.nav.count())
+               if w.nav.item(r).data(Qt.UserRole + 2) == "Settings & Updates"
+               and not w.nav.item(r).isHidden())
+    w.nav.setCurrentRow(row)
+    qapp.processEvents()
+    assert w.current_page() is w.pages["Settings & Updates"]
+    w.close()
+    up.toggle_pin("Settings & Updates")
